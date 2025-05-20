@@ -9,9 +9,12 @@ const app = express();
 app.use(cors());
 app.use(express.json());
 
-app.use('/api/user', userRoutes);
+app.use('/api', userRoutes);
 app.use('/api/auth', authRoutes);
 app.use('/api/event', eventRoutes); // Add event routes
+
+// Serve uploads folder statically
+app.use('/uploads', express.static('uploads'));
 
 app.use((req, res) => {
     res.status(404).json({ success: false, message: 'Page not found' });
