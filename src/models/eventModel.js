@@ -16,11 +16,16 @@ const createEvent = async (eventData) => {
 };
 
 const getAllEvents = async () => {
+    const query = `
+        SELECT ce.*, org.department
+        FROM created_events ce
+        JOIN student_organizations org ON ce.created_by_org_id = org.id
+    `;
     try {
-        const [rows] = await db.query('SELECT * FROM created_events');
+        const [rows] = await db.query(query);
         return rows;
     } catch (error) {
-        console.error('Error fetching events:', error.stack);
+        console.error('Error fetching all events:', error.stack);
         throw error;
     }
 };
@@ -43,7 +48,10 @@ const getEventsByParticipant = async (student_id) => {
 
 const getEventsByCreator = async (creator_id) => {
     const query = `
-        SELECT * FROM created_events WHERE created_by_org_id = ?
+        SELECT ce.*, org.department
+        FROM created_events ce
+        JOIN student_organizations org ON ce.created_by_org_id = org.id
+        WHERE ce.created_by_org_id = ?
     `;
     try {
         const [rows] = await db.query(query, [creator_id]);
@@ -65,10 +73,67 @@ const updateEventStatus = async (eventId, status) => {
     }
 };
 
+const getAllAttendanceRecords = async () => {
+    const query = `
+        SELECT 
+            ar.event_id,
+            ce.title AS event_title,
+            ar.student_id,
+            s.name AS student_name,
+            ar.attended_at
+        FROM attendance_records ar
+        JOIN created_events ce ON ar.event_id = ce.event_id
+        JOIN students s ON ar.student_id = s.id
+    `;
+    try {
+        const [rows] = await db.query(query);
+        return rows;
+    } catch (error) {
+        console.error('Error fetching attendance records:', error.stack);
+        throw error;
+    }
+};
+
+const getAttendanceRecordsByOrg = async (orgId) => {
+    const query = `
+        SELECT 
+            ar.event_id,
+            ce.title AS event_title,
+            ar.student_id,
+            s.name AS student_name,
+            ar.attended_at
+        FROM attendance_records ar
+        JOIN created_events ce ON ar.event_id = ce.event_id
+        JOIN students s ON ar.student_id = s.id
+        WHERE ce.created_by_org_id = ?
+    `;
+    try {
+        const [rows] = await db.query(query, [orgId]);
+        return rows;
+    } catch (error) {
+        console.error('Error fetching attendance records by org:', error.stack);
+        throw error;
+    }
+};
+
+const deleteEvent = async (eventId) => {
+    const query = `DELETE FROM created_events WHERE event_id = ?`;
+    try {
+        const [result] = await db.query(query, [eventId]);
+        return result;
+    } catch (error) {
+        console.error('Error deleting event:', error.stack);
+        throw error;
+    }
+};
+
 module.exports = { 
     createEvent, 
     getAllEvents, 
     getEventsByParticipant, 
     getEventsByCreator,
-    updateEventStatus 
+    updateEventStatus,
+    getAllAttendanceRecords,
+    getAttendanceRecordsByOrg,
+    deleteEvent
 };

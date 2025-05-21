@@ -47,10 +47,40 @@ const updateEventStatus = async (eventId, status) => {
     }
 };
 
+const getAllAttendanceRecords = async () => {
+    try {
+        return await eventModel.getAllAttendanceRecords();
+    } catch (error) {
+        console.error('Error fetching attendance records in service:', error);
+        throw error;
+    }
+};
+
+const getAttendanceRecordsByOrg = async (orgId) => {
+    try {
+        return await eventModel.getAttendanceRecordsByOrg(orgId);
+    } catch (error) {
+        console.error('Error fetching attendance records by org in service:', error);
+        throw error;
+    }
+};
+
+const deleteEvent = async (eventId) => {
+    try {
+        return await eventModel.deleteEvent(eventId);
+    } catch (error) {
+        console.error('Error deleting event in service:', error);
+        throw error;
+    }
+};
+
 module.exports = {
     createNewEvent,
     fetchAllEvents,
     getEventsByParticipant,
     getEventsByCreator,
-    updateEventStatus
+    updateEventStatus,
+    getAllAttendanceRecords,
+    getAttendanceRecordsByOrg,
+    deleteEvent,
 };

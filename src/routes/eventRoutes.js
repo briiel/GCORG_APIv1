@@ -11,5 +11,7 @@ router.get('/participants/:student_id/events', authenticateToken, eventControlle
 router.get('/events/creator/:creator_id', authenticateToken, eventController.getEventsByCreator); // Get events by creator/org
 router.patch('/events/:id/status', eventController.updateEventStatus); // Update event status
 router.post('/events/attendance', authenticateToken, eventController.markAttendance); // Mark attendance for an event
+router.get('/attendance-records', authenticateToken, eventController.getAllAttendanceRecords); // Get all attendance records
+router.delete('/events/:id', eventController.deleteEvent); // Delete an event
 
 module.exports = router;

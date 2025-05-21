@@ -2,6 +2,7 @@ const db = require('../config/db');
 const QRCode = require('qrcode');
 const path = require('path');
 const fs = require('fs');
+const { sendRegistrationEmail } = require('../utils/mailer');
 
 const registerParticipant = async ({
     event_id,
@@ -55,6 +56,13 @@ const registerParticipant = async ({
             (registration_id, first_name, last_name, suffix, domain_email, department, program)
             VALUES (?, ?, ?, ?, ?, ?, ?)`,
             [registration_id, first_name, last_name, suffix, domain_email, department, program]
+        );
+
+        // After successful registration:
+        await sendRegistrationEmail(
+            domain_email,
+            'Event Registration Confirmation',
+            `Hello ${first_name} ${last_name},\n\nYou have successfully registered for event ID ${event_id}.\n\nThank you!`
         );
 
         await conn.commit();

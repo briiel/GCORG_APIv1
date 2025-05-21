@@ -102,7 +102,7 @@ router.post('/login', async (req, res) => {
         };
         const token = jwt.sign(payload, process.env.JWT_SECRET, { expiresIn: '1d' });
 
-        res.status(200).json({ success: true, message: 'Login successful.', token, userType });
+        res.status(200).json({ success: true, message: 'Login successful.', token, userType, orgName: user.org_name });
     } catch (error) {
         console.error('Error logging in:', error);
         res.status(500).json({ success: false, message: error.message || 'Internal Server Error' });

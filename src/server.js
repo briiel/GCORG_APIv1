@@ -3,6 +3,7 @@ const cors = require('cors');
 const userRoutes = require('./routes/userRoutes');
 const authRoutes = require('./routes/authRoutes');
 const eventRoutes = require('./routes/eventRoutes'); // Import event routes
+const notificationRoutes = require('./routes/notificationRoutes');
 require('dotenv').config();
 
 const app = express();
@@ -12,8 +13,8 @@ app.use(express.json());
 app.use('/api', userRoutes);
 app.use('/api/auth', authRoutes);
 app.use('/api/event', eventRoutes); // Add event routes
+app.use('/api/notifications', notificationRoutes);
 
-// Serve uploads folder statically
 app.use('/uploads', express.static('uploads'));
 
 app.use((req, res) => {

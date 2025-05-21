@@ -2,6 +2,7 @@ const eventService = require('../services/eventService');
 const { registerParticipant } = require('../services/registrationService');
 const { handleErrorResponse, handleSuccessResponse } = require('../utils/errorHandler');
 const db = require('../config/db'); 
+const notificationService = require('../services/notificationService'); // Add this at the top
 
 exports.createEvent = async (req, res) => {
     try {
@@ -12,6 +13,21 @@ exports.createEvent = async (req, res) => {
         // Default status if not provided
         eventData.status = eventData.status || 'not yet started';
         const newEvent = await eventService.createNewEvent(eventData);
+
+        // Fetch org name
+        const [orgRows] = await db.query(
+            'SELECT org_name FROM student_organizations WHERE id = ?',
+            [eventData.created_by_org_id]
+        );
+        const orgName = orgRows.length > 0 ? orgRows[0].org_name : 'An organization';
+
+        // Notify all students (user_id = NULL)
+        await notificationService.createNotification({
+            user_id: null,
+            message: `${orgName} created a new event!`,
+            event_id: newEvent.id
+        });
+
         return handleSuccessResponse(res, newEvent, 201);
     } catch (error) {
         return handleErrorResponse(res, error.message);
@@ -30,13 +46,13 @@ exports.getEvents = async (req, res) => {
             else if (eventDate < now) event.status = 'completed';
             return event;
         });
-        // Map event_poster to a full URL if it exists
         const host = req.protocol + '://' + req.get('host');
         const eventsWithPosterUrl = events.map(event => ({
             ...event,
             event_poster: event.event_poster
                 ? `${host}/${event.event_poster.replace(/\\/g, '/')}`
-                : null
+                : null,
+            department: event.department // <-- This line is important
         }));
         return handleSuccessResponse(res, eventsWithPosterUrl);
     } catch (error) {
@@ -105,7 +121,8 @@ exports.getEventsByCreator = async (req, res) => {
             ...event,
             event_poster: event.event_poster
                 ? `${host}/${event.event_poster.replace(/\\/g, '/')}`
-                : null
+                : null,
+            department: event.department // Now included from the join
         }));
         return handleSuccessResponse(res, eventsWithPosterUrl);
     } catch (error) {
@@ -161,6 +178,29 @@ exports.markAttendance = async (req, res) => {
         );
 
         return handleSuccessResponse(res, { message: 'Attendance recorded' });
+    } catch (error) {
+        return handleErrorResponse(res, error.message);
+    }
+};
+
+exports.getAllAttendanceRecords = async (req, res) => {
+    try {
+        const orgId = req.user && req.user.id;
+        if (!orgId) {
+            return handleErrorResponse(res, 'Unauthorized', 401);
+        }
+        const records = await eventService.getAttendanceRecordsByOrg(orgId);
+        return handleSuccessResponse(res, records);
+    } catch (error) {
+        return handleErrorResponse(res, error.message);
+    }
+};
+
+exports.deleteEvent = async (req, res) => {
+    try {
+        const { id } = req.params;
+        await eventService.deleteEvent(id);
+        return handleSuccessResponse(res, { message: 'Event deleted successfully' });
     } catch (error) {
         return handleErrorResponse(res, error.message);
     }
