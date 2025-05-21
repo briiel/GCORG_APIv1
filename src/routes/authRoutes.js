@@ -6,37 +6,44 @@ const router = express.Router();
 
 // Register a new user (student or organization)
 router.post('/register', async (req, res) => {
-    const { email, password, userType, name } = req.body;
+    const { email, password, userType, name, student_id, org_name, department } = req.body;
 
-    if (!email || !password || !userType || (userType === 'student' && !name)) {
-        return res.status(400).json({ success: false, message: 'Email, password, userType, and name (for students) are required.' });
+    if (!email || !password || !userType || 
+        (userType === 'student' && (!name || !student_id)) ||
+        (userType === 'organization' && !org_name)
+    ) {
+        return res.status(400).json({ 
+            success: false, 
+            message: 'Email, password, userType, student_id, and name (for students) or org_name (for organizations) are required.' 
+        });
     }
 
     try {
         let table, query, values;
         if (userType === 'student') {
             table = 'students';
-            query = `INSERT INTO ${table} (email, password_hash, name) VALUES (?, ?, ?)`;
+            // Check if email or student_id already exists
+            const [existing] = await db.query(`SELECT * FROM ${table} WHERE email = ? OR id = ?`, [email, student_id]);
+            if (existing.length > 0) {
+                return res.status(400).json({ success: false, message: 'Email or Student ID already exists.' });
+            }
+            // Hash password
+            const hashedPassword = await bcrypt.hash(password, 10);
+            // Insert using student_id as id
+            query = `INSERT INTO ${table} (id, email, password_hash, name) VALUES (?, ?, ?, ?)`;
+            values = [student_id, email, hashedPassword, name];
         } else if (userType === 'organization') {
             table = 'student_organizations';
-            query = `INSERT INTO ${table} (email, password_hash) VALUES (?, ?)`;
+            const [existing] = await db.query(`SELECT * FROM ${table} WHERE email = ?`, [email]);
+            if (existing.length > 0) {
+                return res.status(400).json({ success: false, message: 'Email already exists.' });
+            }
+            const hashedPassword = await bcrypt.hash(password, 10);
+            query = `INSERT INTO ${table} (email, password_hash, org_name, department) VALUES (?, ?, ?, ?)`;
+            values = [email, hashedPassword, org_name, department];
         } else {
             return res.status(400).json({ success: false, message: 'Invalid userType. Use "student" or "organization".' });
         }
-
-        // Check if email already exists in the selected table
-        const [existing] = await db.query(`SELECT * FROM ${table} WHERE email = ?`, [email]);
-        if (existing.length > 0) {
-            return res.status(400).json({ success: false, message: 'Email already exists.' });
-        }
-
-        // Hash password
-        const hashedPassword = await bcrypt.hash(password, 10);
-
-        // Prepare values for insertion
-        values = userType === 'student'
-            ? [email, hashedPassword, name]
-            : [email, hashedPassword];
 
         await db.query(query, values);
 
@@ -49,40 +56,49 @@ router.post('/register', async (req, res) => {
 
 // Login an existing user (student or organization)
 router.post('/login', async (req, res) => {
-    const { email, password } = req.body;
+    const { emailOrId, password } = req.body;
 
-    if (!email || !password) {
-        return res.status(400).json({ success: false, message: 'Email and password are required.' });
+    if (!emailOrId || !password) {
+        return res.status(400).json({ success: false, message: 'Email/Student ID and password are required.' });
     }
 
     try {
-        // Try students table first
-        let [rows] = await db.query('SELECT * FROM students WHERE email = ?', [email]);
+        let user = null;
         let userType = null;
-        if (rows.length > 0) {
+
+        // Check students table
+        const [studentRows] = await db.query(
+            `SELECT * FROM students WHERE email = ? OR id = ? LIMIT 1`,
+            [emailOrId, emailOrId]
+        );
+        if (studentRows.length > 0) {
+            user = studentRows[0];
             userType = 'student';
         } else {
-            // Try organizations table
-            [rows] = await db.query('SELECT * FROM student_organizations WHERE email = ?', [email]);
-            if (rows.length > 0) {
+            // Check organizations table
+            const [orgRows] = await db.query(
+                `SELECT * FROM student_organizations WHERE email = ? LIMIT 1`,
+                [emailOrId]
+            );
+            if (orgRows.length > 0) {
+                user = orgRows[0];
                 userType = 'organization';
             }
         }
 
-        if (!userType) {
-            return res.status(401).json({ success: false, message: 'Invalid email or password.' });
+        if (!user) {
+            return res.status(401).json({ success: false, message: 'Invalid credentials.' });
         }
 
-        const user = rows[0];
-        const isPasswordValid = await bcrypt.compare(password, user.password_hash);
-        if (!isPasswordValid) {
-            return res.status(401).json({ success: false, message: 'Invalid email or password.' });
+        const isMatch = await bcrypt.compare(password, user.password_hash);
+        if (!isMatch) {
+            return res.status(401).json({ success: false, message: 'Invalid credentials.' });
         }
 
         const payload = {
             id: user.id,
             email: user.email,
-            role: userType // 'student' or 'organization'
+            role: userType
         };
         const token = jwt.sign(payload, process.env.JWT_SECRET, { expiresIn: '1d' });
 

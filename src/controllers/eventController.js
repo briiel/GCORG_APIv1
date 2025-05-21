@@ -1,6 +1,7 @@
 const eventService = require('../services/eventService');
 const { registerParticipant } = require('../services/registrationService');
 const { handleErrorResponse, handleSuccessResponse } = require('../utils/errorHandler');
+const db = require('../config/db'); 
 
 exports.createEvent = async (req, res) => {
     try {
@@ -121,6 +122,45 @@ exports.updateEventStatus = async (req, res) => {
         }
         await eventService.updateEventStatus(id, status);
         return handleSuccessResponse(res, { message: 'Event status updated successfully' });
+    } catch (error) {
+        return handleErrorResponse(res, error.message);
+    }
+};
+
+exports.markAttendance = async (req, res) => {
+    try {
+        const { registration_id, event_id, student_id } = req.body;
+        const scanned_by_org_id = req.user && req.user.id;
+
+        if (!registration_id || !event_id || !student_id || !scanned_by_org_id) {
+            return handleErrorResponse(res, 'Missing required fields', 400);
+        }
+
+        // Verify registration exists
+        const [reg] = await db.query(
+            'SELECT * FROM event_registrations WHERE id = ? AND event_id = ? AND student_id = ?',
+            [registration_id, event_id, student_id]
+        );
+        if (reg.length === 0) {
+            return handleErrorResponse(res, 'Registration not found', 404);
+        }
+
+        // Check if already attended
+        const [existing] = await db.query(
+            'SELECT * FROM attendance_records WHERE event_id = ? AND student_id = ?',
+            [event_id, student_id]
+        );
+        if (existing.length > 0) {
+            return handleErrorResponse(res, 'Attendance already recorded', 409);
+        }
+
+        // Insert attendance record
+        await db.query(
+            'INSERT INTO attendance_records (event_id, student_id, attended_at, scanned_by_org_id) VALUES (?, ?, NOW(), ?)',
+            [event_id, student_id, scanned_by_org_id]
+        );
+
+        return handleSuccessResponse(res, { message: 'Attendance recorded' });
     } catch (error) {
         return handleErrorResponse(res, error.message);
     }

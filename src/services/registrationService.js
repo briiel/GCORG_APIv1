@@ -30,13 +30,10 @@ const registerParticipant = async ({
         // 2. Prepare QR code data
         const qrData = {
             registration_id,
-            first_name,
-            last_name,
-            suffix,
-            domain_email,
-            department,
-            program
+            event_id,
+            student_id
         };
+        console.log('QR DATA:', qrData); // For debugging
         const qrString = JSON.stringify(qrData);
 
         // 3. Generate QR code and save as PNG
