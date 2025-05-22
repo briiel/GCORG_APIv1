@@ -3,6 +3,9 @@ const { registerParticipant } = require('../services/registrationService');
 const { handleErrorResponse, handleSuccessResponse } = require('../utils/errorHandler');
 const db = require('../config/db'); 
 const notificationService = require('../services/notificationService'); // Add this at the top
+const { generateCertificate, generateCertificatePreview } = require('../utils/certificateGenerator');
+const path = require('path');
+const fs = require('fs');
 
 exports.createEvent = async (req, res) => {
     try {
@@ -88,6 +91,10 @@ exports.registerParticipant = async (req, res) => {
 
         return handleSuccessResponse(res, result, 201);
     } catch (error) {
+        // Add this block to handle duplicate registration
+        if (error.message === 'You have already registered for this event.') {
+            return res.status(409).json({ success: false, message: error.message });
+        }
         return handleErrorResponse(res, error.message);
     }
 };
@@ -138,6 +145,41 @@ exports.updateEventStatus = async (req, res) => {
             return handleErrorResponse(res, 'Status is required', 400);
         }
         await eventService.updateEventStatus(id, status);
+
+        if (status === 'completed') {
+            const [attendees] = await db.query(
+                `SELECT ar.student_id, s.name AS student_name, ce.title AS event_title
+                 FROM attendance_records ar
+                 JOIN students s ON ar.student_id = s.id
+                 JOIN created_events ce ON ar.event_id = ce.event_id
+                 WHERE ar.event_id = ?`,
+                [id]
+            );
+
+            const certDir = path.join(__dirname, '../../uploads/certificates');
+            if (!fs.existsSync(certDir)) fs.mkdirSync(certDir, { recursive: true });
+
+            for (const attendee of attendees) {
+                const certFilename = `certificate_${id}_${attendee.student_id}.pdf`;
+                const certPath = path.join(certDir, certFilename);
+
+                await generateCertificate({
+                    studentName: attendee.student_name,
+                    eventTitle: attendee.event_title,
+                    certificatePath: certPath
+                });
+
+                // Save URLs in DB
+                const certUrl = `uploads/certificates/${certFilename}`;
+                await db.query(
+                    `INSERT INTO certificates (student_id, event_id, certificate_url)
+                     VALUES (?, ?, ?)
+                     ON DUPLICATE KEY UPDATE certificate_url = VALUES(certificate_url)`,
+                    [attendee.student_id, id, certUrl]
+                );
+            }
+        }
+
         return handleSuccessResponse(res, { message: 'Event status updated successfully' });
     } catch (error) {
         return handleErrorResponse(res, error.message);
@@ -203,5 +245,23 @@ exports.deleteEvent = async (req, res) => {
         return handleSuccessResponse(res, { message: 'Event deleted successfully' });
     } catch (error) {
         return handleErrorResponse(res, error.message);
+    }
+};
+
+exports.getCertificatesByStudent = async (req, res) => {
+    try {
+        const { student_id } = req.query;
+        if (!student_id) return res.status(400).json({ success: false, message: 'student_id required' });
+
+        const [certs] = await db.query(
+            `SELECT c.*, ce.title AS event_title, ce.event_date AS event_date
+             FROM certificates c
+             JOIN created_events ce ON c.event_id = ce.event_id
+             WHERE c.student_id = ?`,
+            [student_id]
+        );
+        res.json({ success: true, data: certs });
+    } catch (err) {
+        res.status(500).json({ success: false, message: err.message });
     }
 };

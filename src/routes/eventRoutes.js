@@ -13,5 +13,6 @@ router.patch('/events/:id/status', eventController.updateEventStatus); // Update
 router.post('/events/attendance', authenticateToken, eventController.markAttendance); // Mark attendance for an event
 router.get('/attendance-records', authenticateToken, eventController.getAllAttendanceRecords); // Get all attendance records
 router.delete('/events/:id', eventController.deleteEvent); // Delete an event
+router.get('/certificates', eventController.getCertificatesByStudent); // Get certificates by student
 
 module.exports = router;

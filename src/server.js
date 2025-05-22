@@ -5,6 +5,7 @@ const authRoutes = require('./routes/authRoutes');
 const eventRoutes = require('./routes/eventRoutes'); // Import event routes
 const notificationRoutes = require('./routes/notificationRoutes');
 require('dotenv').config();
+const path = require('path');
 
 const app = express();
 app.use(cors());
@@ -15,7 +16,7 @@ app.use('/api/auth', authRoutes);
 app.use('/api/event', eventRoutes); // Add event routes
 app.use('/api/notifications', notificationRoutes);
 
-app.use('/uploads', express.static('uploads'));
+app.use('/uploads', express.static(path.join(__dirname, '../uploads')));
 
 app.use((req, res) => {
     res.status(404).json({ success: false, message: 'Page not found' });

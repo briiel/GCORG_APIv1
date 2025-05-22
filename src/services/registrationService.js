@@ -20,6 +20,15 @@ const registerParticipant = async ({
     try {
         await conn.beginTransaction();
 
+        // Check if already registered
+        const [existing] = await conn.query(
+            `SELECT id FROM event_registrations WHERE event_id = ? AND student_id = ?`,
+            [event_id, student_id]
+        );
+        if (existing.length > 0) {
+            throw new Error('You have already registered for this event.');
+        }
+
         // 1. Insert into event_registrations
         const [regResult] = await conn.query(
             `INSERT INTO event_registrations (event_id, student_id, proof_of_payment, qr_code)
@@ -58,11 +67,18 @@ const registerParticipant = async ({
             [registration_id, first_name, last_name, suffix, domain_email, department, program]
         );
 
+        // Fetch event title
+        const [eventRows] = await conn.query(
+            `SELECT title FROM created_events WHERE event_id = ?`,
+            [event_id]
+        );
+        const eventTitle = eventRows.length > 0 ? eventRows[0].title : `Event ID ${event_id}`;
+
         // After successful registration:
         await sendRegistrationEmail(
             domain_email,
             'Event Registration Confirmation',
-            `Hello ${first_name} ${last_name},\n\nYou have successfully registered for event ID ${event_id}.\n\nThank you!`
+            `Hello ${first_name} ${last_name},\n\nYou have successfully registered for "${eventTitle}".\n\nThank you!`
         );
 
         await conn.commit();
