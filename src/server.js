@@ -4,6 +4,7 @@ const userRoutes = require('./routes/userRoutes');
 const authRoutes = require('./routes/authRoutes');
 const eventRoutes = require('./routes/eventRoutes'); // Import event routes
 const notificationRoutes = require('./routes/notificationRoutes');
+const adminRoutes = require('./routes/adminRoutes');
 require('dotenv').config();
 const path = require('path');
 
@@ -15,6 +16,7 @@ app.use('/api', userRoutes);
 app.use('/api/auth', authRoutes);
 app.use('/api/event', eventRoutes); // Add event routes
 app.use('/api/notifications', notificationRoutes);
+app.use('/api', adminRoutes);
 
 app.use('/uploads', express.static(path.join(__dirname, '../uploads')));
 

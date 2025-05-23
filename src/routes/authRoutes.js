@@ -4,17 +4,18 @@ const db = require('../config/db');
 const jwt = require('jsonwebtoken');
 const router = express.Router();
 
-// Register a new user (student or organization)
+// Register a new user (student, organization, or admin)
 router.post('/register', async (req, res) => {
     const { email, password, userType, name, student_id, org_name, department } = req.body;
 
-    if (!email || !password || !userType || 
+    if (!email || !password || !userType ||
         (userType === 'student' && (!name || !student_id)) ||
-        (userType === 'organization' && !org_name)
+        (userType === 'organization' && !org_name) ||
+        (userType === 'admin' && !name)
     ) {
-        return res.status(400).json({ 
-            success: false, 
-            message: 'Email, password, userType, student_id, and name (for students) or org_name (for organizations) are required.' 
+        return res.status(400).json({
+            success: false,
+            message: 'Email, password, userType, and name (for admins) or student_id/name (for students) or org_name (for organizations) are required.'
         });
     }
 
@@ -22,14 +23,11 @@ router.post('/register', async (req, res) => {
         let table, query, values;
         if (userType === 'student') {
             table = 'students';
-            // Check if email or student_id already exists
             const [existing] = await db.query(`SELECT * FROM ${table} WHERE email = ? OR id = ?`, [email, student_id]);
             if (existing.length > 0) {
                 return res.status(400).json({ success: false, message: 'Email or Student ID already exists.' });
             }
-            // Hash password
             const hashedPassword = await bcrypt.hash(password, 10);
-            // Insert using student_id as id
             query = `INSERT INTO ${table} (id, email, password_hash, name) VALUES (?, ?, ?, ?)`;
             values = [student_id, email, hashedPassword, name];
         } else if (userType === 'organization') {
@@ -41,8 +39,17 @@ router.post('/register', async (req, res) => {
             const hashedPassword = await bcrypt.hash(password, 10);
             query = `INSERT INTO ${table} (email, password_hash, org_name, department) VALUES (?, ?, ?, ?)`;
             values = [email, hashedPassword, org_name, department];
+        } else if (userType === 'admin') {
+            table = 'osws_admins';
+            const [existing] = await db.query(`SELECT * FROM ${table} WHERE email = ?`, [email]);
+            if (existing.length > 0) {
+                return res.status(400).json({ success: false, message: 'Admin email already exists.' });
+            }
+            const hashedPassword = await bcrypt.hash(password, 10);
+            query = `INSERT INTO ${table} (email, password_hash, name) VALUES (?, ?, ?)`;
+            values = [email, hashedPassword, name];
         } else {
-            return res.status(400).json({ success: false, message: 'Invalid userType. Use "student" or "organization".' });
+            return res.status(400).json({ success: false, message: 'Invalid userType. Use "student", "organization", or "admin".' });
         }
 
         await db.query(query, values);
@@ -54,7 +61,7 @@ router.post('/register', async (req, res) => {
     }
 });
 
-// Login an existing user (student or organization)
+// Login an existing user (student, organization, or admin)
 router.post('/login', async (req, res) => {
     const { emailOrId, password } = req.body;
 
@@ -83,6 +90,16 @@ router.post('/login', async (req, res) => {
             if (orgRows.length > 0) {
                 user = orgRows[0];
                 userType = 'organization';
+            } else {
+                // Check osws_admins table
+                const [adminRows] = await db.query(
+                    `SELECT * FROM osws_admins WHERE email = ? LIMIT 1`,
+                    [emailOrId]
+                );
+                if (adminRows.length > 0) {
+                    user = adminRows[0];
+                    userType = 'admin';
+                }
             }
         }
 
@@ -98,7 +115,8 @@ router.post('/login', async (req, res) => {
         const payload = {
             id: user.id,
             email: user.email,
-            role: userType
+            role: userType,
+            name: user.name || user.org_name
         };
         const token = jwt.sign(payload, process.env.JWT_SECRET, { expiresIn: '1d' });
 
