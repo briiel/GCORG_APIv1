@@ -74,6 +74,23 @@ const deleteEvent = async (eventId) => {
     }
 };
 
+const getEventsByAdmin = async (admin_id) => {
+    try {
+        return await eventModel.getEventsByAdmin(admin_id);
+    } catch (error) {
+        console.error('Error in event service:', error);
+        throw error;
+    }
+};
+
+const getAllOrgEvents = async () => {
+    return await eventModel.getAllOrgEvents();
+};
+
+const getAllOswsEvents = async () => {
+    return await eventModel.getAllOswsEvents();
+};
+
 module.exports = {
     createNewEvent,
     fetchAllEvents,
@@ -83,4 +100,7 @@ module.exports = {
     getAllAttendanceRecords,
     getAttendanceRecordsByOrg,
     deleteEvent,
+    getEventsByAdmin,
+    getAllOrgEvents,
+    getAllOswsEvents,
 };

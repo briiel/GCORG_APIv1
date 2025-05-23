@@ -2,7 +2,6 @@ const eventService = require('../services/eventService');
 const { registerParticipant } = require('../services/registrationService');
 const { handleErrorResponse, handleSuccessResponse } = require('../utils/errorHandler');
 const db = require('../config/db'); 
-const notificationService = require('../services/notificationService'); // Add this at the top
 const { generateCertificate, generateCertificatePreview } = require('../utils/certificateGenerator');
 const path = require('path');
 const fs = require('fs');
@@ -13,25 +12,15 @@ exports.createEvent = async (req, res) => {
         if (req.file) {
             eventData.event_poster = req.file.path;
         }
-        // Default status if not provided
         eventData.status = eventData.status || 'not yet started';
-        const newEvent = await eventService.createNewEvent(eventData);
 
-        // Fetch org name
-        const [orgRows] = await db.query(
-            'SELECT org_name FROM student_organizations WHERE id = ?',
-            [eventData.created_by_org_id]
-        );
-        const orgName = orgRows.length > 0 ? orgRows[0].org_name : 'An organization';
+        // Debug: log the eventData
+        console.log('Event Data Received:', eventData);
 
-        // Notify all students (user_id = NULL)
-        await notificationService.createNotification({
-            user_id: null,
-            message: `${orgName} created a new event!`,
-            event_id: newEvent.id
-        });
+        // Create the event
+        const newEventId = await eventService.createNewEvent(eventData);
 
-        return handleSuccessResponse(res, newEvent, 201);
+        return handleSuccessResponse(res, { eventId: newEventId }, 201);
     } catch (error) {
         return handleErrorResponse(res, error.message);
     }
@@ -263,5 +252,35 @@ exports.getCertificatesByStudent = async (req, res) => {
         res.json({ success: true, data: certs });
     } catch (err) {
         res.status(500).json({ success: false, message: err.message });
+    }
+};
+
+// Add:
+exports.getEventsByAdmin = async (req, res) => {
+    try {
+        const { admin_id } = req.params;
+        const events = await eventService.getEventsByAdmin(admin_id);
+        return handleSuccessResponse(res, events);
+    } catch (error) {
+        return handleErrorResponse(res, error.message);
+    }
+};
+
+exports.getAllOrgEvents = async (req, res) => {
+    try {
+        const events = await eventService.getAllOrgEvents();
+        return res.status(200).json({ success: true, data: events });
+    } catch (error) {
+        return res.status(500).json({ success: false, message: error.message });
+    }
+};
+
+// Fetch all OSWS-created events
+exports.getAllOswsEvents = async (req, res) => {
+    try {
+        const events = await eventService.getAllOswsEvents();
+        return handleSuccessResponse(res, events);
+    } catch (error) {
+        return handleErrorResponse(res, error.message);
     }
 };

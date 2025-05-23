@@ -1,13 +1,27 @@
 const db = require('../config/db');
 
 const createEvent = async (eventData) => {
-    const { title, description, location, event_date, event_time, event_poster, created_by_org_id, status } = eventData;
+    const {
+        title, description, location, event_date, event_time,
+        event_poster, created_by_org_id, created_by_osws_id, status
+    } = eventData;
     const query = `
-        INSERT INTO created_events (title, description, location, event_date, event_time, event_poster, created_by_org_id, status)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+        INSERT INTO created_events
+        (title, description, location, event_date, event_time, event_poster, created_by_org_id, created_by_osws_id, status)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
     `;
     try {
-        const [result] = await db.query(query, [title, description, location, event_date, event_time, event_poster, created_by_org_id, status || 'not yet started']);
+        const [result] = await db.query(query, [
+            title,
+            description,
+            location,
+            event_date,
+            event_time,
+            event_poster,
+            created_by_org_id && created_by_org_id !== 'undefined' && created_by_org_id !== '' ? created_by_org_id : null,
+            created_by_osws_id && created_by_osws_id !== 'undefined' && created_by_osws_id !== '' ? created_by_osws_id : null,
+            status || 'not yet started'
+        ]);
         return result.insertId; // Return the ID of the newly created event
     } catch (error) {
         console.error('Error creating event:', error.stack);
@@ -17,7 +31,7 @@ const createEvent = async (eventData) => {
 
 const getAllEvents = async () => {
     const query = `
-        SELECT ce.*, org.department
+        SELECT ce.*, org.department, org.org_name
         FROM created_events ce
         JOIN student_organizations org ON ce.created_by_org_id = org.id
     `;
@@ -127,6 +141,50 @@ const deleteEvent = async (eventId) => {
     }
 };
 
+const getEventsByAdmin = async (admin_id) => {
+    const query = `
+        SELECT ce.*, a.name AS admin_name
+        FROM created_events ce
+        JOIN osws_admins a ON ce.created_by_osws_id = a.id
+        WHERE ce.created_by_osws_id = ?
+    `;
+    try {
+        const [rows] = await db.query(query, [admin_id]);
+        return rows;
+    } catch (error) {
+        console.error('Error fetching events by admin:', error.stack);
+        throw error;
+    }
+};
+
+const getAllOrgEvents = async () => {
+    const query = `
+        SELECT ce.*, org.department, org.org_name
+        FROM created_events ce
+        JOIN student_organizations org ON ce.created_by_org_id = org.id
+        WHERE ce.created_by_org_id IS NOT NULL
+    `;
+    try {
+        const [rows] = await db.query(query);
+        return rows;
+    } catch (error) {
+        console.error('Error fetching org events:', error.stack);
+        throw error;
+    }
+};
+
+// Fetch all OSWS-created events
+const getAllOswsEvents = async () => {
+    const query = `
+        SELECT ce.*, a.name AS admin_name
+        FROM created_events ce
+        JOIN osws_admins a ON ce.created_by_osws_id = a.id
+        WHERE ce.created_by_osws_id IS NOT NULL
+    `;
+    const [rows] = await db.query(query);
+    return rows;
+};
+
 module.exports = { 
     createEvent, 
     getAllEvents, 
@@ -135,5 +193,8 @@ module.exports = {
     updateEventStatus,
     getAllAttendanceRecords,
     getAttendanceRecordsByOrg,
-    deleteEvent
+    deleteEvent,
+    getEventsByAdmin,
+    getAllOrgEvents,
+    getAllOswsEvents, // <-- Add this line
 };

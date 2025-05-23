@@ -14,5 +14,8 @@ router.post('/events/attendance', authenticateToken, eventController.markAttenda
 router.get('/attendance-records', authenticateToken, eventController.getAllAttendanceRecords); // Get all attendance records
 router.delete('/events/:id', eventController.deleteEvent); // Delete an event
 router.get('/certificates', eventController.getCertificatesByStudent); // Get certificates by student
+router.get('/events/admin/:admin_id', eventController.getEventsByAdmin); // Get events by admin
+router.get('/events/organizations', eventController.getAllOrgEvents); // Get all events by organizations
+router.get('/events/osws', eventController.getAllOswsEvents); // Route for all OSWS-created events
 
 module.exports = router;
