@@ -10,14 +10,16 @@ const registerParticipant = async ({
     proof_of_payment = null,
     first_name,
     last_name,
+    middle_initial,
     suffix,
-    domain_email,
     department,
-    program
+    program,
+    domain_email
 }) => {
-    // Convert all string fields to uppercase (except emails if you want to keep them case-insensitive)
+    // Convert all string fields to uppercase (except emails)
     first_name = first_name ? first_name.toUpperCase() : '';
     last_name = last_name ? last_name.toUpperCase() : '';
+    middle_initial = middle_initial ? middle_initial.toUpperCase() : '';
     suffix = suffix ? suffix.toUpperCase() : '';
     department = department ? department.toUpperCase() : '';
     program = program ? program.toUpperCase() : '';
@@ -70,9 +72,9 @@ const registerParticipant = async ({
         // 5. Insert into registration_details
         await conn.query(
             `INSERT INTO registration_details
-            (registration_id, first_name, last_name, suffix, domain_email, department, program)
-            VALUES (?, ?, ?, ?, ?, ?, ?)`,
-            [registration_id, first_name, last_name, suffix, domain_email, department, program]
+            (registration_id, first_name, last_name, middle_initial, suffix, domain_email, department, program)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+            [registration_id, first_name, last_name, middle_initial, suffix, domain_email, department, program]
         );
 
         // Fetch event title

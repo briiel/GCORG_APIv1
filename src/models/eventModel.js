@@ -25,7 +25,7 @@ const createEvent = async (eventData) => {
             created_by_osws_id && created_by_osws_id !== 'undefined' && created_by_osws_id !== '' ? created_by_osws_id : null,
             status || 'not yet started'
         ]);
-        return result.insertId; // Return the ID of the newly created event
+        return result.insertId;
     } catch (error) {
         console.error('Error creating event:', error.stack);
         throw error;
