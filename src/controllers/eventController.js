@@ -31,11 +31,13 @@ exports.getEvents = async (req, res) => {
         let events = await eventService.fetchAllEvents();
         const now = new Date();
         events = events.map(event => {
-            const eventDate = new Date(event.event_date + 'T' + event.event_time);
+            // Combine start_date and start_time for comparison
+            const eventStart = new Date(`${event.start_date}T${event.start_time}`);
+            const eventEnd = new Date(`${event.end_date}T${event.end_time}`);
             if (event.status === 'cancelled') return event;
-            if (eventDate > now) event.status = 'not yet started';
-            else if (eventDate.toDateString() === now.toDateString()) event.status = 'ongoing';
-            else if (eventDate < now) event.status = 'completed';
+            if (eventStart > now) event.status = 'not yet started';
+            else if (eventStart <= now && eventEnd >= now) event.status = 'ongoing';
+            else if (eventEnd < now) event.status = 'completed';
             return event;
         });
         const host = req.protocol + '://' + req.get('host');
@@ -137,7 +139,7 @@ exports.updateEventStatus = async (req, res) => {
 
         if (status === 'completed') {
             const [attendees] = await db.query(
-                `SELECT ar.student_id, s.name AS student_name, ce.title AS event_title
+                `SELECT ar.student_id, CONCAT(s.first_name, ' ', s.last_name, IF(s.suffix IS NOT NULL AND s.suffix != '', CONCAT(' ', s.suffix), '')) AS student_name, ce.title AS event_title
                  FROM attendance_records ar
                  JOIN students s ON ar.student_id = s.id
                  JOIN created_events ce ON ar.event_id = ce.event_id
@@ -243,9 +245,10 @@ exports.getCertificatesByStudent = async (req, res) => {
         if (!student_id) return res.status(400).json({ success: false, message: 'student_id required' });
 
         const [certs] = await db.query(
-            `SELECT c.*, ce.title AS event_title, ce.event_date AS event_date
+            `SELECT c.*, ce.title AS event_title, ce.start_date, ce.end_date, ce.start_time, ce.end_time, s.first_name, s.last_name, s.middle_initial, s.suffix, s.department, s.program
              FROM certificates c
              JOIN created_events ce ON c.event_id = ce.event_id
+             JOIN students s ON c.student_id = s.id
              WHERE c.student_id = ?`,
             [student_id]
         );

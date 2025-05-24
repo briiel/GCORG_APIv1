@@ -6,16 +6,16 @@ const router = express.Router();
 
 // Register a new user (student, organization, or admin)
 router.post('/register', async (req, res) => {
-    const { email, password, userType, name, student_id, org_name, department } = req.body;
+    const { email, password, userType, name, student_id, org_name, department, first_name, last_name, middle_initial, suffix, program } = req.body;
 
     if (!email || !password || !userType ||
-        (userType === 'student' && (!name || !student_id)) ||
+        (userType === 'student' && (!first_name || !last_name || !student_id || !department || !program)) ||
         (userType === 'organization' && !org_name) ||
         (userType === 'admin' && !name)
     ) {
         return res.status(400).json({
             success: false,
-            message: 'Email, password, userType, and name (for admins) or student_id/name (for students) or org_name (for organizations) are required.'
+            message: 'Missing required fields.'
         });
     }
 
@@ -28,8 +28,8 @@ router.post('/register', async (req, res) => {
                 return res.status(400).json({ success: false, message: 'Email or Student ID already exists.' });
             }
             const hashedPassword = await bcrypt.hash(password, 10);
-            query = `INSERT INTO ${table} (id, email, password_hash, name) VALUES (?, ?, ?, ?)`;
-            values = [student_id, email, hashedPassword, name];
+            query = `INSERT INTO ${table} (id, email, password_hash, first_name, last_name, middle_initial, suffix, department, program) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`;
+            values = [student_id, email, hashedPassword, first_name, last_name, middle_initial, suffix, department, program];
         } else if (userType === 'organization') {
             table = 'student_organizations';
             const [existing] = await db.query(`SELECT * FROM ${table} WHERE email = ?`, [email]);
@@ -132,7 +132,7 @@ router.post('/login', async (req, res) => {
                 email: user.email,
                 first_name: user.first_name,
                 last_name: user.last_name,
-                middle_initial: user.middle_initial, // <-- fixed spelling
+                middle_initial: user.middle_initial,
                 suffix: user.suffix,
                 department: user.department,
                 program: user.program
