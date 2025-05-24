@@ -2,9 +2,15 @@ const express = require('express');
 const router = express.Router();
 const eventController = require('../controllers/eventController');
 const authenticateToken = require('../middleware/authMiddleware'); // Protect routes
-const upload = require('../middleware/uploadMiddleware');
+const { upload, convertToWebp } = require('../middleware/uploadMiddleware');
 
-router.post('/events', authenticateToken, upload.single('event_poster'), eventController.createEvent); // Create a new event
+router.post(
+    '/events',
+    authenticateToken,
+    upload.single('event_poster'),
+    convertToWebp,
+    eventController.createEvent
+); // Create a new event
 router.get('/events', authenticateToken, eventController.getEvents); // Get all events
 router.post('/events/register', authenticateToken, eventController.registerParticipant); // Register a participant for an event
 router.get('/participants/:student_id/events', authenticateToken, eventController.getEventsByParticipant); // Get events a participant registered in
@@ -17,5 +23,6 @@ router.get('/certificates', eventController.getCertificatesByStudent); // Get ce
 router.get('/events/admin/:admin_id', eventController.getEventsByAdmin); // Get events by admin
 router.get('/events/organizations', eventController.getAllOrgEvents); // Get all events by organizations
 router.get('/events/osws', eventController.getAllOswsEvents); // Route for all OSWS-created events
+router.get('/:event_id/participants', eventController.getEventParticipants); // Get participants of an event
 
 module.exports = router;

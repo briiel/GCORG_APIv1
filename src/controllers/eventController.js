@@ -44,7 +44,7 @@ exports.getEvents = async (req, res) => {
             event_poster: event.event_poster
                 ? `${host}/${event.event_poster.replace(/\\/g, '/')}`
                 : null,
-            department: event.department // <-- This line is important
+            department: event.department
         }));
         return handleSuccessResponse(res, eventsWithPosterUrl);
     } catch (error) {
@@ -255,12 +255,19 @@ exports.getCertificatesByStudent = async (req, res) => {
     }
 };
 
-// Add:
 exports.getEventsByAdmin = async (req, res) => {
     try {
         const { admin_id } = req.params;
         const events = await eventService.getEventsByAdmin(admin_id);
-        return handleSuccessResponse(res, events);
+        const host = req.protocol + '://' + req.get('host');
+        const eventsWithPosterUrl = events.map(event => ({
+            ...event,
+            event_poster: event.event_poster
+                ? `${host}/${event.event_poster.replace(/\\/g, '/')}`
+                : null,
+            department: event.department
+        }));
+        return handleSuccessResponse(res, eventsWithPosterUrl);
     } catch (error) {
         return handleErrorResponse(res, error.message);
     }
@@ -269,18 +276,79 @@ exports.getEventsByAdmin = async (req, res) => {
 exports.getAllOrgEvents = async (req, res) => {
     try {
         const events = await eventService.getAllOrgEvents();
-        return res.status(200).json({ success: true, data: events });
+        const host = req.protocol + '://' + req.get('host');
+        const eventsWithPosterUrl = events.map(event => ({
+            ...event,
+            event_poster: event.event_poster
+                ? `${host}/${event.event_poster.replace(/\\/g, '/')}`
+                : null,
+            department: event.department
+        }));
+        return res.status(200).json({ success: true, data: eventsWithPosterUrl });
     } catch (error) {
         return res.status(500).json({ success: false, message: error.message });
     }
 };
 
-// Fetch all OSWS-created events
 exports.getAllOswsEvents = async (req, res) => {
     try {
         const events = await eventService.getAllOswsEvents();
-        return handleSuccessResponse(res, events);
+        const host = req.protocol + '://' + req.get('host');
+        const eventsWithPosterUrl = events.map(event => ({
+            ...event,
+            event_poster: event.event_poster
+                ? `${host}/${event.event_poster.replace(/\\/g, '/')}`
+                : null,
+            department: event.department
+        }));
+        return handleSuccessResponse(res, eventsWithPosterUrl);
     } catch (error) {
         return handleErrorResponse(res, error.message);
     }
+};
+
+exports.getEventParticipants = async (req, res) => {
+  try {
+    const { event_id } = req.params;
+    const [rows] = await db.query(
+      `SELECT 
+         er.student_id, 
+         s.first_name, 
+         s.last_name, 
+         s.suffix, 
+         s.department, 
+         s.program
+       FROM event_registrations er
+       JOIN students s ON er.student_id = s.id
+       WHERE er.event_id = ?`,
+      [event_id]
+    );
+    res.json({ success: true, data: rows });
+  } catch (error) {
+    console.error('getEventParticipants error:', error);
+    res.status(500).json({ success: false, message: error.message });
+  }
+};
+
+exports.getAttendanceRecords = async (req, res) => {
+  try {
+    const [rows] = await db.query(
+      `SELECT 
+         ar.event_id,
+         e.title AS event_title,
+         ar.student_id,
+         s.first_name,
+         s.last_name,
+         s.suffix,
+         s.department,
+         s.program
+       FROM attendance_records ar
+       JOIN events e ON ar.event_id = e.event_id
+       JOIN students s ON ar.student_id = s.id`
+    );
+    res.json({ success: true, data: rows });
+  } catch (error) {
+    console.error('getAttendanceRecords error:', error);
+    res.status(500).json({ success: false, message: error.message });
+  }
 };

@@ -2,21 +2,24 @@ const db = require('../config/db');
 
 const createEvent = async (eventData) => {
     const {
-        title, description, location, event_date, event_time,
+        title, description, location,
+        start_date, start_time, end_date, end_time,
         event_poster, created_by_org_id, created_by_osws_id, status
     } = eventData;
     const query = `
         INSERT INTO created_events
-        (title, description, location, event_date, event_time, event_poster, created_by_org_id, created_by_osws_id, status)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+        (title, description, location, start_date, start_time, end_date, end_time, event_poster, created_by_org_id, created_by_osws_id, status)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     `;
     try {
         const [result] = await db.query(query, [
             title,
             description,
             location,
-            event_date,
-            event_time,
+            start_date,
+            start_time,
+            end_date,
+            end_time,
             event_poster,
             created_by_org_id && created_by_org_id !== 'undefined' && created_by_org_id !== '' ? created_by_org_id : null,
             created_by_osws_id && created_by_osws_id !== 'undefined' && created_by_osws_id !== '' ? created_by_osws_id : null,
@@ -33,7 +36,7 @@ const getAllEvents = async () => {
     const query = `
         SELECT ce.*, org.department, org.org_name
         FROM created_events ce
-        JOIN student_organizations org ON ce.created_by_org_id = org.id
+        LEFT JOIN student_organizations org ON ce.created_by_org_id = org.id
     `;
     try {
         const [rows] = await db.query(query);
@@ -93,7 +96,11 @@ const getAllAttendanceRecords = async () => {
             ar.event_id,
             ce.title AS event_title,
             ar.student_id,
-            s.name AS student_name,
+            s.first_name,
+            s.last_name,
+            s.suffix,
+            s.department,
+            s.program,
             ar.attended_at
         FROM attendance_records ar
         JOIN created_events ce ON ar.event_id = ce.event_id
@@ -114,7 +121,11 @@ const getAttendanceRecordsByOrg = async (orgId) => {
             ar.event_id,
             ce.title AS event_title,
             ar.student_id,
-            s.name AS student_name,
+            s.first_name,
+            s.last_name,
+            s.suffix,
+            s.department,
+            s.program,
             ar.attended_at
         FROM attendance_records ar
         JOIN created_events ce ON ar.event_id = ce.event_id
@@ -131,13 +142,33 @@ const getAttendanceRecordsByOrg = async (orgId) => {
 };
 
 const deleteEvent = async (eventId) => {
-    const query = `DELETE FROM created_events WHERE event_id = ?`;
+    const conn = await db.getConnection();
     try {
-        const [result] = await db.query(query, [eventId]);
-        return result;
+        await conn.beginTransaction();
+
+        // Delete attendance records linked to this event
+        await conn.query('DELETE FROM attendance_records WHERE event_id = ?', [eventId]);
+        // Delete registration details linked to registrations for this event
+        await conn.query(`
+            DELETE rd FROM registration_details rd
+            JOIN event_registrations er ON rd.registration_id = er.id
+            WHERE er.event_id = ?
+        `, [eventId]);
+        // Delete event registrations
+        await conn.query('DELETE FROM event_registrations WHERE event_id = ?', [eventId]);
+        // Delete certificates if you have them
+        await conn.query('DELETE FROM certificates WHERE event_id = ?', [eventId]);
+        // Finally, delete the event
+        await conn.query('DELETE FROM created_events WHERE event_id = ?', [eventId]);
+
+        await conn.commit();
+        return true;
     } catch (error) {
+        await conn.rollback();
         console.error('Error deleting event:', error.stack);
         throw error;
+    } finally {
+        conn.release();
     }
 };
 

@@ -15,6 +15,14 @@ const registerParticipant = async ({
     department,
     program
 }) => {
+    // Convert all string fields to uppercase (except emails if you want to keep them case-insensitive)
+    first_name = first_name ? first_name.toUpperCase() : '';
+    last_name = last_name ? last_name.toUpperCase() : '';
+    suffix = suffix ? suffix.toUpperCase() : '';
+    department = department ? department.toUpperCase() : '';
+    program = program ? program.toUpperCase() : '';
+    // Optionally: domain_email = domain_email ? domain_email.toUpperCase() : '';
+
     // Start transaction
     const conn = await db.getConnection();
     try {

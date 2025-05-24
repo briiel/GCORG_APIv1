@@ -126,7 +126,17 @@ router.post('/login', async (req, res) => {
             token,
             userType,
             orgName: user.org_name,
-            adminId: userType === 'admin' ? user.id : undefined
+            adminId: userType === 'admin' ? user.id : undefined,
+            student: userType === 'student' ? {
+                id: user.id,
+                email: user.email,
+                first_name: user.first_name,
+                last_name: user.last_name,
+                middle_initial: user.middle_initial, // <-- fixed spelling
+                suffix: user.suffix,
+                department: user.department,
+                program: user.program
+            } : undefined
         });
     } catch (error) {
         console.error('Error logging in:', error);
