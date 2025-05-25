@@ -5,12 +5,13 @@ const db = require('../config/db');
 const { generateCertificate, generateCertificatePreview } = require('../utils/certificateGenerator');
 const path = require('path');
 const fs = require('fs');
+const { uploadPdfToCloudinary } = require('../utils/cloudinaryHelper');
 
 exports.createEvent = async (req, res) => {
     try {
         const eventData = req.body;
         if (req.file) {
-            eventData.event_poster = req.file.path;
+            eventData.event_poster = req.file.path; // Cloudinary URL
         }
         eventData.status = eventData.status || 'not yet started';
 
@@ -43,9 +44,7 @@ exports.getEvents = async (req, res) => {
         const host = req.protocol + '://' + req.get('host');
         const eventsWithPosterUrl = events.map(event => ({
             ...event,
-            event_poster: event.event_poster
-                ? `${host}/${event.event_poster.replace(/\\/g, '/')}`
-                : null,
+            event_poster: event.event_poster || null,
             department: event.department
         }));
         return handleSuccessResponse(res, eventsWithPosterUrl);
@@ -88,9 +87,7 @@ exports.getEventsByParticipant = async (req, res) => {
         const host = req.protocol + '://' + req.get('host');
         const eventsWithQrUrl = events.map(event => ({
             ...event,
-            qr_code: event.qr_code
-                ? `${host}/uploads/qrcodes/${event.qr_code}`
-                : null
+            qr_code: event.qr_code_url || null
         }));
 
         return handleSuccessResponse(res, eventsWithQrUrl);
@@ -145,8 +142,8 @@ exports.updateEventStatus = async (req, res) => {
             if (!fs.existsSync(certDir)) fs.mkdirSync(certDir, { recursive: true });
 
             for (const attendee of attendees) {
-                const certFilename = `certificate_${id}_${attendee.student_id}.pdf`;
-                const certPath = path.join(certDir, certFilename);
+                const certFilename = `certificate_${id}_${attendee.student_id}`;
+                const certPath = path.join(certDir, certFilename + '.pdf');
 
                 await generateCertificate({
                     studentName: attendee.student_name,
@@ -156,8 +153,9 @@ exports.updateEventStatus = async (req, res) => {
                     certificatePath: certPath
                 });
 
-                // Save URLs in DB
-                const certUrl = `uploads/certificates/${certFilename}`;
+                // Upload to Cloudinary
+                const certUrl = await uploadPdfToCloudinary(certPath, certFilename);
+
                 await db.query(
                     `INSERT INTO certificates (student_id, event_id, certificate_url)
                      VALUES (?, ?, ?)
@@ -357,7 +355,7 @@ exports.updateEvent = async (req, res) => {
         const { id } = req.params;
         const eventData = req.body;
         if (req.file) {
-            eventData.event_poster = req.file.path;
+            eventData.event_poster = req.file.path; // Cloudinary URL
         }
         await eventService.updateEvent(id, eventData);
         return handleSuccessResponse(res, { message: 'Event updated successfully' });
