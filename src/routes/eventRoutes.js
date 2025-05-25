@@ -24,5 +24,7 @@ router.get('/events/admin/:admin_id', eventController.getEventsByAdmin); // Get 
 router.get('/events/organizations', eventController.getAllOrgEvents); // Get all events by organizations
 router.get('/events/osws', eventController.getAllOswsEvents); // Route for all OSWS-created events
 router.get('/:event_id/participants', eventController.getEventParticipants); // Get participants of an event
+router.get('/events/:id', eventController.getEventById);
+router.put('/events/:id', upload.single('event_poster'), convertToWebp, eventController.updateEvent);
 
 module.exports = router;

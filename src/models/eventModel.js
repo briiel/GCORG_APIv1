@@ -148,12 +148,7 @@ const deleteEvent = async (eventId) => {
 
         // Delete attendance records linked to this event
         await conn.query('DELETE FROM attendance_records WHERE event_id = ?', [eventId]);
-        // Delete registration details linked to registrations for this event
-        await conn.query(`
-            DELETE rd FROM registration_details rd
-            JOIN event_registrations er ON rd.registration_id = er.id
-            WHERE er.event_id = ?
-        `, [eventId]);
+
         // Delete event registrations
         await conn.query('DELETE FROM event_registrations WHERE event_id = ?', [eventId]);
         // Delete certificates if you have them
@@ -216,6 +211,46 @@ const getAllOswsEvents = async () => {
     return rows;
 };
 
+const updateEvent = async (eventId, eventData) => {
+    const {
+        title,
+        description,
+        location,
+        start_date,
+        start_time,
+        end_date,
+        end_time,
+        event_poster // Optional: only update if provided
+    } = eventData;
+
+    let query = `
+        UPDATE created_events
+        SET title = ?, description = ?, location = ?, start_date = ?, start_time = ?, end_date = ?, end_time = ?
+    `;
+    const params = [title, description, location, start_date, start_time, end_date, end_time];
+
+    if (event_poster) {
+        query += `, event_poster = ?`;
+        params.push(event_poster);
+    }
+
+    query += ` WHERE event_id = ?`;
+    params.push(eventId);
+
+    try {
+        const [result] = await db.query(query, params);
+        return result;
+    } catch (error) {
+        console.error('Error updating event:', error.stack);
+        throw error;
+    }
+};
+
+const getEventById = async (eventId) => {
+  const [rows] = await db.query('SELECT * FROM created_events WHERE event_id = ?', [eventId]);
+  return rows[0];
+};
+
 module.exports = { 
     createEvent, 
     getAllEvents, 
@@ -227,5 +262,7 @@ module.exports = {
     deleteEvent,
     getEventsByAdmin,
     getAllOrgEvents,
-    getAllOswsEvents, // <-- Add this line
+    getAllOswsEvents,
+    updateEvent,
+    getEventById
 };

@@ -59,30 +59,19 @@ exports.registerParticipant = async (req, res) => {
         const {
             event_id,
             student_id,
-            proof_of_payment,
-            first_name,
-            last_name,
-            suffix,
-            domain_email,
-            department,
-            program
+            proof_of_payment
+            // Remove: first_name, last_name, suffix, domain_email, department, program
         } = req.body;
 
         const result = await registerParticipant({
             event_id,
             student_id,
-            proof_of_payment,
-            first_name,
-            last_name,
-            suffix,
-            domain_email,
-            department,
-            program
+            proof_of_payment
+            // Remove: first_name, last_name, suffix, domain_email, department, program
         });
 
         return handleSuccessResponse(res, result, 201);
     } catch (error) {
-        // Add this block to handle duplicate registration
         if (error.message === 'You have already registered for this event.') {
             return res.status(409).json({ success: false, message: error.message });
         }
@@ -139,7 +128,12 @@ exports.updateEventStatus = async (req, res) => {
 
         if (status === 'completed') {
             const [attendees] = await db.query(
-                `SELECT ar.student_id, CONCAT(s.first_name, ' ', s.last_name, IF(s.suffix IS NOT NULL AND s.suffix != '', CONCAT(' ', s.suffix), '')) AS student_name, ce.title AS event_title
+                `SELECT ar.student_id, 
+                       CONCAT(s.first_name, ' ', s.last_name, IF(s.suffix IS NOT NULL AND s.suffix != '', CONCAT(' ', s.suffix), '')) AS student_name, 
+                       s.email, 
+                       ce.title AS event_title,
+                       ce.start_date,
+                       ce.end_date
                  FROM attendance_records ar
                  JOIN students s ON ar.student_id = s.id
                  JOIN created_events ce ON ar.event_id = ce.event_id
@@ -157,6 +151,8 @@ exports.updateEventStatus = async (req, res) => {
                 await generateCertificate({
                     studentName: attendee.student_name,
                     eventTitle: attendee.event_title,
+                    eventStartDate: attendee.start_date,
+                    eventEndDate: attendee.end_date,
                     certificatePath: certPath
                 });
 
@@ -352,6 +348,32 @@ exports.getAttendanceRecords = async (req, res) => {
     res.json({ success: true, data: rows });
   } catch (error) {
     console.error('getAttendanceRecords error:', error);
+    res.status(500).json({ success: false, message: error.message });
+  }
+};
+
+exports.updateEvent = async (req, res) => {
+    try {
+        const { id } = req.params;
+        const eventData = req.body;
+        if (req.file) {
+            eventData.event_poster = req.file.path;
+        }
+        await eventService.updateEvent(id, eventData);
+        return handleSuccessResponse(res, { message: 'Event updated successfully' });
+    } catch (error) {
+        return handleErrorResponse(res, error.message);
+    }
+};
+
+exports.getEventById = async (req, res) => {
+  try {
+    const event = await eventService.getEventById(req.params.id);
+    if (!event) {
+      return res.status(404).json({ success: false, message: 'Event not found' });
+    }
+    res.json({ success: true, data: event });
+  } catch (error) {
     res.status(500).json({ success: false, message: error.message });
   }
 };

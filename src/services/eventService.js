@@ -91,6 +91,19 @@ const getAllOswsEvents = async () => {
     return await eventModel.getAllOswsEvents();
 };
 
+const updateEvent = async (eventId, eventData) => {
+    try {
+        return await eventModel.updateEvent(eventId, eventData);
+    } catch (error) {
+        console.error('Error updating event in service:', error);
+        throw error;
+    }
+};
+
+const getEventById = async (eventId) => {
+  return await eventModel.getEventById(eventId);
+};
+
 module.exports = {
     createNewEvent,
     fetchAllEvents,
@@ -103,4 +116,6 @@ module.exports = {
     getEventsByAdmin,
     getAllOrgEvents,
     getAllOswsEvents,
+    updateEvent,
+    getEventById,
 };
