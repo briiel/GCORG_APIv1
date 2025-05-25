@@ -3,7 +3,6 @@ const QRCode = require('qrcode');
 const path = require('path');
 const fs = require('fs');
 const { sendRegistrationEmail } = require('../utils/mailer');
-const { uploadQrToCloudinary } = require('../utils/cloudinaryHelper');
 
 const registerParticipant = async ({
     event_id,
@@ -53,11 +52,10 @@ const registerParticipant = async ({
         const qrPath = path.join(qrDir, qrFilename);
         await QRCode.toFile(qrPath, qrString);
 
-        // 5. Upload QR code to Cloudinary and update event_registrations with Cloudinary URL
-        const qrUrl = await uploadQrToCloudinary(qrPath, `registration_${registration_id}`);
+        // 5. Update event_registrations with qr_code path
         await conn.query(
             `UPDATE event_registrations SET qr_code = ? WHERE id = ?`,
-            [qrUrl, registration_id]
+            [qrFilename, registration_id]
         );
 
         // Fetch student email for notification
@@ -83,7 +81,7 @@ const registerParticipant = async ({
         }
 
         await conn.commit();
-        return { success: true, registration_id, qr_code: qrUrl };
+        return { success: true, registration_id, qr_code: qrFilename };
     } catch (err) {
         await conn.rollback();
         throw err;
