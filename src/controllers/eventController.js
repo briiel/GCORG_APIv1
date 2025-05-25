@@ -87,7 +87,9 @@ exports.getEventsByParticipant = async (req, res) => {
         const host = req.protocol + '://' + req.get('host');
         const eventsWithQrUrl = events.map(event => ({
             ...event,
-            qr_code: event.qr_code_url || null
+            qr_code: event.qr_code
+                ? (event.qr_code.startsWith('http') ? event.qr_code : `${host}/uploads/qrcodes/${event.qr_code}`)
+                : null
         }));
 
         return handleSuccessResponse(res, eventsWithQrUrl);
