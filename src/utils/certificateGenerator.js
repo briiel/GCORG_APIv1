@@ -1,4 +1,4 @@
-const PDFDocument = require('pdfkit');
+const { createCanvas, loadImage } = require('canvas');
 const fs = require('fs');
 const path = require('path');
 
@@ -9,115 +9,115 @@ function formatDate(dateStr) {
 }
 
 async function generateCertificate({ studentName, eventTitle, eventStartDate, eventEndDate, certificatePath }) {
-    return new Promise((resolve, reject) => {
-        const doc = new PDFDocument({
-            size: 'A4',
-            layout: 'landscape',
-            margin: 50
-        });
-
-        const stream = fs.createWriteStream(certificatePath);
-        doc.pipe(stream);
+    try {
+        // Create canvas with A4 landscape dimensions (at 150 DPI for good quality)
+        const width = 1240; // A4 landscape width at 150 DPI
+        const height = 877;  // A4 landscape height at 150 DPI
+        const canvas = createCanvas(width, height);
+        const ctx = canvas.getContext('2d');
 
         // Background color
-        doc.rect(0, 0, doc.page.width, doc.page.height)
-            .fill('#f8f9fa');
+        ctx.fillStyle = '#f8f9fa';
+        ctx.fillRect(0, 0, width, height);
 
         // Border
-        doc.save()
-            .lineWidth(8)
-            .strokeColor('#679436')
-            .rect(20, 20, doc.page.width - 40, doc.page.height - 40)
-            .stroke()
-            .restore();
+        ctx.strokeStyle = '#679436';
+        ctx.lineWidth = 8;
+        ctx.strokeRect(20, 20, width - 40, height - 40);
 
-        // Two Logos (left and right)
-        const logo1Path = path.join(__dirname, '../assets/GC-Logo.png');
-        const logo2Path = path.join(__dirname, '../assets/OSWS.png');
-        const logoWidth = 100;
-        const logoY = 40;
-        if (fs.existsSync(logo1Path)) {
-            doc.image(logo1Path, 40, logoY, { width: logoWidth });
-        }
-        if (fs.existsSync(logo2Path)) {
-            doc.image(logo2Path, doc.page.width - logoWidth - 40, logoY, { width: logoWidth });
+        // Load and draw logos
+        try {
+            const logo1Path = path.join(__dirname, '../assets/GC-Logo.png');
+            const logo2Path = path.join(__dirname, '../assets/OSWS.png');
+            const logoWidth = 100;
+            const logoY = 40;
+
+            if (fs.existsSync(logo1Path)) {
+                const logo1 = await loadImage(logo1Path);
+                ctx.drawImage(logo1, 40, logoY, logoWidth, logoWidth);
+            }
+            if (fs.existsSync(logo2Path)) {
+                const logo2 = await loadImage(logo2Path);
+                ctx.drawImage(logo2, width - logoWidth - 40, logoY, logoWidth, logoWidth);
+            }
+        } catch (logoError) {
+            console.warn('Could not load logos:', logoError.message);
         }
 
         // Header Texts (centered between logos)
-        let headerY = logoY + 10;
-        doc.font('Helvetica-Bold')
-            .fontSize(22)
-            .fillColor('#2d3748')
-            .text('GORDON COLLEGE', 0, headerY, {
-                width: doc.page.width,
-                align: 'center'
-            });
-        headerY += 28;
-        doc.font('Helvetica')
-            .fontSize(16)
-            .fillColor('#2d3748')
-            .text('Office of Student Welfare and Services', 0, headerY, {
-                width: doc.page.width,
-                align: 'center'
-            });
-        headerY += 22;
-        doc.font('Helvetica-Oblique')
-            .fontSize(16)
-            .fillColor('#2d3748')
-            .text('GC-ORGANIZE', 0, headerY, {
-                width: doc.page.width,
-                align: 'center'
-            });
+        let headerY = 70;
+        
+        // GORDON COLLEGE
+        ctx.fillStyle = '#2d3748';
+        ctx.font = 'bold 28px Arial';
+        ctx.textAlign = 'center';
+        ctx.fillText('GORDON COLLEGE', width / 2, headerY);
 
-        // Move down to start certificate body
-        let bodyY = headerY + 50;
+        // Office of Student Welfare and Services
+        headerY += 35;
+        ctx.font = '20px Arial';
+        ctx.fillText('Office of Student Welfare and Services', width / 2, headerY);
+
+        // GC-ORGANIZE
+        headerY += 28;
+        ctx.font = 'italic 20px Arial';
+        ctx.fillText('GC-ORGANIZE', width / 2, headerY);
 
         // Certificate Title
-        doc.font('Helvetica-Bold')
-            .fontSize(40)
-            .fillColor('#2d3748')
-            .text('Certificate of Participation', 0, bodyY, {
-                width: doc.page.width,
-                align: 'center'
-            });
+        let bodyY = headerY + 70;
+        ctx.font = 'bold 50px Arial';
+        ctx.fillStyle = '#2d3748';
+        ctx.fillText('Certificate of Participation', width / 2, bodyY);
 
         // Subtitle
-        bodyY += 60;
-        doc.font('Helvetica')
-            .fontSize(22)
-            .fillColor('#495057')
-            .text('This is to certify that', 0, bodyY, {
-                width: doc.page.width,
-                align: 'center'
-            });
+        bodyY += 80;
+        ctx.font = '28px Arial';
+        ctx.fillStyle = '#495057';
+        ctx.fillText('This is to certify that', width / 2, bodyY);
 
         // Student Name
-        bodyY += 40;
-        doc.font('Helvetica-Bold')
-            .fontSize(32)
-            .fillColor('#679436')
-            .text(studentName, 0, bodyY, {
-                width: doc.page.width,
-                align: 'center'
-            });
+        bodyY += 50;
+        ctx.font = 'bold 40px Arial';
+        ctx.fillStyle = '#679436';
+        ctx.fillText(studentName, width / 2, bodyY);
+
+        // Event participation text
+        bodyY += 50;
+        ctx.font = '25px Arial';
+        ctx.fillStyle = '#495057';
+        ctx.fillText('has participated in', width / 2, bodyY);
 
         // Event Title
         bodyY += 40;
-        doc.font('Helvetica')
-            .fontSize(20)
-            .fillColor('#495057')
-            .text('has participated in', 0, bodyY, {
-                width: doc.page.width,
-                align: 'center'
-            });
-        bodyY += 30;
-        doc.font('Helvetica-Bold')
-            .fontSize(24)
-            .fillColor('#2d3748')
-            .text(`"${eventTitle}"`, 0, bodyY, {
-                width: doc.page.width,
-                align: 'center'
-            });
+        ctx.font = 'bold 30px Arial';
+        ctx.fillStyle = '#2d3748';
+        
+        // Handle long event titles by wrapping text
+        const maxWidth = width - 100;
+        const eventTitleText = `"${eventTitle}"`;
+        
+        if (ctx.measureText(eventTitleText).width > maxWidth) {
+            const words = eventTitleText.split(' ');
+            let line = '';
+            let lineHeight = 35;
+            
+            for (let n = 0; n < words.length; n++) {
+                const testLine = line + words[n] + ' ';
+                const metrics = ctx.measureText(testLine);
+                const testWidth = metrics.width;
+                
+                if (testWidth > maxWidth && n > 0) {
+                    ctx.fillText(line, width / 2, bodyY);
+                    line = words[n] + ' ';
+                    bodyY += lineHeight;
+                } else {
+                    line = testLine;
+                }
+            }
+            ctx.fillText(line, width / 2, bodyY);
+        } else {
+            ctx.fillText(eventTitleText, width / 2, bodyY);
+        }
 
         // Format event date(s)
         let eventDateText = '';
@@ -131,39 +131,31 @@ async function generateCertificate({ studentName, eventTitle, eventStartDate, ev
             eventDateText = formatDate(eventStartDate);
         } else if (eventEndDate) {
             eventDateText = formatDate(eventEndDate);
-        } else {
-            eventDateText = '';
         }
 
-        // Date (event date)
-        bodyY += 60;
-        doc.font('Helvetica')
-            .fontSize(16)
-            .fillColor('#343a40')
-            .text(eventDateText ? `Date: ${eventDateText}` : '', 0, bodyY, {
-                width: doc.page.width,
-                align: 'center'
-            });
+        // Date
+        if (eventDateText) {
+            bodyY += 80;
+            ctx.font = '20px Arial';
+            ctx.fillStyle = '#343a40';
+            ctx.fillText(`Date: ${eventDateText}`, width / 2, bodyY);
+        }
 
-        // Signature line (centered at the bottom)
-        const signatureY = doc.page.height - 120;
-        doc.font('Helvetica')
-            .fontSize(16)
-            .fillColor('#343a40')
-            .text('_________________________', 0, signatureY, {
-                width: doc.page.width,
-                align: 'center'
-            })
-            .text('Signature', 0, signatureY + 20, {
-                width: doc.page.width,
-                align: 'center'
-            });
+        // Signature line
+        const signatureY = height - 120;
+        ctx.font = '20px Arial';
+        ctx.fillStyle = '#343a40';
+        ctx.fillText('_________________________', width / 2, signatureY);
+        ctx.fillText('Signature', width / 2, signatureY + 30);
 
-        doc.end();
+        // Save the canvas as PNG
+        const buffer = canvas.toBuffer('image/png');
+        fs.writeFileSync(certificatePath, buffer);
 
-        stream.on('finish', resolve);
-        stream.on('error', reject);
-    });
+        return Promise.resolve();
+    } catch (error) {
+        return Promise.reject(error);
+    }
 }
 
 module.exports = { generateCertificate };

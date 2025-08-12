@@ -1,23 +1,44 @@
 const eventService = require('../services/eventService');
 const { registerParticipant } = require('../services/registrationService');
 const { handleErrorResponse, handleSuccessResponse } = require('../utils/errorHandler');
-const db = require('../config/db'); 
+const db = require('../config/db');
 const { generateCertificate, generateCertificatePreview } = require('../utils/certificateGenerator');
-const path = require('path');
+const { v2: cloudinary } = require('cloudinary');
+const { upload, convertToWebpAndUpload } = require('../middleware/uploadMiddleware');
 const fs = require('fs');
+const path = require('path');
+const os = require('os');
+
+cloudinary.config({
+    secure: true
+});
+
+const uploadCertificateToCloudinary = async (tempCertPath, eventId, studentId) => {
+    const cloudinaryPublicId = `certificate_${eventId}_${studentId}`;
+
+    const uploadResult = await cloudinary.uploader.upload(tempCertPath, {
+        resource_type: 'image',
+        public_id: cloudinaryPublicId,
+        folder: 'certificates',
+        format: 'png',
+        quality: 'auto:best',
+        access_mode: 'public'
+    });
+
+    return uploadResult;
+};
 
 exports.createEvent = async (req, res) => {
     try {
         const eventData = req.body;
         if (req.file) {
-            eventData.event_poster = req.file.path;
+            eventData.event_poster = req.file.cloudinaryUrl;
+            eventData.event_poster_public_id = req.file.cloudinaryPublicId;
         }
         eventData.status = eventData.status || 'not yet started';
 
-        // Debug: log the eventData
         console.log('Event Data Received:', eventData);
 
-        // Create the event
         const newEventId = await eventService.createNewEvent(eventData);
 
         return handleSuccessResponse(res, { eventId: newEventId }, 201);
@@ -30,67 +51,76 @@ exports.getEvents = async (req, res) => {
     try {
         let events = await eventService.fetchAllEvents();
         const now = new Date();
+
         events = events.map(event => {
-            // Combine start_date and start_time for comparison
             const eventStart = new Date(`${event.start_date}T${event.start_time}`);
             const eventEnd = new Date(`${event.end_date}T${event.end_time}`);
-            if (event.status === 'cancelled') return event;
-            if (eventStart > now) event.status = 'not yet started';
-            else if (eventStart <= now && eventEnd >= now) event.status = 'ongoing';
-            else if (eventEnd < now) event.status = 'completed';
-            return event;
+
+            if (event.status !== 'cancelled') {
+                if (eventStart > now) {
+                    event.status = 'not yet started';
+                } else if (eventStart <= now && eventEnd >= now) {
+                    event.status = 'ongoing';
+                } else if (eventEnd < now) {
+                    event.status = 'completed';
+                }
+            }
+
+            return {
+                ...event,
+                event_poster: event.event_poster?.startsWith('http')
+                    ? event.event_poster
+                    : null,
+                department: event.department
+            };
         });
-        const host = req.protocol + '://' + req.get('host');
-        const eventsWithPosterUrl = events.map(event => ({
-            ...event,
-            event_poster: event.event_poster
-                ? `${host}/${event.event_poster.replace(/\\/g, '/')}`
-                : null,
-            department: event.department
-        }));
-        return handleSuccessResponse(res, eventsWithPosterUrl);
+
+        return handleSuccessResponse(res, events);
     } catch (error) {
         return handleErrorResponse(res, error.message);
     }
 };
 
-exports.registerParticipant = async (req, res) => {
-    try {
-        const {
-            event_id,
-            student_id,
-            proof_of_payment
-            // Remove: first_name, last_name, suffix, domain_email, department, program
-        } = req.body;
+exports.registerParticipant = [
+    upload.single('proof_of_payment'),
+    convertToWebpAndUpload,
 
-        const result = await registerParticipant({
-            event_id,
-            student_id,
-            proof_of_payment
-            // Remove: first_name, last_name, suffix, domain_email, department, program
-        });
+    async (req, res) => {
+        try {
+            const {
+                event_id,
+                student_id
+            } = req.body;
 
-        return handleSuccessResponse(res, result, 201);
-    } catch (error) {
-        if (error.message === 'You have already registered for this event.') {
-            return res.status(409).json({ success: false, message: error.message });
+            // Get proof of payment URL from uploaded file
+            const proof_of_payment = req.file ? req.file.cloudinaryUrl : null;
+            const proof_of_payment_public_id = req.file ? req.file.cloudinaryPublicId : null;
+
+            const result = await registerParticipant({
+                event_id,
+                student_id,
+                proof_of_payment,
+                proof_of_payment_public_id
+            });
+
+            return handleSuccessResponse(res, result, 201);
+        } catch (error) {
+            if (error.message === 'You have already registered for this event.') {
+                return res.status(409).json({ success: false, message: error.message });
+            }
+            return handleErrorResponse(res, error.message);
         }
-        return handleErrorResponse(res, error.message);
     }
-};
+];
 
 exports.getEventsByParticipant = async (req, res) => {
     try {
         const { student_id } = req.params;
         const events = await eventService.getEventsByParticipant(student_id);
 
-        // Add full QR code URL
-        const host = req.protocol + '://' + req.get('host');
         const eventsWithQrUrl = events.map(event => ({
             ...event,
-            qr_code: event.qr_code
-                ? `${host}/uploads/qrcodes/${event.qr_code}`
-                : null
+            qr_code: event.qr_code?.startsWith('http') ? event.qr_code : null
         }));
 
         return handleSuccessResponse(res, eventsWithQrUrl);
@@ -121,17 +151,19 @@ exports.updateEventStatus = async (req, res) => {
     try {
         const { id } = req.params;
         const { status } = req.body;
+
         if (!status) {
             return handleErrorResponse(res, 'Status is required', 400);
         }
+
         await eventService.updateEventStatus(id, status);
 
         if (status === 'completed') {
             const [attendees] = await db.query(
-                `SELECT ar.student_id, 
-                       CONCAT(s.first_name, ' ', s.last_name, IF(s.suffix IS NOT NULL AND s.suffix != '', CONCAT(' ', s.suffix), '')) AS student_name, 
-                       s.email, 
-                       ce.title AS event_title,
+                `SELECT ar.student_id,
+                        CONCAT(s.first_name, ' ', s.last_name, IF(s.suffix IS NOT NULL AND s.suffix != '', CONCAT(' ', s.suffix), '')) AS student_name,
+                        s.email,
+                        ce.title AS event_title,
                        ce.start_date,
                        ce.end_date
                  FROM attendance_records ar
@@ -141,34 +173,59 @@ exports.updateEventStatus = async (req, res) => {
                 [id]
             );
 
-            const certDir = path.join(__dirname, '../../uploads/certificates');
-            if (!fs.existsSync(certDir)) fs.mkdirSync(certDir, { recursive: true });
-
+            // Process certificates for each attendee
             for (const attendee of attendees) {
-                const certFilename = `certificate_${id}_${attendee.student_id}.pdf`;
-                const certPath = path.join(certDir, certFilename);
+                try {
+                    // Create temporary file in system temp directory
+                    const tempDir = os.tmpdir();
+                    const certFilename = `certificate_${id}_${attendee.student_id}.png`;
+                    const tempCertPath = path.join(tempDir, certFilename);
 
-                await generateCertificate({
-                    studentName: attendee.student_name,
-                    eventTitle: attendee.event_title,
-                    eventStartDate: attendee.start_date,
-                    eventEndDate: attendee.end_date,
-                    certificatePath: certPath
-                });
+                    // Generate certificate to temporary file
+                    await generateCertificate({
+                        studentName: attendee.student_name,
+                        eventTitle: attendee.event_title,
+                        eventStartDate: attendee.start_date,
+                        eventEndDate: attendee.end_date,
+                        certificatePath: tempCertPath
+                    });
 
-                // Save URLs in DB
-                const certUrl = `uploads/certificates/${certFilename}`;
-                await db.query(
-                    `INSERT INTO certificates (student_id, event_id, certificate_url)
-                     VALUES (?, ?, ?)
-                     ON DUPLICATE KEY UPDATE certificate_url = VALUES(certificate_url)`,
-                    [attendee.student_id, id, certUrl]
-                );
+                    // Upload certificate to Cloudinary with corrected settings
+                    const uploadResult = await uploadCertificateToCloudinary(tempCertPath, id, attendee.student_id);
+
+                    console.log(`Certificate uploaded to Cloudinary: ${uploadResult.secure_url}`);
+
+                    // Save Cloudinary URL and public_id in database
+                    await db.query(
+                        `INSERT INTO certificates (student_id, event_id, certificate_url, certificate_public_id)
+                         VALUES (?, ?, ?, ?)
+                         ON DUPLICATE KEY UPDATE 
+                         certificate_url = VALUES(certificate_url),
+                         certificate_public_id = VALUES(certificate_public_id)`,
+                        [attendee.student_id, id, uploadResult.secure_url, uploadResult.public_id]
+                    );
+
+                    // Clean up temporary file
+                    try {
+                        if (fs.existsSync(tempCertPath)) {
+                            fs.unlinkSync(tempCertPath);
+                        }
+                    } catch (cleanupError) {
+                        console.warn(`Failed to cleanup temp file: ${tempCertPath}`, cleanupError);
+                    }
+
+                } catch (certError) {
+                    console.error(`Failed to generate/upload certificate for student ${attendee.student_id}:`, certError);
+                    // Continue processing other certificates even if one fails
+                }
             }
+
+            console.log(`Successfully processed certificates for ${attendees.length} attendees`);
         }
 
         return handleSuccessResponse(res, { message: 'Event status updated successfully' });
     } catch (error) {
+        console.error('Error updating event status:', error);
         return handleErrorResponse(res, error.message);
     }
 };
@@ -307,10 +364,10 @@ exports.getAllOswsEvents = async (req, res) => {
 };
 
 exports.getEventParticipants = async (req, res) => {
-  try {
-    const { event_id } = req.params;
-    const [rows] = await db.query(
-      `SELECT 
+    try {
+        const { event_id } = req.params;
+        const [rows] = await db.query(
+            `SELECT 
          er.student_id, 
          s.first_name, 
          s.last_name, 
@@ -320,19 +377,19 @@ exports.getEventParticipants = async (req, res) => {
        FROM event_registrations er
        JOIN students s ON er.student_id = s.id
        WHERE er.event_id = ?`,
-      [event_id]
-    );
-    res.json({ success: true, data: rows });
-  } catch (error) {
-    console.error('getEventParticipants error:', error);
-    res.status(500).json({ success: false, message: error.message });
-  }
+            [event_id]
+        );
+        res.json({ success: true, data: rows });
+    } catch (error) {
+        console.error('getEventParticipants error:', error);
+        res.status(500).json({ success: false, message: error.message });
+    }
 };
 
 exports.getAttendanceRecords = async (req, res) => {
-  try {
-    const [rows] = await db.query(
-      `SELECT 
+    try {
+        const [rows] = await db.query(
+            `SELECT 
          ar.event_id,
          e.title AS event_title,
          ar.student_id,
@@ -344,12 +401,12 @@ exports.getAttendanceRecords = async (req, res) => {
        FROM attendance_records ar
        JOIN events e ON ar.event_id = e.event_id
        JOIN students s ON ar.student_id = s.id`
-    );
-    res.json({ success: true, data: rows });
-  } catch (error) {
-    console.error('getAttendanceRecords error:', error);
-    res.status(500).json({ success: false, message: error.message });
-  }
+        );
+        res.json({ success: true, data: rows });
+    } catch (error) {
+        console.error('getAttendanceRecords error:', error);
+        res.status(500).json({ success: false, message: error.message });
+    }
 };
 
 exports.updateEvent = async (req, res) => {
@@ -367,13 +424,13 @@ exports.updateEvent = async (req, res) => {
 };
 
 exports.getEventById = async (req, res) => {
-  try {
-    const event = await eventService.getEventById(req.params.id);
-    if (!event) {
-      return res.status(404).json({ success: false, message: 'Event not found' });
+    try {
+        const event = await eventService.getEventById(req.params.id);
+        if (!event) {
+            return res.status(404).json({ success: false, message: 'Event not found' });
+        }
+        res.json({ success: true, data: event });
+    } catch (error) {
+        res.status(500).json({ success: false, message: error.message });
     }
-    res.json({ success: true, data: event });
-  } catch (error) {
-    res.status(500).json({ success: false, message: error.message });
-  }
 };
