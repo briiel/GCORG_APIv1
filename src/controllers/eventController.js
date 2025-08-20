@@ -81,6 +81,39 @@ exports.getEvents = async (req, res) => {
     }
 };
 
+exports.getAllOswsEvents = async (req, res) => {
+    try {
+        const events = await eventService.getAllOswsEvents();
+        const now = new Date();
+
+        events = events.map(event => {
+            const eventStart = new Date(`${event.start_date}T${event.start_time}`);
+            const eventEnd = new Date(`${event.end_date}T${event.end_time}`);
+
+            if (event.status !== 'cancelled') {
+                if (eventStart > now) {
+                    event.status = 'not yet started';
+                } else if (eventStart <= now && eventEnd >= now) {
+                    event.status = 'ongoing';
+                } else if (eventEnd < now) {
+                    event.status = 'completed';
+                }
+            }
+
+            return {
+                ...event,
+                event_poster: event.event_poster?.startsWith('http')
+                    ? event.event_poster
+                    : null,
+                department: event.department
+            };
+        });
+        return handleSuccessResponse(res, events);
+    } catch (error) {
+        return handleErrorResponse(res, error.message);
+    }
+};
+
 exports.registerParticipant = [
     upload.single('proof_of_payment'),
     convertToWebpAndUpload,
@@ -346,22 +379,6 @@ exports.getAllOrgEvents = async (req, res) => {
     }
 };
 
-exports.getAllOswsEvents = async (req, res) => {
-    try {
-        const events = await eventService.getAllOswsEvents();
-        const host = req.protocol + '://' + req.get('host');
-        const eventsWithPosterUrl = events.map(event => ({
-            ...event,
-            event_poster: event.event_poster
-                ? `${host}/${event.event_poster.replace(/\\/g, '/')}`
-                : null,
-            department: event.department
-        }));
-        return handleSuccessResponse(res, eventsWithPosterUrl);
-    } catch (error) {
-        return handleErrorResponse(res, error.message);
-    }
-};
 
 exports.getEventParticipants = async (req, res) => {
     try {
