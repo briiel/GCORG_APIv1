@@ -13,13 +13,6 @@ cloudinary.config({
     secure: true
 });
 
-const buildPosterUrl = (req, poster) => {
-    if (!poster) return null;
-    if (/^https?:\/\//i.test(poster)) return poster; // already absolute (e.g., Cloudinary)
-    const host = req.protocol + '://' + req.get('host');
-    return `${host}/${poster.replace(/\\/g, '/')}`;
-};
-
 const uploadCertificateToCloudinary = async (tempCertPath, eventId, studentId) => {
     const cloudinaryPublicId = `certificate_${eventId}_${studentId}`;
 
@@ -59,7 +52,7 @@ exports.getEvents = async (req, res) => {
         let events = await eventService.fetchAllEvents();
         const now = new Date();
 
-        const eventsWithStatus = events.map(event => {
+        events = events.map(event => {
             const eventStart = new Date(`${event.start_date}T${event.start_time}`);
             const eventEnd = new Date(`${event.end_date}T${event.end_time}`);
 
@@ -75,12 +68,14 @@ exports.getEvents = async (req, res) => {
 
             return {
                 ...event,
-                event_poster: buildPosterUrl(req, event.event_poster),
+                event_poster: event.event_poster?.startsWith('http')
+                    ? event.event_poster
+                    : null,
                 department: event.department
             };
         });
 
-        return handleSuccessResponse(res, eventsWithStatus);
+        return handleSuccessResponse(res, events);
     } catch (error) {
         return handleErrorResponse(res, error.message);
     }
@@ -138,9 +133,12 @@ exports.getEventsByCreator = async (req, res) => {
     try {
         const { creator_id } = req.params;
         const events = await eventService.getEventsByCreator(creator_id);
+        const host = req.protocol + '://' + req.get('host');
         const eventsWithPosterUrl = events.map(event => ({
             ...event,
-            event_poster: buildPosterUrl(req, event.event_poster),
+            event_poster: event.event_poster
+                ? `${host}/${event.event_poster.replace(/\\/g, '/')}`
+                : null,
             department: event.department // Now included from the join
         }));
         return handleSuccessResponse(res, eventsWithPosterUrl);
@@ -317,9 +315,12 @@ exports.getEventsByAdmin = async (req, res) => {
     try {
         const { admin_id } = req.params;
         const events = await eventService.getEventsByAdmin(admin_id);
+        const host = req.protocol + '://' + req.get('host');
         const eventsWithPosterUrl = events.map(event => ({
             ...event,
-            event_poster: buildPosterUrl(req, event.event_poster),
+            event_poster: event.event_poster
+                ? `${host}/${event.event_poster.replace(/\\/g, '/')}`
+                : null,
             department: event.department
         }));
         return handleSuccessResponse(res, eventsWithPosterUrl);
@@ -331,9 +332,12 @@ exports.getEventsByAdmin = async (req, res) => {
 exports.getAllOrgEvents = async (req, res) => {
     try {
         const events = await eventService.getAllOrgEvents();
+        const host = req.protocol + '://' + req.get('host');
         const eventsWithPosterUrl = events.map(event => ({
             ...event,
-            event_poster: buildPosterUrl(req, event.event_poster),
+            event_poster: event.event_poster
+                ? `${host}/${event.event_poster.replace(/\\/g, '/')}`
+                : null,
             department: event.department
         }));
         return res.status(200).json({ success: true, data: eventsWithPosterUrl });
@@ -345,9 +349,12 @@ exports.getAllOrgEvents = async (req, res) => {
 exports.getAllOswsEvents = async (req, res) => {
     try {
         const events = await eventService.getAllOswsEvents();
+        const host = req.protocol + '://' + req.get('host');
         const eventsWithPosterUrl = events.map(event => ({
             ...event,
-            event_poster: buildPosterUrl(req, event.event_poster),
+            event_poster: event.event_poster
+                ? `${host}/${event.event_poster.replace(/\\/g, '/')}`
+                : null,
             department: event.department
         }));
         return handleSuccessResponse(res, eventsWithPosterUrl);
