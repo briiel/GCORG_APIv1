@@ -16,19 +16,7 @@ cloudinary.config({
 // Helper to safely build poster URL (only prepend host for relative paths)
 const buildPosterUrl = (req, poster) => {
     if (!poster) return null;
-
-    // Trim spaces
-    poster = poster.trim();
-
-    // If pattern: http(s)://api-host/http(s)://cloudinary...
-    if (/^https?:\/\/[^/]+\/https?:\/\//i.test(poster)) {
-        // Remove the first host segment up to the second protocol
-        poster = poster.replace(/^https?:\/\/[^/]+\/(https?:\/\/.*)$/i, '$1');
-    }
-
-    // If already absolute now, return
-    if (/^https?:\/\//i.test(poster)) return poster;
-
+    if (/^https?:\/\//i.test(poster)) return poster; // already absolute (Cloudinary etc.)
     const host = req.protocol + '://' + req.get('host');
     const normalized = poster.replace(/\\/g, '/').replace(/^\/+/, '');
     return `${host}/${normalized}`;
