@@ -13,15 +13,6 @@ cloudinary.config({
     secure: true
 });
 
-// Helper to safely build poster URL (only prepend host for relative paths)
-const buildPosterUrl = (req, poster) => {
-    if (!poster) return null;
-    if (/^https?:\/\//i.test(poster)) return poster; // already absolute (Cloudinary etc.)
-    const host = req.protocol + '://' + req.get('host');
-    const normalized = poster.replace(/\\/g, '/').replace(/^\/+/, '');
-    return `${host}/${normalized}`;
-};
-
 const uploadCertificateToCloudinary = async (tempCertPath, eventId, studentId) => {
     const cloudinaryPublicId = `certificate_${eventId}_${studentId}`;
 
@@ -77,7 +68,9 @@ exports.getEvents = async (req, res) => {
 
             return {
                 ...event,
-                event_poster: buildPosterUrl(req, event.event_poster),
+                event_poster: event.event_poster?.startsWith('http')
+                    ? event.event_poster
+                    : null,
                 department: event.department
             };
         });
@@ -140,9 +133,12 @@ exports.getEventsByCreator = async (req, res) => {
     try {
         const { creator_id } = req.params;
         const events = await eventService.getEventsByCreator(creator_id);
+        const host = req.protocol + '://' + req.get('host');
         const eventsWithPosterUrl = events.map(event => ({
             ...event,
-            event_poster: buildPosterUrl(req, event.event_poster),
+            event_poster: event.event_poster
+                ? `${host}/${event.event_poster.replace(/\\/g, '/')}`
+                : null,
             department: event.department // Now included from the join
         }));
         return handleSuccessResponse(res, eventsWithPosterUrl);
@@ -319,9 +315,12 @@ exports.getEventsByAdmin = async (req, res) => {
     try {
         const { admin_id } = req.params;
         const events = await eventService.getEventsByAdmin(admin_id);
+        const host = req.protocol + '://' + req.get('host');
         const eventsWithPosterUrl = events.map(event => ({
             ...event,
-            event_poster: buildPosterUrl(req, event.event_poster),
+            event_poster: event.event_poster
+                ? `${host}/${event.event_poster.replace(/\\/g, '/')}`
+                : null,
             department: event.department
         }));
         return handleSuccessResponse(res, eventsWithPosterUrl);
@@ -333,9 +332,12 @@ exports.getEventsByAdmin = async (req, res) => {
 exports.getAllOrgEvents = async (req, res) => {
     try {
         const events = await eventService.getAllOrgEvents();
+        const host = req.protocol + '://' + req.get('host');
         const eventsWithPosterUrl = events.map(event => ({
             ...event,
-            event_poster: buildPosterUrl(req, event.event_poster),
+            event_poster: event.event_poster
+                ? `${host}/${event.event_poster.replace(/\\/g, '/')}`
+                : null,
             department: event.department
         }));
         return res.status(200).json({ success: true, data: eventsWithPosterUrl });
@@ -347,9 +349,12 @@ exports.getAllOrgEvents = async (req, res) => {
 exports.getAllOswsEvents = async (req, res) => {
     try {
         const events = await eventService.getAllOswsEvents();
+        const host = req.protocol + '://' + req.get('host');
         const eventsWithPosterUrl = events.map(event => ({
             ...event,
-            event_poster: buildPosterUrl(req, event.event_poster),
+            event_poster: event.event_poster
+                ? `${host}/${event.event_poster.replace(/\\/g, '/')}`
+                : null,
             department: event.department
         }));
         return handleSuccessResponse(res, eventsWithPosterUrl);
@@ -424,7 +429,6 @@ exports.getEventById = async (req, res) => {
         if (!event) {
             return res.status(404).json({ success: false, message: 'Event not found' });
         }
-        event.event_poster = buildPosterUrl(req, event.event_poster);
         res.json({ success: true, data: event });
     } catch (error) {
         res.status(500).json({ success: false, message: error.message });
