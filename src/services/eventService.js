@@ -74,9 +74,9 @@ const getAttendanceRecordsByOsws = async (adminId) => {
     }
 };
 
-const deleteEvent = async (eventId) => {
+const deleteEvent = async (eventId, deletedBy) => {
     try {
-        return await eventModel.deleteEvent(eventId);
+        return await eventModel.deleteEvent(eventId, deletedBy);
     } catch (error) {
         console.error('Error deleting event in service:', error);
         throw error;
@@ -128,4 +128,7 @@ module.exports = {
     getAllOswsEvents,
     updateEvent,
     getEventById,
+    getTrashedOrgEvents: eventModel.getTrashedOrgEvents,
+    getTrashedOswsEvents: eventModel.getTrashedOswsEvents,
+    restoreEvent: eventModel.restoreEvent,
 };

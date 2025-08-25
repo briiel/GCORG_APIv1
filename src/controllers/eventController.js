@@ -317,8 +317,39 @@ exports.getAllAttendanceRecords = async (req, res) => {
 exports.deleteEvent = async (req, res) => {
     try {
         const { id } = req.params;
-        await eventService.deleteEvent(id);
-        return handleSuccessResponse(res, { message: 'Event deleted successfully' });
+        const userId = req.user ? req.user.id : null;
+        const ok = await eventService.deleteEvent(id, userId);
+        if (!ok) return handleErrorResponse(res, 'Event not found or already deleted', 404);
+        return handleSuccessResponse(res, { message: 'Event moved to trash' });
+    } catch (error) {
+        return handleErrorResponse(res, error.message);
+    }
+};
+
+exports.getTrashedEvents = async (req, res) => {
+    try {
+        const user = req.user;
+        if (!user) return handleErrorResponse(res, 'Unauthorized', 401);
+        let rows = [];
+        if (user.role === 'organization') {
+            rows = await eventService.getTrashedOrgEvents(user.id);
+        } else if (user.role === 'admin') {
+            rows = await eventService.getTrashedOswsEvents(user.id);
+        } else {
+            return handleErrorResponse(res, 'Forbidden', 403);
+        }
+        return handleSuccessResponse(res, rows);
+    } catch (error) {
+        return handleErrorResponse(res, error.message);
+    }
+};
+
+exports.restoreEvent = async (req, res) => {
+    try {
+        const { id } = req.params;
+        const ok = await eventService.restoreEvent(id);
+        if (!ok) return handleErrorResponse(res, 'Event not found', 404);
+        return handleSuccessResponse(res, { message: 'Event restored' });
     } catch (error) {
         return handleErrorResponse(res, error.message);
     }

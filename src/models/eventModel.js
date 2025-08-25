@@ -37,6 +37,7 @@ const getAllEvents = async () => {
         SELECT ce.*, org.department, org.org_name
         FROM created_events ce
         LEFT JOIN student_organizations org ON ce.created_by_org_id = org.id
+        WHERE ce.deleted_at IS NULL
     `;
     try {
         const [rows] = await db.query(query);
@@ -52,7 +53,7 @@ const getEventsByParticipant = async (student_id) => {
         SELECT ce.*, er.qr_code
         FROM created_events ce
         JOIN event_registrations er ON ce.event_id = er.event_id
-        WHERE er.student_id = ?
+        WHERE er.student_id = ? AND ce.deleted_at IS NULL
     `;
     try {
         const [rows] = await db.query(query, [student_id]);
@@ -68,7 +69,7 @@ const getEventsByCreator = async (creator_id) => {
         SELECT ce.*, org.department
         FROM created_events ce
         JOIN student_organizations org ON ce.created_by_org_id = org.id
-        WHERE ce.created_by_org_id = ?
+        WHERE ce.created_by_org_id = ? AND ce.deleted_at IS NULL
     `;
     try {
         const [rows] = await db.query(query, [creator_id]);
@@ -168,29 +169,15 @@ const getAttendanceRecordsByOrg = async (orgId) => {
         }
     };
 
-const deleteEvent = async (eventId) => {
-    const conn = await db.getConnection();
+// Soft delete: mark event as trashed
+const deleteEvent = async (eventId, deletedBy) => {
+    const query = `UPDATE created_events SET deleted_at = NOW(), deleted_by = ? WHERE event_id = ? AND deleted_at IS NULL`;
     try {
-        await conn.beginTransaction();
-
-        // Delete attendance records linked to this event
-        await conn.query('DELETE FROM attendance_records WHERE event_id = ?', [eventId]);
-
-        // Delete event registrations
-        await conn.query('DELETE FROM event_registrations WHERE event_id = ?', [eventId]);
-        // Delete certificates if you have them
-        await conn.query('DELETE FROM certificates WHERE event_id = ?', [eventId]);
-        // Finally, delete the event
-        await conn.query('DELETE FROM created_events WHERE event_id = ?', [eventId]);
-
-        await conn.commit();
-        return true;
+        const [result] = await db.query(query, [deletedBy || null, eventId]);
+        return result.affectedRows > 0;
     } catch (error) {
-        await conn.rollback();
-        console.error('Error deleting event:', error.stack);
+        console.error('Error soft-deleting event:', error.stack);
         throw error;
-    } finally {
-        conn.release();
     }
 };
 
@@ -199,7 +186,7 @@ const getEventsByAdmin = async (admin_id) => {
         SELECT ce.*, a.name AS admin_name
         FROM created_events ce
         JOIN osws_admins a ON ce.created_by_osws_id = a.id
-        WHERE ce.created_by_osws_id = ?
+        WHERE ce.created_by_osws_id = ? AND ce.deleted_at IS NULL
     `;
     try {
         const [rows] = await db.query(query, [admin_id]);
@@ -215,7 +202,7 @@ const getAllOrgEvents = async () => {
         SELECT ce.*, org.department, org.org_name
         FROM created_events ce
         JOIN student_organizations org ON ce.created_by_org_id = org.id
-        WHERE ce.created_by_org_id IS NOT NULL
+        WHERE ce.created_by_org_id IS NOT NULL AND ce.deleted_at IS NULL
     `;
     try {
         const [rows] = await db.query(query);
@@ -232,7 +219,7 @@ const getAllOswsEvents = async () => {
         SELECT ce.*, a.name AS admin_name
         FROM created_events ce
         JOIN osws_admins a ON ce.created_by_osws_id = a.id
-        WHERE ce.created_by_osws_id IS NOT NULL
+        WHERE ce.created_by_osws_id IS NOT NULL AND ce.deleted_at IS NULL
     `;
     const [rows] = await db.query(query);
     return rows;
@@ -278,6 +265,37 @@ const getEventById = async (eventId) => {
   return rows[0];
 };
 
+// Trash listing and restore helpers
+const getTrashedOrgEvents = async (orgId) => {
+    const query = `
+        SELECT ce.*, org.department, org.org_name
+        FROM created_events ce
+        JOIN student_organizations org ON ce.created_by_org_id = org.id
+        WHERE ce.created_by_org_id = ? AND ce.deleted_at IS NOT NULL
+        ORDER BY ce.deleted_at DESC
+    `;
+    const [rows] = await db.query(query, [orgId]);
+    return rows;
+};
+
+const getTrashedOswsEvents = async (adminId) => {
+    const query = `
+        SELECT ce.*, a.name AS admin_name
+        FROM created_events ce
+        JOIN osws_admins a ON ce.created_by_osws_id = a.id
+        WHERE ce.created_by_osws_id = ? AND ce.deleted_at IS NOT NULL
+        ORDER BY ce.deleted_at DESC
+    `;
+    const [rows] = await db.query(query, [adminId]);
+    return rows;
+};
+
+const restoreEvent = async (eventId) => {
+    const query = `UPDATE created_events SET deleted_at = NULL, deleted_by = NULL WHERE event_id = ?`;
+    const [result] = await db.query(query, [eventId]);
+    return result.affectedRows > 0;
+};
+
 module.exports = { 
     createEvent, 
     getAllEvents, 
@@ -292,5 +310,8 @@ module.exports = {
     getAllOrgEvents,
     getAllOswsEvents,
     updateEvent,
-    getEventById
+    getEventById,
+    getTrashedOrgEvents,
+    getTrashedOswsEvents,
+    restoreEvent
 };
