@@ -562,7 +562,8 @@ exports.getEventParticipants = async (req, res) => {
         const { event_id } = req.params;
         const [rows] = await db.query(
             `SELECT 
-         er.student_id, 
+         er.student_id,
+         er.proof_of_payment,
          s.first_name, 
          s.last_name, 
          s.suffix, 
@@ -573,7 +574,19 @@ exports.getEventParticipants = async (req, res) => {
        WHERE er.event_id = ?`,
             [event_id]
         );
-        res.json({ success: true, data: rows });
+
+        // Normalize proof_of_payment to absolute URL if needed
+        const host = req.protocol + '://' + req.get('host');
+        const data = rows.map(r => ({
+            ...r,
+            proof_of_payment: r.proof_of_payment
+                ? (r.proof_of_payment.startsWith('http')
+                    ? r.proof_of_payment
+                    : `${host}/${String(r.proof_of_payment).replace(/\\/g, '/')}`)
+                : null
+        }));
+
+        res.json({ success: true, data });
     } catch (error) {
         console.error('getEventParticipants error:', error);
         res.status(500).json({ success: false, message: error.message });
