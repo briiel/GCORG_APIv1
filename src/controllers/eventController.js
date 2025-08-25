@@ -134,13 +134,19 @@ exports.getEventsByCreator = async (req, res) => {
         const { creator_id } = req.params;
         const events = await eventService.getEventsByCreator(creator_id);
         const host = req.protocol + '://' + req.get('host');
-        const eventsWithPosterUrl = events.map(event => ({
-            ...event,
-            event_poster: event.event_poster
-                ? `${host}/${event.event_poster.replace(/\\/g, '/')}`
-                : null,
-            department: event.department // Now included from the join
-        }));
+        const eventsWithPosterUrl = events.map(event => {
+            const poster = event.event_poster;
+            const normalizedPoster = poster
+                ? (poster.startsWith('http')
+                    ? poster
+                    : `${host}/${poster.replace(/\\/g, '/')}`)
+                : null;
+            return {
+                ...event,
+                event_poster: normalizedPoster,
+                department: event.department // Now included from the join
+            };
+        });
         return handleSuccessResponse(res, eventsWithPosterUrl);
     } catch (error) {
         return handleErrorResponse(res, error.message);
@@ -379,13 +385,19 @@ exports.getEventsByAdmin = async (req, res) => {
         const { admin_id } = req.params;
         const events = await eventService.getEventsByAdmin(admin_id);
         const host = req.protocol + '://' + req.get('host');
-        const eventsWithPosterUrl = events.map(event => ({
-            ...event,
-            event_poster: event.event_poster
-                ? `${host}/${event.event_poster.replace(/\\/g, '/')}`
-                : null,
-            department: event.department
-        }));
+        const eventsWithPosterUrl = events.map(event => {
+            const poster = event.event_poster;
+            const normalizedPoster = poster
+                ? (poster.startsWith('http')
+                    ? poster
+                    : `${host}/${poster.replace(/\\/g, '/')}`)
+                : null;
+            return {
+                ...event,
+                event_poster: normalizedPoster,
+                department: event.department
+            };
+        });
         return handleSuccessResponse(res, eventsWithPosterUrl);
     } catch (error) {
         return handleErrorResponse(res, error.message);
@@ -396,13 +408,19 @@ exports.getAllOrgEvents = async (req, res) => {
     try {
         const events = await eventService.getAllOrgEvents();
         const host = req.protocol + '://' + req.get('host');
-        const eventsWithPosterUrl = events.map(event => ({
-            ...event,
-            event_poster: event.event_poster
-                ? `${host}/${event.event_poster.replace(/\\/g, '/')}`
-                : null,
-            department: event.department
-        }));
+        const eventsWithPosterUrl = events.map(event => {
+            const poster = event.event_poster;
+            const normalizedPoster = poster
+                ? (poster.startsWith('http')
+                    ? poster
+                    : `${host}/${poster.replace(/\\/g, '/')}`)
+                : null;
+            return {
+                ...event,
+                event_poster: normalizedPoster,
+                department: event.department
+            };
+        });
         return res.status(200).json({ success: true, data: eventsWithPosterUrl });
     } catch (error) {
         return res.status(500).json({ success: false, message: error.message });
@@ -413,13 +431,19 @@ exports.getAllOswsEvents = async (req, res) => {
     try {
         const events = await eventService.getAllOswsEvents();
         const host = req.protocol + '://' + req.get('host');
-        const eventsWithPosterUrl = events.map(event => ({
-            ...event,
-            event_poster: event.event_poster
-                ? `${host}/${event.event_poster.replace(/\\/g, '/')}`
-                : null,
-            department: event.department
-        }));
+        const eventsWithPosterUrl = events.map(event => {
+            const poster = event.event_poster;
+            const normalizedPoster = poster
+                ? (poster.startsWith('http')
+                    ? poster
+                    : `${host}/${poster.replace(/\\/g, '/')}`)
+                : null;
+            return {
+                ...event,
+                event_poster: normalizedPoster,
+                department: event.department
+            };
+        });
         return handleSuccessResponse(res, eventsWithPosterUrl);
     } catch (error) {
         return handleErrorResponse(res, error.message);
@@ -477,7 +501,11 @@ exports.updateEvent = async (req, res) => {
         const { id } = req.params;
         const eventData = req.body;
         if (req.file) {
-            eventData.event_poster = req.file.path;
+            // Keep consistency with createEvent: use Cloudinary URL when available
+            eventData.event_poster = req.file.cloudinaryUrl || req.file.path;
+            if (req.file.cloudinaryPublicId) {
+                eventData.event_poster_public_id = req.file.cloudinaryPublicId;
+            }
         }
         await eventService.updateEvent(id, eventData);
         return handleSuccessResponse(res, { message: 'Event updated successfully' });
