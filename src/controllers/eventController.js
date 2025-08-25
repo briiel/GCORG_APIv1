@@ -165,6 +165,13 @@ exports.updateEventStatus = async (req, res) => {
         await eventService.updateEventStatus(id, status);
 
         if (status === 'completed') {
+            // Only release certificates for events created by OSWS
+            const event = await eventService.getEventById(id);
+            const isOswsCreated = event && event.created_by_osws_id; // truthy when created by OSWS
+            if (!isOswsCreated) {
+                console.log(`Skipping certificate generation for event ${id} - not an OSWS-created event.`);
+                return handleSuccessResponse(res, { message: 'Event status updated successfully (certificates are only released for OSWS-created events).' });
+            }
             const [attendees] = await db.query(
                 `SELECT ar.student_id,
                         CONCAT(s.first_name, ' ', s.last_name, IF(s.suffix IS NOT NULL AND s.suffix != '', CONCAT(' ', s.suffix), '')) AS student_name,
@@ -239,32 +246,113 @@ exports.updateEventStatus = async (req, res) => {
 exports.markAttendance = async (req, res) => {
     try {
         let { registration_id, event_id, student_id } = req.body;
-        const scanned_by_org_id = req.user && req.user.id;
+        const user = req.user;
 
-        if (!student_id || !scanned_by_org_id) {
+        if (!student_id || !user || !user.id) {
             return handleErrorResponse(res, 'Missing required fields', 400);
         }
 
-        // If registration_id or event_id not provided (QR contains only student_id),
-        // infer the most relevant registration for this org.
-        if (!registration_id || !event_id) {
-            const [rows] = await db.query(
-                `SELECT er.id AS registration_id, er.event_id
-                 FROM event_registrations er
-                 JOIN created_events ce ON er.event_id = ce.event_id
-                 WHERE er.student_id = ? AND ce.created_by_org_id = ?
-                 ORDER BY ce.start_date DESC, ce.start_time DESC
-                 LIMIT 1`,
-                [student_id, scanned_by_org_id]
-            );
+        const role = user.role;
+        // Only organizations and OSWS admins are allowed to scan
+        if (role !== 'organization' && role !== 'admin') {
+            return handleErrorResponse(res, 'Forbidden', 403);
+        }
+
+    // Note: Department-based restrictions intentionally not enforced. Cross-department registrations are allowed.
+
+        // Determine registration/event pairing when one or both are missing.
+        // 1) If both registration_id and event_id are missing, infer the most relevant within scanner scope.
+        // 2) If event_id is provided but registration_id is missing, find the student's registration for that event.
+        // 3) If registration_id is provided but event_id is missing, fetch its event and validate student.
+        if (!registration_id && !event_id) {
+            let query;
+            let params;
+            if (role === 'organization') {
+                query = `SELECT er.id AS registration_id, er.event_id
+                         FROM event_registrations er
+                         JOIN created_events ce ON er.event_id = ce.event_id
+                         WHERE er.student_id = ? AND ce.created_by_org_id = ?
+                         ORDER BY 
+                             CASE 
+                                 WHEN (
+                                     (ce.start_date < CURDATE() OR (ce.start_date = CURDATE() AND ce.start_time <= CURTIME()))
+                                     AND (ce.end_date > CURDATE() OR (ce.end_date = CURDATE() AND ce.end_time >= CURTIME()))
+                                 ) THEN 0
+                                 WHEN (ce.start_date > CURDATE() OR (ce.start_date = CURDATE() AND ce.start_time > CURTIME())) THEN 1
+                                 ELSE 2
+                             END ASC,
+                             ce.start_date DESC, ce.start_time DESC
+                         LIMIT 1`;
+                params = [student_id, user.id];
+            } else {
+                // role === 'admin' (OSWS)
+                query = `SELECT er.id AS registration_id, er.event_id
+                         FROM event_registrations er
+                         JOIN created_events ce ON er.event_id = ce.event_id
+                         WHERE er.student_id = ? AND ce.created_by_osws_id = ?
+                         ORDER BY 
+                             CASE 
+                                 WHEN (
+                                     (ce.start_date < CURDATE() OR (ce.start_date = CURDATE() AND ce.start_time <= CURTIME()))
+                                     AND (ce.end_date > CURDATE() OR (ce.end_date = CURDATE() AND ce.end_time >= CURTIME()))
+                                 ) THEN 0
+                                 WHEN (ce.start_date > CURDATE() OR (ce.start_date = CURDATE() AND ce.start_time > CURTIME())) THEN 1
+                                 ELSE 2
+                             END ASC,
+                             ce.start_date DESC, ce.start_time DESC
+                         LIMIT 1`;
+                params = [student_id, user.id];
+            }
+
+            const [rows] = await db.query(query, params);
             if (!rows.length) {
+                // Keep existing message to avoid frontend changes
                 return handleErrorResponse(res, 'No matching registration found for this student under your organization. Please specify event.', 404);
             }
             registration_id = rows[0].registration_id;
             event_id = rows[0].event_id;
+        } else if (event_id && !registration_id) {
+            // Find the registration for this student and event
+            const [rows] = await db.query(
+                'SELECT id AS registration_id FROM event_registrations WHERE event_id = ? AND student_id = ? LIMIT 1',
+                [event_id, student_id]
+            );
+            if (!rows.length) {
+                return handleErrorResponse(res, 'Student is not registered for this event.', 404);
+            }
+            registration_id = rows[0].registration_id;
+        } else if (registration_id && !event_id) {
+            // Fetch event_id from the registration and validate student linkage
+            const [rows] = await db.query(
+                'SELECT event_id, student_id FROM event_registrations WHERE id = ? LIMIT 1',
+                [registration_id]
+            );
+            if (!rows.length) {
+                return handleErrorResponse(res, 'Registration not found', 404);
+            }
+            if (String(rows[0].student_id) !== String(student_id)) {
+                return handleErrorResponse(res, 'Registration does not belong to this student.', 403);
+            }
+            event_id = rows[0].event_id;
         }
 
-        // Verify registration exists and belongs to provided values
+                // Scope check: ensure the specified/derived event belongs to the scanner
+                const [evRows] = await db.query(
+                        'SELECT created_by_org_id, created_by_osws_id FROM created_events WHERE event_id = ?',
+                        [event_id]
+                );
+                if (!evRows.length) {
+                        return handleErrorResponse(res, 'Event not found', 404);
+                }
+                const ev = evRows[0];
+                if (role === 'organization' && ev.created_by_org_id !== user.id) {
+                        return handleErrorResponse(res, 'You are not authorized to record attendance for this event.', 403);
+                }
+                if (role === 'admin' && ev.created_by_osws_id !== user.id) {
+                        return handleErrorResponse(res, 'You are not authorized to record attendance for this event.', 403);
+                }
+
+    // Verify registration exists and belongs to provided values
         const [reg] = await db.query(
             'SELECT * FROM event_registrations WHERE id = ? AND event_id = ? AND student_id = ?',
             [registration_id, event_id, student_id]
@@ -282,10 +370,11 @@ exports.markAttendance = async (req, res) => {
             return handleErrorResponse(res, 'Attendance already recorded', 409);
         }
 
-        // Insert attendance record
+        // Insert attendance record. For OSWS admin scans, set scanned_by_org_id to NULL.
+        const scannedByOrgId = role === 'organization' ? user.id : null;
         await db.query(
             'INSERT INTO attendance_records (event_id, student_id, attended_at, scanned_by_org_id) VALUES (?, ?, NOW(), ?)',
-            [event_id, student_id, scanned_by_org_id]
+            [event_id, student_id, scannedByOrgId]
         );
 
         return handleSuccessResponse(res, { message: 'Attendance recorded' });
