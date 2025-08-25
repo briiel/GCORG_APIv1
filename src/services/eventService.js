@@ -65,6 +65,15 @@ const getAttendanceRecordsByOrg = async (orgId) => {
     }
 };
 
+const getAttendanceRecordsByOsws = async (adminId) => {
+    try {
+        return await eventModel.getAttendanceRecordsByOsws(adminId);
+    } catch (error) {
+        console.error('Error fetching attendance records by OSWS in service:', error);
+        throw error;
+    }
+};
+
 const deleteEvent = async (eventId) => {
     try {
         return await eventModel.deleteEvent(eventId);
@@ -112,6 +121,7 @@ module.exports = {
     updateEventStatus,
     getAllAttendanceRecords,
     getAttendanceRecordsByOrg,
+    getAttendanceRecordsByOsws,
     deleteEvent,
     getEventsByAdmin,
     getAllOrgEvents,

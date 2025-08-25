@@ -232,14 +232,33 @@ exports.updateEventStatus = async (req, res) => {
 
 exports.markAttendance = async (req, res) => {
     try {
-        const { registration_id, event_id, student_id } = req.body;
+        let { registration_id, event_id, student_id } = req.body;
         const scanned_by_org_id = req.user && req.user.id;
 
-        if (!registration_id || !event_id || !student_id || !scanned_by_org_id) {
+        if (!student_id || !scanned_by_org_id) {
             return handleErrorResponse(res, 'Missing required fields', 400);
         }
 
-        // Verify registration exists
+        // If registration_id or event_id not provided (QR contains only student_id),
+        // infer the most relevant registration for this org.
+        if (!registration_id || !event_id) {
+            const [rows] = await db.query(
+                `SELECT er.id AS registration_id, er.event_id
+                 FROM event_registrations er
+                 JOIN created_events ce ON er.event_id = ce.event_id
+                 WHERE er.student_id = ? AND ce.created_by_org_id = ?
+                 ORDER BY ce.start_date DESC, ce.start_time DESC
+                 LIMIT 1`,
+                [student_id, scanned_by_org_id]
+            );
+            if (!rows.length) {
+                return handleErrorResponse(res, 'No matching registration found for this student under your organization. Please specify event.', 404);
+            }
+            registration_id = rows[0].registration_id;
+            event_id = rows[0].event_id;
+        }
+
+        // Verify registration exists and belongs to provided values
         const [reg] = await db.query(
             'SELECT * FROM event_registrations WHERE id = ? AND event_id = ? AND student_id = ?',
             [registration_id, event_id, student_id]
@@ -248,7 +267,7 @@ exports.markAttendance = async (req, res) => {
             return handleErrorResponse(res, 'Registration not found', 404);
         }
 
-        // Check if already attended
+        // Check if already attended for this event
         const [existing] = await db.query(
             'SELECT * FROM attendance_records WHERE event_id = ? AND student_id = ?',
             [event_id, student_id]
@@ -271,11 +290,24 @@ exports.markAttendance = async (req, res) => {
 
 exports.getAllAttendanceRecords = async (req, res) => {
     try {
-        const orgId = req.user && req.user.id;
-        if (!orgId) {
+        const user = req.user;
+        if (!user) {
             return handleErrorResponse(res, 'Unauthorized', 401);
         }
-        const records = await eventService.getAttendanceRecordsByOrg(orgId);
+
+        let records;
+        if (user.role === 'organization') {
+            records = await eventService.getAttendanceRecordsByOrg(user.id);
+        } else if (user.role === 'admin') {
+            records = await eventService.getAttendanceRecordsByOsws(user.id);
+        } else if (user.role === 'student') {
+            // Students should not access all attendance records
+            return handleErrorResponse(res, 'Forbidden', 403);
+        } else {
+            // default fallback: return none
+            records = [];
+        }
+
         return handleSuccessResponse(res, records);
     } catch (error) {
         return handleErrorResponse(res, error.message);

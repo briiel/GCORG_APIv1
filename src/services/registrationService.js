@@ -48,9 +48,9 @@ const registerParticipant = async ({
             throw new Error('Failed to register for the event.');
         }
 
-        // 4. Generate QR code and upload to Cloudinary
-        const qrData = { registration_id, event_id, student_id };
-        const qrString = JSON.stringify(qrData);
+    // 4. Generate QR code and upload to Cloudinary
+    // Requirement: QR content should contain ONLY the student_id
+    const qrString = String(student_id);
 
         // Generate QR code as buffer
         const qrBuffer = await QRCode.toBuffer(qrString, {
@@ -93,28 +93,32 @@ const registerParticipant = async ({
             [uploadResult.secure_url, uploadResult.public_id, registration_id]
         );
 
-        // Fetch student email for notification
+        // Fetch student info for notification
         const [studentRows] = await conn.query(
-            `SELECT email FROM students WHERE id = ?`,
+            `SELECT id, email, first_name, last_name FROM students WHERE id = ?`,
             [student_id]
         );
-        const studentEmail = studentRows[0]?.email;
+        const student = studentRows[0] || {};
+        const studentEmail = student.email;
 
-        // Fetch event title for email
+        // Fetch event details for email
         const [eventRows] = await conn.query(
-            `SELECT title FROM created_events WHERE event_id = ?`,
+            `SELECT title, location, start_date, start_time, end_date, end_time FROM created_events WHERE event_id = ?`,
             [event_id]
         );
-        const eventTitle = eventRows[0]?.title;
+        const event = eventRows[0] || {};
+        const eventTitle = event.title;
 
         if (studentEmail && eventTitle) {
             try {
-                await sendRegistrationEmail(
-                    studentEmail,
-                    'Event Registration Successful',
-                    `You have successfully registered for the event "${eventTitle}".`,
-                    uploadResult.secure_url // Pass QR code URL for email attachment
-                );
+                await sendRegistrationEmail({
+                    to: studentEmail,
+                    subject: 'Event Registration Successful',
+                    text: `You have successfully registered for the event "${eventTitle}".`,
+                    event,
+                    student,
+                    qrUrl: uploadResult.secure_url,
+                });
             } catch (emailError) {
                 console.error('Email sending failed:', emailError);
                 // Don't throw error here, registration was successful

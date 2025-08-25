@@ -141,6 +141,33 @@ const getAttendanceRecordsByOrg = async (orgId) => {
     }
 };
 
+    // Attendance records for OSWS admin (events created by OSWS admin)
+    const getAttendanceRecordsByOsws = async (adminId) => {
+        const query = `
+            SELECT 
+                ar.event_id,
+                ce.title AS event_title,
+                ar.student_id,
+                s.first_name,
+                s.last_name,
+                s.suffix,
+                s.department,
+                s.program,
+                ar.attended_at
+            FROM attendance_records ar
+            JOIN created_events ce ON ar.event_id = ce.event_id
+            JOIN students s ON ar.student_id = s.id
+            WHERE ce.created_by_osws_id = ?
+        `;
+        try {
+            const [rows] = await db.query(query, [adminId]);
+            return rows;
+        } catch (error) {
+            console.error('Error fetching attendance records by OSWS admin:', error.stack);
+            throw error;
+        }
+    };
+
 const deleteEvent = async (eventId) => {
     const conn = await db.getConnection();
     try {
@@ -259,6 +286,7 @@ module.exports = {
     updateEventStatus,
     getAllAttendanceRecords,
     getAttendanceRecordsByOrg,
+        getAttendanceRecordsByOsws,
     deleteEvent,
     getEventsByAdmin,
     getAllOrgEvents,
