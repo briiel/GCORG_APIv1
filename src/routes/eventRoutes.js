@@ -21,6 +21,7 @@ router.get('/attendance-records', authenticateToken, eventController.getAllAtten
 router.delete('/events/:id', authenticateToken, eventController.deleteEvent); // Soft-delete an event
 router.get('/events/trash', authenticateToken, eventController.getTrashedEvents); // List trashed events for current user
 router.post('/events/:id/restore', authenticateToken, eventController.restoreEvent); // Restore trashed event
+router.delete('/events/:id/permanent', authenticateToken, eventController.permanentDeleteEvent); // Permanently delete a trashed event
 router.get('/certificates', eventController.getCertificatesByStudent); // Get certificates by student
 router.get('/events/admin/:admin_id', eventController.getEventsByAdmin); // Get events by admin
 router.get('/events/organizations', eventController.getAllOrgEvents); // Get all events by organizations

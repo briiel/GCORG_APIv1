@@ -361,6 +361,24 @@ exports.restoreEvent = async (req, res) => {
     }
 };
 
+// Permanently delete a trashed event (hard delete). Only allowed for the owner (org or OSWS) based on token.
+exports.permanentDeleteEvent = async (req, res) => {
+    try {
+        const { id } = req.params;
+        const user = req.user;
+        if (!user) return handleErrorResponse(res, 'Unauthorized', 401);
+
+        const result = await eventService.permanentDeleteEvent({ eventId: id, user });
+        if (!result?.deleted) {
+            const code = result?.code || 404;
+            return handleErrorResponse(res, result?.message || 'Event not found or not in trash', code);
+        }
+        return handleSuccessResponse(res, { message: 'Event permanently deleted' });
+    } catch (error) {
+        return handleErrorResponse(res, error.message);
+    }
+};
+
 exports.getCertificatesByStudent = async (req, res) => {
     try {
         const { student_id } = req.query;

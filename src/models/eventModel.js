@@ -265,6 +265,49 @@ const getEventById = async (eventId) => {
   return rows[0];
 };
 
+// Hard delete: remove event and dependent data
+const hardDeleteEvent = async (eventId) => {
+    const conn = await db.getConnection?.() || db; // supports pool or promise wrapper
+    try {
+        if (conn.beginTransaction) await conn.beginTransaction();
+
+        // Delete attendance records referencing this event
+        await conn.query('DELETE FROM attendance_records WHERE event_id = ?', [eventId]);
+
+        // For backward-compat: if a legacy table `registration_details` exists, clean it up too.
+        try {
+            const [tbl] = await conn.query(
+                "SELECT 1 AS exists_flag FROM information_schema.tables WHERE table_schema = DATABASE() AND table_name = 'registration_details'"
+            );
+            const hasRegistrationDetails = Array.isArray(tbl) && tbl.length > 0;
+            if (hasRegistrationDetails) {
+                await conn.query(
+                    'DELETE rd FROM registration_details rd JOIN event_registrations er ON rd.registration_id = er.id WHERE er.event_id = ?',
+                    [eventId]
+                );
+            }
+        } catch (e) {
+            // If information_schema is unavailable or any error occurs, skip optional cleanup silently.
+        }
+
+        // Delete registrations
+        await conn.query('DELETE FROM event_registrations WHERE event_id = ?', [eventId]);
+        // Delete certificates for this event
+        await conn.query('DELETE FROM certificates WHERE event_id = ?', [eventId]);
+        // Finally delete the event
+        const [res] = await conn.query('DELETE FROM created_events WHERE event_id = ?', [eventId]);
+
+        if (conn.commit) await conn.commit();
+        return res.affectedRows > 0;
+    } catch (error) {
+        if (conn.rollback) await conn.rollback();
+        console.error('Error hard-deleting event:', error.stack || error);
+        throw error;
+    } finally {
+        if (conn.release) conn.release();
+    }
+};
+
 // Trash listing and restore helpers
 const getTrashedOrgEvents = async (orgId) => {
     const query = `
@@ -313,5 +356,6 @@ module.exports = {
     getEventById,
     getTrashedOrgEvents,
     getTrashedOswsEvents,
-    restoreEvent
+    restoreEvent,
+    hardDeleteEvent
 };

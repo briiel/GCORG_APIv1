@@ -131,4 +131,18 @@ module.exports = {
     getTrashedOrgEvents: eventModel.getTrashedOrgEvents,
     getTrashedOswsEvents: eventModel.getTrashedOswsEvents,
     restoreEvent: eventModel.restoreEvent,
+    permanentDeleteEvent: async ({ eventId, user }) => {
+        // Fetch event and check ownership and trashed state
+        const ev = await eventModel.getEventById(eventId);
+        if (!ev) return { deleted: false, code: 404, message: 'Event not found' };
+        if (!ev.deleted_at) return { deleted: false, code: 400, message: 'Event is not in trash' };
+        if (user.role === 'organization' && ev.created_by_org_id !== user.id) {
+            return { deleted: false, code: 403, message: 'Forbidden' };
+        }
+        if (user.role === 'admin' && ev.created_by_osws_id !== user.id) {
+            return { deleted: false, code: 403, message: 'Forbidden' };
+        }
+        const ok = await eventModel.hardDeleteEvent(eventId);
+        return { deleted: ok };
+    }
 };
