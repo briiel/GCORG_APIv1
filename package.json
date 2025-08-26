@@ -6,7 +6,8 @@
     "test": "echo \"Error: no test specified\" && exit 1",
     "start": "node src/server.js",
   "dev": "nodemon src/server.js",
-  "cert:sample": "node src/scripts/generate_sample_certificate.js"
+  "cert:sample": "node src/scripts/generate_sample_certificate.js",
+  "reminders:run": "node src/scripts/run_reminder_sweep.js"
   },
   "keywords": [],
   "author": "",

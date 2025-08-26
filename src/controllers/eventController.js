@@ -162,7 +162,7 @@ exports.updateEventStatus = async (req, res) => {
             return handleErrorResponse(res, 'Status is required', 400);
         }
 
-        await eventService.updateEventStatus(id, status);
+    await eventService.updateEventStatus(id, status);
 
         if (status === 'completed') {
             // Only release certificates for events created by OSWS
@@ -170,7 +170,13 @@ exports.updateEventStatus = async (req, res) => {
             const isOswsCreated = event && event.created_by_osws_id; // truthy when created by OSWS
             if (!isOswsCreated) {
                 console.log(`Skipping certificate generation for event ${id} - not an OSWS-created event.`);
-                return handleSuccessResponse(res, { message: 'Event status updated successfully (certificates are only released for OSWS-created events).' });
+                // Auto-trash completed events regardless of creator per requirement
+                try {
+                    await eventService.deleteEvent(id, null);
+                } catch (e) {
+                    console.warn('Auto-trash on completion (non-OSWS) failed or already trashed:', e?.message || e);
+                }
+                return handleSuccessResponse(res, { message: 'Event completed and moved to trash (certificates are only released for OSWS-created events).' });
             }
             const [attendees] = await db.query(
                 `SELECT ar.student_id,
@@ -242,6 +248,12 @@ exports.updateEventStatus = async (req, res) => {
             }
 
             console.log(`Successfully processed certificates for ${attendees.length} attendees`);
+            // After certificate handling, auto-trash the completed event
+            try {
+                await eventService.deleteEvent(id, null);
+            } catch (e) {
+                console.warn('Auto-trash on completion failed or already trashed:', e?.message || e);
+            }
         }
 
         return handleSuccessResponse(res, { message: 'Event status updated successfully' });
@@ -268,7 +280,7 @@ exports.markAttendance = async (req, res) => {
 
     // Note: Department-based restrictions intentionally not enforced. Cross-department registrations are allowed.
 
-        // Determine registration/event pairing when one or both are missing.
+    // Determine registration/event pairing when one or both are missing.
         // 1) If both registration_id and event_id are missing, infer the most relevant within scanner scope.
         // 2) If event_id is provided but registration_id is missing, find the student's registration for that event.
         // 3) If registration_id is provided but event_id is missing, fetch its event and validate student.
@@ -344,21 +356,40 @@ exports.markAttendance = async (req, res) => {
             event_id = rows[0].event_id;
         }
 
-                // Scope check: ensure the specified/derived event belongs to the scanner
-                const [evRows] = await db.query(
-                        'SELECT created_by_org_id, created_by_osws_id FROM created_events WHERE event_id = ?',
-                        [event_id]
-                );
-                if (!evRows.length) {
-                        return handleErrorResponse(res, 'Event not found', 404);
-                }
-                const ev = evRows[0];
-                if (role === 'organization' && ev.created_by_org_id !== user.id) {
-                        return handleErrorResponse(res, 'You are not authorized to record attendance for this event.', 403);
-                }
-                if (role === 'admin' && ev.created_by_osws_id !== user.id) {
-                        return handleErrorResponse(res, 'You are not authorized to record attendance for this event.', 403);
-                }
+        // Scope check: ensure the specified/derived event belongs to the scanner, and is currently ongoing
+        const [evRows] = await db.query(
+            `SELECT 
+                created_by_org_id, 
+                created_by_osws_id,
+                status,
+                deleted_at,
+                (
+                  (
+                    (start_date < CURDATE() OR (start_date = CURDATE() AND start_time <= CURTIME()))
+                    AND (end_date > CURDATE() OR (end_date = CURDATE() AND end_time >= CURTIME()))
+                  )
+                ) AS is_ongoing
+             FROM created_events WHERE event_id = ? LIMIT 1`,
+            [event_id]
+        );
+        if (!evRows.length) {
+            return handleErrorResponse(res, 'Event not found', 404);
+        }
+        const ev = evRows[0];
+        if (role === 'organization' && ev.created_by_org_id !== user.id) {
+            return handleErrorResponse(res, 'You are not authorized to record attendance for this event.', 403);
+        }
+        if (role === 'admin' && ev.created_by_osws_id !== user.id) {
+            return handleErrorResponse(res, 'You are not authorized to record attendance for this event.', 403);
+        }
+        if (ev.deleted_at) {
+            return handleErrorResponse(res, 'Event not found', 404);
+        }
+        // Enforce: attendance is only valid while event status is 'ongoing'
+        const statusStr = (ev.status || '').toString().toLowerCase();
+        if (statusStr !== 'ongoing') {
+            return handleErrorResponse(res, 'Attendance can only be recorded while the event is ongoing.', 400);
+        }
 
     // Verify registration exists and belongs to provided values
         const [reg] = await db.query(
@@ -471,6 +502,32 @@ exports.permanentDeleteEvent = async (req, res) => {
             return handleErrorResponse(res, result?.message || 'Event not found or not in trash', code);
         }
         return handleSuccessResponse(res, { message: 'Event permanently deleted' });
+    } catch (error) {
+        return handleErrorResponse(res, error.message);
+    }
+};
+
+// Dashboard stats for organizations: include completed even if trashed; others exclude trashed
+exports.getOrgDashboardStats = async (req, res) => {
+    try {
+        const user = req.user;
+        if (!user) return handleErrorResponse(res, 'Unauthorized', 401);
+        if (user.role !== 'organization') return handleErrorResponse(res, 'Forbidden', 403);
+        const stats = await eventService.getOrgDashboardStats(user.id);
+        return handleSuccessResponse(res, stats);
+    } catch (error) {
+        return handleErrorResponse(res, error.message);
+    }
+};
+
+// Dashboard stats for OSWS admin: counts across all OSWS-created events; include completed even if trashed
+exports.getOswsDashboardStats = async (req, res) => {
+    try {
+        const user = req.user;
+        if (!user) return handleErrorResponse(res, 'Unauthorized', 401);
+        if (user.role !== 'admin') return handleErrorResponse(res, 'Forbidden', 403);
+        const stats = await eventService.getOswsDashboardStats();
+        return handleSuccessResponse(res, stats);
     } catch (error) {
         return handleErrorResponse(res, error.message);
     }

@@ -113,6 +113,20 @@ const getEventById = async (eventId) => {
   return await eventModel.getEventById(eventId);
 };
 
+// Aggregate stats for organization dashboard:
+// - upcoming/ongoing/cancelled exclude trashed
+// - completed includes both non-trashed and trashed events for the org
+const getOrgDashboardStats = async (orgId) => {
+    return await eventModel.getOrgDashboardStats(orgId);
+};
+
+// Aggregate stats for OSWS dashboard (OSWS-created events only)
+// - upcoming/ongoing/cancelled exclude trashed
+// - completed includes both non-trashed and trashed events
+const getOswsDashboardStats = async () => {
+    return await eventModel.getOswsDashboardStats();
+};
+
 module.exports = {
     createNewEvent,
     fetchAllEvents,
@@ -128,9 +142,17 @@ module.exports = {
     getAllOswsEvents,
     updateEvent,
     getEventById,
+    getOrgDashboardStats,
+    getOswsDashboardStats,
     getTrashedOrgEvents: eventModel.getTrashedOrgEvents,
     getTrashedOswsEvents: eventModel.getTrashedOswsEvents,
     restoreEvent: eventModel.restoreEvent,
+    autoStartScheduledEvents: eventModel.autoStartScheduledEvents,
+    autoCompleteFinishedEvents: eventModel.autoCompleteFinishedEvents,
+    autoTrashCompletedEvents: eventModel.autoTrashCompletedEvents,
+    ensureEmailRemindersTable: eventModel.ensureEmailRemindersTable,
+    getUpcomingRegistrationsForReminder: eventModel.getUpcomingRegistrationsForReminder,
+    markReminderSent: eventModel.markReminderSent,
     permanentDeleteEvent: async ({ eventId, user }) => {
         // Fetch event and check ownership and trashed state
         const ev = await eventModel.getEventById(eventId);

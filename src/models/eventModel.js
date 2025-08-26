@@ -357,5 +357,178 @@ module.exports = {
     getTrashedOrgEvents,
     getTrashedOswsEvents,
     restoreEvent,
-    hardDeleteEvent
+    hardDeleteEvent,
+    // Stats: upcoming/ongoing/cancelled exclude trashed, completed includes trashed
+    getOrgDashboardStats: async (orgId) => {
+        const nowQuery = 'NOW()';
+        // Upcoming: start after now, not trashed
+        const [up] = await db.query(
+            `SELECT COUNT(*) AS cnt FROM created_events
+             WHERE created_by_org_id = ? AND deleted_at IS NULL
+               AND TIMESTAMP(start_date, start_time) > ${nowQuery}
+               AND LOWER(COALESCE(status, '')) NOT IN ('cancelled')`,
+            [orgId]
+        );
+        // Ongoing: now between start and end, not trashed
+        const [og] = await db.query(
+            `SELECT COUNT(*) AS cnt FROM created_events
+             WHERE created_by_org_id = ? AND deleted_at IS NULL
+               AND TIMESTAMP(start_date, start_time) <= ${nowQuery}
+               AND TIMESTAMP(end_date, end_time) >= ${nowQuery}
+               AND LOWER(COALESCE(status, '')) NOT IN ('cancelled')`,
+            [orgId]
+        );
+        // Cancelled: not trashed
+        const [cc] = await db.query(
+            `SELECT COUNT(*) AS cnt FROM created_events
+             WHERE created_by_org_id = ? AND deleted_at IS NULL
+               AND LOWER(COALESCE(status, '')) = 'cancelled'`,
+            [orgId]
+        );
+        // Completed: include trashed ones
+        const [cm] = await db.query(
+            `SELECT COUNT(*) AS cnt FROM created_events
+             WHERE created_by_org_id = ?
+               AND (
+                   LOWER(COALESCE(status, '')) = 'completed'
+                   OR TIMESTAMP(end_date, end_time) < ${nowQuery}
+               )`,
+            [orgId]
+        );
+        return {
+            upcoming: up[0]?.cnt || 0,
+            ongoing: og[0]?.cnt || 0,
+            cancelled: cc[0]?.cnt || 0,
+            completed: cm[0]?.cnt || 0,
+        };
+    },
+    getOswsDashboardStats: async () => {
+        const nowQuery = 'NOW()';
+        const [up] = await db.query(
+            `SELECT COUNT(*) AS cnt FROM created_events
+             WHERE created_by_osws_id IS NOT NULL AND deleted_at IS NULL
+               AND TIMESTAMP(start_date, start_time) > ${nowQuery}
+               AND LOWER(COALESCE(status, '')) NOT IN ('cancelled')`
+        );
+        const [og] = await db.query(
+            `SELECT COUNT(*) AS cnt FROM created_events
+             WHERE created_by_osws_id IS NOT NULL AND deleted_at IS NULL
+               AND TIMESTAMP(start_date, start_time) <= ${nowQuery}
+               AND TIMESTAMP(end_date, end_time) >= ${nowQuery}
+               AND LOWER(COALESCE(status, '')) NOT IN ('cancelled')`
+        );
+        const [cc] = await db.query(
+            `SELECT COUNT(*) AS cnt FROM created_events
+             WHERE created_by_osws_id IS NOT NULL AND deleted_at IS NULL
+               AND LOWER(COALESCE(status, '')) = 'cancelled'`
+        );
+        const [cm] = await db.query(
+            `SELECT COUNT(*) AS cnt FROM created_events
+             WHERE created_by_osws_id IS NOT NULL
+               AND (
+                   LOWER(COALESCE(status, '')) = 'completed'
+                   OR TIMESTAMP(end_date, end_time) < ${nowQuery}
+               )`
+        );
+        return {
+            upcoming: up[0]?.cnt || 0,
+            ongoing: og[0]?.cnt || 0,
+            cancelled: cc[0]?.cnt || 0,
+            completed: cm[0]?.cnt || 0,
+        };
+    },
+    // Auto-start events whose start time has arrived
+    autoStartScheduledEvents: async () => {
+        const query = `
+            UPDATE created_events
+            SET status = 'ongoing'
+            WHERE deleted_at IS NULL
+              AND LOWER(COALESCE(status, '')) NOT IN ('cancelled', 'ongoing', 'completed')
+              AND TIMESTAMP(start_date, start_time) <= NOW()
+              AND TIMESTAMP(end_date, end_time) >= NOW()
+        `;
+        const [res] = await db.query(query);
+        return res.affectedRows || 0;
+    },
+    // Auto-complete events whose end time has passed
+    autoCompleteFinishedEvents: async () => {
+        const query = `
+            UPDATE created_events
+            SET status = 'completed'
+            WHERE deleted_at IS NULL
+              AND LOWER(COALESCE(status, '')) = 'ongoing'
+              AND TIMESTAMP(end_date, end_time) < NOW()
+        `;
+        const [res] = await db.query(query);
+        return res.affectedRows || 0;
+    },
+    // Auto-trash completed events after a retention window (configurable)
+    autoTrashCompletedEvents: async () => {
+        const minutes = parseInt(process.env.EVENT_COMPLETED_RETENTION_MINUTES || '20160', 10); // default 14 days
+        const cutoff = new Date(Date.now() - minutes * 60 * 1000);
+        const query = `
+            UPDATE created_events
+            SET deleted_at = NOW(), deleted_by = NULL
+            WHERE deleted_at IS NULL
+              AND LOWER(COALESCE(status, '')) = 'completed'
+              AND TIMESTAMP(end_date, end_time) <= ?
+        `;
+        const [res] = await db.query(query, [cutoff]);
+        return res.affectedRows || 0;
+    }
+    ,
+    // Ensure reminders log table exists (idempotent)
+    ensureEmailRemindersTable: async () => {
+        const sql = `
+            CREATE TABLE IF NOT EXISTS email_reminders (
+                id INT NOT NULL AUTO_INCREMENT PRIMARY KEY,
+                event_id INT NOT NULL,
+                student_id VARCHAR(20) NOT NULL,
+                reminder_key VARCHAR(64) NOT NULL,
+                sent_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                UNIQUE KEY uniq_reminder (event_id, student_id, reminder_key),
+                KEY idx_event (event_id),
+                KEY idx_student (student_id)
+            ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci;
+        `;
+        await db.query(sql);
+    },
+    // Fetch registrations whose event starts within leadMinutes from now and haven't received this reminder yet
+    getUpcomingRegistrationsForReminder: async (leadMinutes) => {
+        const reminderKey = `before_${parseInt(leadMinutes, 10)}m`;
+        const query = `
+            SELECT 
+                er.event_id,
+                er.student_id,
+                s.email,
+                s.first_name,
+                s.last_name,
+                er.qr_code,
+                ce.title,
+                ce.location,
+                ce.start_date,
+                ce.start_time,
+                ce.end_date,
+                ce.end_time
+            FROM event_registrations er
+            JOIN students s ON er.student_id = s.id
+            JOIN created_events ce ON er.event_id = ce.event_id
+            LEFT JOIN email_reminders r 
+                ON r.event_id = er.event_id 
+               AND r.student_id = er.student_id 
+               AND r.reminder_key = ?
+            WHERE ce.deleted_at IS NULL
+              AND TIMESTAMP(ce.start_date, ce.start_time) > NOW()
+              AND TIMESTAMP(ce.start_date, ce.start_time) <= (NOW() + INTERVAL ? MINUTE)
+              AND r.id IS NULL
+        `;
+        const [rows] = await db.query(query, [reminderKey, parseInt(leadMinutes, 10)]);
+        return rows;
+    },
+    markReminderSent: async ({ event_id, student_id, leadMinutes }) => {
+        const reminderKey = `before_${parseInt(leadMinutes, 10)}m`;
+        const sql = `INSERT IGNORE INTO email_reminders (event_id, student_id, reminder_key) VALUES (?, ?, ?)`;
+        const [res] = await db.query(sql, [event_id, String(student_id), reminderKey]);
+        return res.affectedRows > 0;
+    }
 };

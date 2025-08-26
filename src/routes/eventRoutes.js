@@ -30,4 +30,8 @@ router.get('/:event_id/participants', eventController.getEventParticipants); // 
 router.get('/events/:id', eventController.getEventById);
 router.put('/events/:id', upload.single('event_poster'), convertToWebpAndUpload, eventController.updateEvent);
 
+// Dashboard stats endpoints
+router.get('/stats/organization', authenticateToken, eventController.getOrgDashboardStats);
+router.get('/stats/osws', authenticateToken, eventController.getOswsDashboardStats);
+
 module.exports = router;
