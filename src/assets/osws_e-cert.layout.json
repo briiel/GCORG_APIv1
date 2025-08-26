@@ -1,0 +1,29 @@
+{
+  "name": {
+    "x": 620,
+  "y": 450,
+  "font": "80px Great Vibes",
+    "color": "#0f2632",
+    "maxWidth": 1040,
+  "lineHeight": 72,
+    "align": "center"
+  },
+  "sentence": {
+    "x": 620,
+  "y": 530,
+  "font": "italic 22px Lora",
+    "color": "#1f2937",
+    "maxWidth": 980,
+    "lineHeight": 32,
+    "align": "center"
+  },
+  "sentence2": {
+    "x": 620,
+    "y": 640,
+    "font": "italic 22px Lora",
+    "color": "#1f2937",
+    "maxWidth": 980,
+    "lineHeight": 32,
+    "align": "center"
+  }
+}

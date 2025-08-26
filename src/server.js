@@ -23,4 +23,22 @@ app.use((req, res) => {
 });
 
 const PORT = process.env.PORT || 5000;
-app.listen(PORT, () => console.log(`Server running on port ${PORT}`));
+app.listen(PORT, async () => {
+    console.log(`Server running on port ${PORT}`);
+    // Optional font warm-up: pre-register Google Fonts and resolve via a tiny render
+    try {
+        process.env.USE_REMOTE_FONTS = process.env.USE_REMOTE_FONTS ?? 'true';
+        const { createCanvas } = require('canvas');
+        const { generateCertificate } = require('./utils/certificateGenerator');
+        // Trigger font registration
+        const canvas = createCanvas(10, 10);
+        const ctx = canvas.getContext('2d');
+        ctx.font = "10px Lora";
+        ctx.fillText('.', 1, 9);
+        ctx.font = "10px 'Great Vibes'";
+        ctx.fillText('.', 1, 9);
+        // No file output; just ensure fonts are loaded. If needed, catch will log.
+    } catch (e) {
+        console.warn('Font warm-up skipped or failed:', e.message);
+    }
+});

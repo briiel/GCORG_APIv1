@@ -174,9 +174,16 @@ exports.updateEventStatus = async (req, res) => {
             }
             const [attendees] = await db.query(
                 `SELECT ar.student_id,
-                        CONCAT(s.first_name, ' ', s.last_name, IF(s.suffix IS NOT NULL AND s.suffix != '', CONCAT(' ', s.suffix), '')) AS student_name,
+                        CONCAT(
+                            s.first_name,
+                            IF(s.middle_initial IS NOT NULL AND s.middle_initial != '', CONCAT(' ', s.middle_initial, '.'), ''),
+                            ' ',
+                            s.last_name,
+                            IF(s.suffix IS NOT NULL AND s.suffix != '', CONCAT(' ', s.suffix), '')
+                        ) AS student_name,
                         s.email,
                         ce.title AS event_title,
+                       ce.location AS event_location,
                        ce.start_date,
                        ce.end_date
                  FROM attendance_records ar
@@ -198,6 +205,7 @@ exports.updateEventStatus = async (req, res) => {
                     await generateCertificate({
                         studentName: attendee.student_name,
                         eventTitle: attendee.event_title,
+                        eventLocation: attendee.event_location,
                         eventStartDate: attendee.start_date,
                         eventEndDate: attendee.end_date,
                         certificatePath: tempCertPath
