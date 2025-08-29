@@ -6,6 +6,25 @@ const createEvent = async (eventData) => {
         start_date, start_time, end_date, end_time,
         event_poster, created_by_org_id, created_by_osws_id, status
     } = eventData;
+    // Ensure dates are yyyy-MM-dd strings
+    const normalizeDate = (d) => {
+        if (!d) return '';
+        if (typeof d === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(d)) return d;
+        // Parse as local date if string is in ISO or similar format
+        let dateObj;
+        if (typeof d === 'string' && /^\d{4}-\d{2}-\d{2}/.test(d)) {
+            const [year, month, day] = d.split('T')[0].split('-').map(Number);
+            dateObj = new Date(year, month - 1, day);
+        } else {
+            dateObj = new Date(d);
+        }
+        if (isNaN(dateObj.getTime())) return '';
+        const month = (dateObj.getMonth() + 1).toString().padStart(2, '0');
+        const day = dateObj.getDate().toString().padStart(2, '0');
+        return `${dateObj.getFullYear()}-${month}-${day}`;
+    };
+    const startDateStr = normalizeDate(start_date);
+    const endDateStr = normalizeDate(end_date);
     const query = `
         INSERT INTO created_events
         (title, description, location, start_date, start_time, end_date, end_time, event_poster, created_by_org_id, created_by_osws_id, status)
@@ -16,9 +35,9 @@ const createEvent = async (eventData) => {
             title,
             description,
             location,
-            start_date,
+            startDateStr,
             start_time,
-            end_date,
+            endDateStr,
             end_time,
             event_poster,
             created_by_org_id && created_by_org_id !== 'undefined' && created_by_org_id !== '' ? created_by_org_id : null,
@@ -231,6 +250,7 @@ const getAllOswsEvents = async () => {
 };
 
 const updateEvent = async (eventId, eventData) => {
+
     const {
         title,
         description,
@@ -239,18 +259,35 @@ const updateEvent = async (eventId, eventData) => {
         start_time,
         end_date,
         end_time,
-        event_poster // Optional: only update if provided
+        event_poster, // Optional: only update if provided
+        status
     } = eventData;
+    // Ensure dates are yyyy-MM-dd strings
+    const normalizeDate = (d) => {
+        if (!d) return '';
+        if (typeof d === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(d)) return d;
+        const dateObj = new Date(d);
+        if (isNaN(dateObj.getTime())) return '';
+        const month = (dateObj.getMonth() + 1).toString().padStart(2, '0');
+        const day = dateObj.getDate().toString().padStart(2, '0');
+        return `${dateObj.getFullYear()}-${month}-${day}`;
+    };
+    const startDateStr = normalizeDate(start_date);
+    const endDateStr = normalizeDate(end_date);
 
     let query = `
         UPDATE created_events
-        SET title = ?, description = ?, location = ?, start_date = ?, start_time = ?, end_date = ?, end_time = ?
+        SET title = ?, description = ?, location = ?, start_date = ?, start_time = ?, end_date = ?, end_time = ?, status = ?
     `;
-    const params = [title, description, location, start_date, start_time, end_date, end_time];
+    const params = [title, description, location, startDateStr, start_time, endDateStr, end_time, status];
 
-    if (event_poster) {
-        query += `, event_poster = ?`;
-        params.push(event_poster);
+    if (event_poster !== undefined) {
+        if (event_poster === '') {
+            query += `, event_poster = NULL`;
+        } else {
+            query += `, event_poster = ?`;
+            params.push(event_poster);
+        }
     }
 
     query += ` WHERE event_id = ?`;

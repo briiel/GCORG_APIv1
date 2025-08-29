@@ -32,6 +32,7 @@ function buildRegistrationHtml({ event = {}, student = {}, qrUrl }) {
         const y = parseInt(m[1], 10);
         const mo = parseInt(m[2], 10) - 1;
         const d = parseInt(m[3], 10);
+        // Use local time
         const dt = new Date(y, mo, d);
         return isValidDate(dt) ? dt : null;
       }
@@ -44,6 +45,7 @@ function buildRegistrationHtml({ event = {}, student = {}, qrUrl }) {
   const formatDateHuman = (value) => {
     const d = normalizeDate(value);
     if (!d) return 'TBA';
+    // Use local time for formatting
     return `${monthNames[d.getMonth()]} ${d.getDate()}, ${d.getFullYear()}`;
   };
   const normalizeTime = (value) => {
@@ -59,6 +61,7 @@ function buildRegistrationHtml({ event = {}, student = {}, qrUrl }) {
       if (parts.length >= 2 && /^\d{1,2}$/.test(parts[0]) && /^\d{1,2}$/.test(parts[1])) {
         return { h: parseInt(parts[0], 10), m: parseInt(parts[1], 10) };
       }
+      // If string is a date, parse as local
       const d = new Date(v);
       if (isValidDate(d)) return { h: d.getHours(), m: d.getMinutes() };
     }

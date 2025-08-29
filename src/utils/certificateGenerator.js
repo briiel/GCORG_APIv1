@@ -131,7 +131,9 @@ async function ensureRemoteFonts() {
 // Helper to format date as "Month Day, Year"
 function formatDate(dateStr) {
     if (!dateStr) return '';
-    const date = new Date(dateStr);
+    // Parse as local date
+    const [year, month, day] = String(dateStr).split('-').map(Number);
+    const date = new Date(year, month - 1, day);
     if (isNaN(date.getTime())) return String(dateStr);
     return date.toLocaleDateString('en-US', { year: 'numeric', month: 'long', day: 'numeric' });
 }
@@ -139,17 +141,19 @@ function formatDate(dateStr) {
 // Helper to format date as "27th of June 2025"
 function formatDateOrdinal(dateStr) {
     if (!dateStr) return '';
-    const d = new Date(dateStr);
+    // Parse as local date
+    const [year, month, day] = String(dateStr).split('-').map(Number);
+    const d = new Date(year, month - 1, day);
     if (isNaN(d.getTime())) return String(dateStr);
-    const day = d.getDate();
-    const month = d.toLocaleDateString('en-US', { month: 'long' });
-    const year = d.getFullYear();
-    const j = day % 10, k = day % 100;
+    const dayNum = d.getDate();
+    const monthName = d.toLocaleDateString('en-US', { month: 'long' });
+    const yearNum = d.getFullYear();
+    const j = dayNum % 10, k = dayNum % 100;
     let suffix = 'th';
     if (j === 1 && k !== 11) suffix = 'st';
     else if (j === 2 && k !== 12) suffix = 'nd';
     else if (j === 3 && k !== 13) suffix = 'rd';
-    return `${day}${suffix} of ${month} ${year}`;
+    return `${dayNum}${suffix} of ${monthName} ${yearNum}`;
 }
 
 // Helper: wrap text within a max width and draw centered (or given align)
