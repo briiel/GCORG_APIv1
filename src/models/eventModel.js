@@ -362,22 +362,22 @@ module.exports = {
     getOrgDashboardStats: async (orgId) => {
         const nowQuery = 'NOW()';
         // Upcoming: start after now, not trashed
-        const [up] = await db.query(
-            `SELECT COUNT(*) AS cnt FROM created_events
-             WHERE created_by_org_id = ? AND deleted_at IS NULL
-               AND TIMESTAMP(start_date, start_time) > ${nowQuery}
-               AND LOWER(COALESCE(status, '')) NOT IN ('cancelled')`,
-            [orgId]
-        );
-        // Ongoing: now between start and end, not trashed
-        const [og] = await db.query(
-            `SELECT COUNT(*) AS cnt FROM created_events
-             WHERE created_by_org_id = ? AND deleted_at IS NULL
-               AND TIMESTAMP(start_date, start_time) <= ${nowQuery}
-               AND TIMESTAMP(end_date, end_time) >= ${nowQuery}
-               AND LOWER(COALESCE(status, '')) NOT IN ('cancelled')`,
-            [orgId]
-        );
+                const [up] = await db.query(
+                        `SELECT COUNT(*) AS cnt FROM created_events
+                         WHERE created_by_org_id = ? AND deleted_at IS NULL
+                             AND TIMESTAMP(start_date, start_time) > ${nowQuery}
+                             AND LOWER(COALESCE(status, '')) NOT IN ('cancelled', 'completed')`,
+                        [orgId]
+                );
+                // Ongoing: now between start and end, not trashed, not completed
+                const [og] = await db.query(
+                        `SELECT COUNT(*) AS cnt FROM created_events
+                         WHERE created_by_org_id = ? AND deleted_at IS NULL
+                             AND TIMESTAMP(start_date, start_time) <= ${nowQuery}
+                             AND TIMESTAMP(end_date, end_time) >= ${nowQuery}
+                             AND LOWER(COALESCE(status, '')) NOT IN ('cancelled', 'completed')`,
+                        [orgId]
+                );
         // Cancelled: not trashed
         const [cc] = await db.query(
             `SELECT COUNT(*) AS cnt FROM created_events
@@ -385,10 +385,10 @@ module.exports = {
                AND LOWER(COALESCE(status, '')) = 'cancelled'`,
             [orgId]
         );
-        // Completed: include trashed ones
+        // Completed: exclude trashed (deleted_at IS NULL)
         const [cm] = await db.query(
             `SELECT COUNT(*) AS cnt FROM created_events
-             WHERE created_by_org_id = ?
+             WHERE created_by_org_id = ? AND deleted_at IS NULL
                AND (
                    LOWER(COALESCE(status, '')) = 'completed'
                    OR TIMESTAMP(end_date, end_time) < ${nowQuery}
@@ -404,19 +404,19 @@ module.exports = {
     },
     getOswsDashboardStats: async () => {
         const nowQuery = 'NOW()';
-        const [up] = await db.query(
-            `SELECT COUNT(*) AS cnt FROM created_events
-             WHERE created_by_osws_id IS NOT NULL AND deleted_at IS NULL
-               AND TIMESTAMP(start_date, start_time) > ${nowQuery}
-               AND LOWER(COALESCE(status, '')) NOT IN ('cancelled')`
-        );
-        const [og] = await db.query(
-            `SELECT COUNT(*) AS cnt FROM created_events
-             WHERE created_by_osws_id IS NOT NULL AND deleted_at IS NULL
-               AND TIMESTAMP(start_date, start_time) <= ${nowQuery}
-               AND TIMESTAMP(end_date, end_time) >= ${nowQuery}
-               AND LOWER(COALESCE(status, '')) NOT IN ('cancelled')`
-        );
+                const [up] = await db.query(
+                        `SELECT COUNT(*) AS cnt FROM created_events
+                         WHERE created_by_osws_id IS NOT NULL AND deleted_at IS NULL
+                             AND TIMESTAMP(start_date, start_time) > ${nowQuery}
+                             AND LOWER(COALESCE(status, '')) NOT IN ('cancelled', 'completed')`
+                );
+                const [og] = await db.query(
+                        `SELECT COUNT(*) AS cnt FROM created_events
+                         WHERE created_by_osws_id IS NOT NULL AND deleted_at IS NULL
+                             AND TIMESTAMP(start_date, start_time) <= ${nowQuery}
+                             AND TIMESTAMP(end_date, end_time) >= ${nowQuery}
+                             AND LOWER(COALESCE(status, '')) NOT IN ('cancelled', 'completed')`
+                );
         const [cc] = await db.query(
             `SELECT COUNT(*) AS cnt FROM created_events
              WHERE created_by_osws_id IS NOT NULL AND deleted_at IS NULL
@@ -424,7 +424,7 @@ module.exports = {
         );
         const [cm] = await db.query(
             `SELECT COUNT(*) AS cnt FROM created_events
-             WHERE created_by_osws_id IS NOT NULL
+             WHERE created_by_osws_id IS NOT NULL AND deleted_at IS NULL
                AND (
                    LOWER(COALESCE(status, '')) = 'completed'
                    OR TIMESTAMP(end_date, end_time) < ${nowQuery}
@@ -438,45 +438,17 @@ module.exports = {
         };
     },
     // Auto-start events whose start time has arrived
-    autoStartScheduledEvents: async () => {
-        const query = `
-            UPDATE created_events
-            SET status = 'ongoing'
-            WHERE deleted_at IS NULL
-              AND LOWER(COALESCE(status, '')) NOT IN ('cancelled', 'ongoing', 'completed')
-              AND TIMESTAMP(start_date, start_time) <= NOW()
-              AND TIMESTAMP(end_date, end_time) >= NOW()
-        `;
-        const [res] = await db.query(query);
-        return res.affectedRows || 0;
-    },
-    // Auto-complete events whose end time has passed
-    autoCompleteFinishedEvents: async () => {
-        const query = `
-            UPDATE created_events
-            SET status = 'completed'
-            WHERE deleted_at IS NULL
-              AND LOWER(COALESCE(status, '')) = 'ongoing'
-              AND TIMESTAMP(end_date, end_time) < NOW()
-        `;
-        const [res] = await db.query(query);
-        return res.affectedRows || 0;
-    },
-    // Auto-trash completed events after a retention window (configurable)
-    autoTrashCompletedEvents: async () => {
-        const minutes = parseInt(process.env.EVENT_COMPLETED_RETENTION_MINUTES || '20160', 10); // default 14 days
-        const cutoff = new Date(Date.now() - minutes * 60 * 1000);
-        const query = `
-            UPDATE created_events
-            SET deleted_at = NOW(), deleted_by = NULL
-            WHERE deleted_at IS NULL
-              AND LOWER(COALESCE(status, '')) = 'completed'
-              AND TIMESTAMP(end_date, end_time) <= ?
-        `;
-        const [res] = await db.query(query, [cutoff]);
-        return res.affectedRows || 0;
-    }
-    ,
+    /*
+    // autoStartScheduledEvents: async () => {
+    //     ...existing code...
+    // },
+    // autoCompleteFinishedEvents: async () => {
+    //     ...existing code...
+    // },
+    // autoTrashCompletedEvents: async () => {
+    //     ...existing code...
+    // },
+    */
     // Ensure reminders log table exists (idempotent)
     ensureEmailRemindersTable: async () => {
         const sql = `

@@ -53,19 +53,18 @@ exports.getEvents = async (req, res) => {
         const now = new Date();
 
         events = events.map(event => {
-            const eventStart = new Date(`${event.start_date}T${event.start_time}`);
-            const eventEnd = new Date(`${event.end_date}T${event.end_time}`);
-
-            if (event.status !== 'cancelled') {
-                if (eventStart > now) {
-                    event.status = 'not yet started';
-                } else if (eventStart <= now && eventEnd >= now) {
-                    event.status = 'ongoing';
-                } else if (eventEnd < now) {
-                    event.status = 'completed';
-                }
-            }
-
+            // Date-based status override logic commented out:
+            // const eventStart = new Date(`${event.start_date}T${event.start_time}`);
+            // const eventEnd = new Date(`${event.end_date}T${event.end_time}`);
+            // if (event.status !== 'cancelled') {
+            //     if (eventStart > now) {
+            //         event.status = 'not yet started';
+            //     } else if (eventStart <= now && eventEnd >= now) {
+            //         event.status = 'ongoing';
+            //     } else if (eventEnd < now) {
+            //         event.status = 'completed';
+            //     }
+            // }
             return {
                 ...event,
                 event_poster: event.event_poster?.startsWith('http')
@@ -155,14 +154,18 @@ exports.getEventsByCreator = async (req, res) => {
 
 exports.updateEventStatus = async (req, res) => {
     try {
+
         const { id } = req.params;
-        const { status } = req.body;
+        let { status } = req.body;
 
         if (!status) {
             return handleErrorResponse(res, 'Status is required', 400);
         }
 
-    await eventService.updateEventStatus(id, status);
+        // Normalize status to lowercase and trimmed
+        status = status.toString().trim().toLowerCase();
+
+        await eventService.updateEventStatus(id, status);
 
         if (status === 'completed') {
             // Only release certificates for events created by OSWS
@@ -171,12 +174,15 @@ exports.updateEventStatus = async (req, res) => {
             if (!isOswsCreated) {
                 console.log(`Skipping certificate generation for event ${id} - not an OSWS-created event.`);
                 // Auto-trash completed events regardless of creator per requirement
+                /*
                 try {
                     await eventService.deleteEvent(id, null);
                 } catch (e) {
                     console.warn('Auto-trash on completion (non-OSWS) failed or already trashed:', e?.message || e);
                 }
                 return handleSuccessResponse(res, { message: 'Event completed and moved to trash (certificates are only released for OSWS-created events).' });
+                */
+                return handleSuccessResponse(res, { message: 'Event completed (certificates are only released for OSWS-created events).' });
             }
             const [attendees] = await db.query(
                 `SELECT ar.student_id,
@@ -248,12 +254,12 @@ exports.updateEventStatus = async (req, res) => {
             }
 
             console.log(`Successfully processed certificates for ${attendees.length} attendees`);
-            // After certificate handling, auto-trash the completed event
-            try {
-                await eventService.deleteEvent(id, null);
-            } catch (e) {
-                console.warn('Auto-trash on completion failed or already trashed:', e?.message || e);
-            }
+            // Auto-trash disabled - events will remain visible after completion
+            // try {
+            //     await eventService.deleteEvent(id, null);
+            // } catch (e) {
+            //     console.warn('Auto-trash on completion failed or already trashed:', e?.message || e);
+            // }
         }
 
         return handleSuccessResponse(res, { message: 'Event status updated successfully' });
