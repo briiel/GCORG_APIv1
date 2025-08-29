@@ -34,9 +34,10 @@ const createEvent = async (eventData) => {
 
 const getAllEvents = async () => {
     const query = `
-        SELECT ce.*, org.department, org.org_name
+        SELECT ce.*, org.department, org.org_name, osws.name AS osws_name
         FROM created_events ce
         LEFT JOIN student_organizations org ON ce.created_by_org_id = org.id
+        LEFT JOIN osws_admins osws ON ce.created_by_osws_id = osws.id
         WHERE ce.deleted_at IS NULL
     `;
     try {
@@ -50,9 +51,13 @@ const getAllEvents = async () => {
 
 const getEventsByParticipant = async (student_id) => {
     const query = `
-        SELECT ce.*, er.qr_code
+        SELECT ce.*, er.qr_code, 
+               org.department, org.org_name,
+               osws.name AS osws_name
         FROM created_events ce
         JOIN event_registrations er ON ce.event_id = er.event_id
+        LEFT JOIN student_organizations org ON ce.created_by_org_id = org.id
+        LEFT JOIN osws_admins osws ON ce.created_by_osws_id = osws.id
         WHERE er.student_id = ? AND ce.deleted_at IS NULL
     `;
     try {
@@ -66,7 +71,7 @@ const getEventsByParticipant = async (student_id) => {
 
 const getEventsByCreator = async (creator_id) => {
     const query = `
-        SELECT ce.*, org.department
+        SELECT ce.*, org.department, org.org_name
         FROM created_events ce
         JOIN student_organizations org ON ce.created_by_org_id = org.id
         WHERE ce.created_by_org_id = ? AND ce.deleted_at IS NULL
