@@ -62,7 +62,7 @@ exports.getEvents = async (req, res) => {
             //     } else if (eventStart <= now && eventEnd >= now) {
             //         event.status = 'ongoing';
             //     } else if (eventEnd < now) {
-            //         event.status = 'completed';
+            //         event.status = 'concluded';
             //     }
             // }
             return {
@@ -167,22 +167,22 @@ exports.updateEventStatus = async (req, res) => {
 
         await eventService.updateEventStatus(id, status);
 
-        if (status === 'completed') {
+        if (status === 'concluded') {
             // Only release certificates for events created by OSWS
             const event = await eventService.getEventById(id);
             const isOswsCreated = event && event.created_by_osws_id; // truthy when created by OSWS
             if (!isOswsCreated) {
                 console.log(`Skipping certificate generation for event ${id} - not an OSWS-created event.`);
-                // Auto-trash completed events regardless of creator per requirement
+                // Auto-trash concluded events regardless of creator per requirement
                 /*
                 try {
                     await eventService.deleteEvent(id, null);
                 } catch (e) {
                     console.warn('Auto-trash on completion (non-OSWS) failed or already trashed:', e?.message || e);
                 }
-                return handleSuccessResponse(res, { message: 'Event completed and moved to trash (certificates are only released for OSWS-created events).' });
+                return handleSuccessResponse(res, { message: 'Event concluded and moved to trash (certificates are only released for OSWS-created events).' });
                 */
-                return handleSuccessResponse(res, { message: 'Event completed (certificates are only released for OSWS-created events).' });
+                return handleSuccessResponse(res, { message: 'Event concluded (certificates are only released for OSWS-created events).' });
             }
             const [attendees] = await db.query(
                 `SELECT ar.student_id,
@@ -513,7 +513,7 @@ exports.permanentDeleteEvent = async (req, res) => {
     }
 };
 
-// Dashboard stats for organizations: include completed even if trashed; others exclude trashed
+// Dashboard stats for organizations: include concluded even if trashed; others exclude trashed
 exports.getOrgDashboardStats = async (req, res) => {
     try {
         const user = req.user;
@@ -526,7 +526,7 @@ exports.getOrgDashboardStats = async (req, res) => {
     }
 };
 
-// Dashboard stats for OSWS admin: counts across all OSWS-created events; include completed even if trashed
+// Dashboard stats for OSWS admin: counts across all OSWS-created events; include concluded even if trashed
 exports.getOswsDashboardStats = async (req, res) => {
     try {
         const user = req.user;

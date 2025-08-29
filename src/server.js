@@ -42,7 +42,8 @@ app.listen(PORT, async () => {
         console.warn('Font warm-up skipped or failed:', e.message);
     }
 
-    // Background tasks: auto-start, auto-complete, and auto-trash events
+    // Background tasks: auto-start, auto-complete, and auto-trash events are disabled (manual only)
+    /*
     try {
         const eventService = require('./services/eventService');
         const { runReminderSweep } = require('./services/reminderService');
@@ -52,13 +53,13 @@ app.listen(PORT, async () => {
                 if (started > 0) {
                     console.log(`[AutoStatus] Marked ${started} event(s) as ongoing.`);
                 }
-                const completed = await eventService.autoCompleteFinishedEvents();
-                if (completed > 0) {
-                    console.log(`[AutoStatus] Marked ${completed} event(s) as completed.`);
+                const concluded = await eventService.autoCompleteFinishedEvents();
+                if (concluded > 0) {
+                    console.log(`[AutoStatus] Marked ${concluded} event(s) as concluded.`);
                 }
-                const trashed = await eventService.autoTrashCompletedEvents();
+                const trashed = await eventService.autoTrashConcludedEvents();
                 if (trashed > 0) {
-                    console.log(`[AutoTrash] Moved ${trashed} completed event(s) to trash.`);
+                    console.log(`[AutoTrash] Moved ${trashed} concluded event(s) to trash.`);
                 }
                 // Email reminders: fixed window at 10 minutes before start
                 const leadWindows = [10];
@@ -82,4 +83,5 @@ app.listen(PORT, async () => {
     } catch (e) {
         console.warn('Auto-status scheduler not started:', e.message);
     }
+    */
 });

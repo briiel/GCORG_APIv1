@@ -115,14 +115,14 @@ const getEventById = async (eventId) => {
 
 // Aggregate stats for organization dashboard:
 // - upcoming/ongoing/cancelled exclude trashed
-// - completed includes both non-trashed and trashed events for the org
+// - concluded includes both non-trashed and trashed events for the org
 const getOrgDashboardStats = async (orgId) => {
     return await eventModel.getOrgDashboardStats(orgId);
 };
 
 // Aggregate stats for OSWS dashboard (OSWS-created events only)
 // - upcoming/ongoing/cancelled exclude trashed
-// - completed includes both non-trashed and trashed events
+// - concluded includes both non-trashed and trashed events
 const getOswsDashboardStats = async () => {
     return await eventModel.getOswsDashboardStats();
 };
@@ -147,9 +147,9 @@ module.exports = {
     getTrashedOrgEvents: eventModel.getTrashedOrgEvents,
     getTrashedOswsEvents: eventModel.getTrashedOswsEvents,
     restoreEvent: eventModel.restoreEvent,
-    autoStartScheduledEvents: eventModel.autoStartScheduledEvents,
-    autoCompleteFinishedEvents: eventModel.autoCompleteFinishedEvents,
-    autoTrashCompletedEvents: eventModel.autoTrashCompletedEvents,
+    // autoStartScheduledEvents: eventModel.autoStartScheduledEvents,
+    // autoCompleteFinishedEvents: eventModel.autoCompleteFinishedEvents,
+    // autoTrashConcludedEvents: eventModel.autoTrashConcludedEvents, // fully commented out
     ensureEmailRemindersTable: eventModel.ensureEmailRemindersTable,
     getUpcomingRegistrationsForReminder: eventModel.getUpcomingRegistrationsForReminder,
     markReminderSent: eventModel.markReminderSent,

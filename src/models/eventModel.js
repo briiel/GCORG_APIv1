@@ -358,7 +358,7 @@ module.exports = {
     getTrashedOswsEvents,
     restoreEvent,
     hardDeleteEvent,
-    // Stats: upcoming/ongoing/cancelled exclude trashed, completed includes trashed
+    // Stats: upcoming/ongoing/cancelled exclude trashed, concluded includes trashed
     getOrgDashboardStats: async (orgId) => {
         const nowQuery = 'NOW()';
         // Upcoming: start after now, not trashed
@@ -366,16 +366,16 @@ module.exports = {
                         `SELECT COUNT(*) AS cnt FROM created_events
                          WHERE created_by_org_id = ? AND deleted_at IS NULL
                              AND TIMESTAMP(start_date, start_time) > ${nowQuery}
-                             AND LOWER(COALESCE(status, '')) NOT IN ('cancelled', 'completed')`,
+                             AND LOWER(COALESCE(status, '')) NOT IN ('cancelled', 'concluded')`,
                         [orgId]
                 );
-                // Ongoing: now between start and end, not trashed, not completed
+                // Ongoing: now between start and end, not trashed, not concluded
                 const [og] = await db.query(
                         `SELECT COUNT(*) AS cnt FROM created_events
                          WHERE created_by_org_id = ? AND deleted_at IS NULL
                              AND TIMESTAMP(start_date, start_time) <= ${nowQuery}
                              AND TIMESTAMP(end_date, end_time) >= ${nowQuery}
-                             AND LOWER(COALESCE(status, '')) NOT IN ('cancelled', 'completed')`,
+                             AND LOWER(COALESCE(status, '')) NOT IN ('cancelled', 'concluded')`,
                         [orgId]
                 );
         // Cancelled: not trashed
@@ -385,12 +385,12 @@ module.exports = {
                AND LOWER(COALESCE(status, '')) = 'cancelled'`,
             [orgId]
         );
-        // Completed: exclude trashed (deleted_at IS NULL)
+        // Concluded: exclude trashed (deleted_at IS NULL)
         const [cm] = await db.query(
             `SELECT COUNT(*) AS cnt FROM created_events
              WHERE created_by_org_id = ? AND deleted_at IS NULL
                AND (
-                   LOWER(COALESCE(status, '')) = 'completed'
+                   LOWER(COALESCE(status, '')) = 'concluded'
                    OR TIMESTAMP(end_date, end_time) < ${nowQuery}
                )`,
             [orgId]
@@ -399,7 +399,7 @@ module.exports = {
             upcoming: up[0]?.cnt || 0,
             ongoing: og[0]?.cnt || 0,
             cancelled: cc[0]?.cnt || 0,
-            completed: cm[0]?.cnt || 0,
+            concluded: cm[0]?.cnt || 0,
         };
     },
     getOswsDashboardStats: async () => {
@@ -408,14 +408,14 @@ module.exports = {
                         `SELECT COUNT(*) AS cnt FROM created_events
                          WHERE created_by_osws_id IS NOT NULL AND deleted_at IS NULL
                              AND TIMESTAMP(start_date, start_time) > ${nowQuery}
-                             AND LOWER(COALESCE(status, '')) NOT IN ('cancelled', 'completed')`
+                             AND LOWER(COALESCE(status, '')) NOT IN ('cancelled', 'concluded')`
                 );
                 const [og] = await db.query(
                         `SELECT COUNT(*) AS cnt FROM created_events
                          WHERE created_by_osws_id IS NOT NULL AND deleted_at IS NULL
                              AND TIMESTAMP(start_date, start_time) <= ${nowQuery}
                              AND TIMESTAMP(end_date, end_time) >= ${nowQuery}
-                             AND LOWER(COALESCE(status, '')) NOT IN ('cancelled', 'completed')`
+                             AND LOWER(COALESCE(status, '')) NOT IN ('cancelled', 'concluded')`
                 );
         const [cc] = await db.query(
             `SELECT COUNT(*) AS cnt FROM created_events
@@ -426,7 +426,7 @@ module.exports = {
             `SELECT COUNT(*) AS cnt FROM created_events
              WHERE created_by_osws_id IS NOT NULL AND deleted_at IS NULL
                AND (
-                   LOWER(COALESCE(status, '')) = 'completed'
+                   LOWER(COALESCE(status, '')) = 'concluded'
                    OR TIMESTAMP(end_date, end_time) < ${nowQuery}
                )`
         );
@@ -434,7 +434,7 @@ module.exports = {
             upcoming: up[0]?.cnt || 0,
             ongoing: og[0]?.cnt || 0,
             cancelled: cc[0]?.cnt || 0,
-            completed: cm[0]?.cnt || 0,
+            concluded: cm[0]?.cnt || 0,
         };
     },
     // Auto-start events whose start time has arrived
@@ -445,7 +445,7 @@ module.exports = {
     // autoCompleteFinishedEvents: async () => {
     //     ...existing code...
     // },
-    // autoTrashCompletedEvents: async () => {
+    // autoTrashConcludedEvents: async () => {
     //     ...existing code...
     // },
     */
