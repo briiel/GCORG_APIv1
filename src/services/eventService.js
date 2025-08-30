@@ -1,3 +1,8 @@
+// Get attendance records for a specific event
+const getAttendanceRecordsByEvent = async (eventId) => {
+    return await eventModel.getAttendanceRecordsByEvent(eventId);
+};
+
 const eventModel = require('../models/eventModel');
 
 const createNewEvent = async (eventData) => {
@@ -136,6 +141,7 @@ module.exports = {
     getAllAttendanceRecords,
     getAttendanceRecordsByOrg,
     getAttendanceRecordsByOsws,
+    getAttendanceRecordsByEvent,
     deleteEvent,
     getEventsByAdmin,
     getAllOrgEvents,

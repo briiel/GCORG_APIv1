@@ -1,3 +1,29 @@
+// Get attendance records for a specific event
+const getAttendanceRecordsByEvent = async (eventId) => {
+    const query = `
+        SELECT 
+            ar.event_id,
+            ce.title AS event_title,
+            ar.student_id,
+            s.first_name,
+            s.last_name,
+            s.suffix,
+            s.department,
+            s.program,
+            ar.attended_at
+        FROM attendance_records ar
+        JOIN created_events ce ON ar.event_id = ce.event_id
+        JOIN students s ON ar.student_id = s.id
+        WHERE ar.event_id = ?
+    `;
+    try {
+        const [rows] = await db.query(query, [eventId]);
+        return rows;
+    } catch (error) {
+        console.error('Error fetching attendance records by event:', error.stack);
+        throw error;
+    }
+};
 const db = require('../config/db');
 
 const createEvent = async (eventData) => {
@@ -390,6 +416,7 @@ module.exports = {
     getAllAttendanceRecords,
     getAttendanceRecordsByOrg,
         getAttendanceRecordsByOsws,
+    getAttendanceRecordsByEvent,
     deleteEvent,
     getEventsByAdmin,
     getAllOrgEvents,

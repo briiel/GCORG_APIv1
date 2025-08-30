@@ -18,6 +18,7 @@ router.get('/events/creator/:creator_id', authenticateToken, eventController.get
 router.patch('/events/:id/status', authenticateToken, eventController.updateEventStatus); // Update event status
 router.post('/events/attendance', authenticateToken, eventController.markAttendance); // Mark attendance for an event
 router.get('/attendance-records', authenticateToken, eventController.getAllAttendanceRecords); // Get all attendance records
+router.get('/attendance-records/event/:eventId', authenticateToken, eventController.getAttendanceRecordsByEvent); // Get attendance records for a specific event
 router.delete('/events/:id', authenticateToken, eventController.deleteEvent); // Soft-delete an event
 router.get('/events/trash', authenticateToken, eventController.getTrashedEvents); // List trashed events for current user
 router.post('/events/:id/restore', authenticateToken, eventController.restoreEvent); // Restore trashed event

@@ -1,3 +1,20 @@
+// Get attendance records for a specific event
+exports.getAttendanceRecordsByEvent = async (req, res) => {
+    try {
+        const user = req.user;
+        if (!user) {
+            return handleErrorResponse(res, 'Unauthorized', 401);
+        }
+        const eventId = req.params.eventId;
+        if (!eventId) {
+            return handleErrorResponse(res, 'Event ID is required', 400);
+        }
+        const records = await eventService.getAttendanceRecordsByEvent(eventId);
+        return handleSuccessResponse(res, records);
+    } catch (error) {
+        return handleErrorResponse(res, error.message);
+    }
+};
 const eventService = require('../services/eventService');
 const { registerParticipant } = require('../services/registrationService');
 const { handleErrorResponse, handleSuccessResponse } = require('../utils/errorHandler');
