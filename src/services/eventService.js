@@ -61,6 +61,15 @@ const getAllAttendanceRecords = async () => {
     }
 };
 
+const getAttendanceRecordsByStudent = async (studentId) => {
+    try {
+        return await eventModel.getAttendanceRecordsByStudent(studentId);
+    } catch (error) {
+        console.error('Error fetching attendance records by student in service:', error);
+        throw error;
+    }
+};
+
 const getAttendanceRecordsByOrg = async (orgId) => {
     try {
         return await eventModel.getAttendanceRecordsByOrg(orgId);
@@ -139,6 +148,7 @@ module.exports = {
     getEventsByCreator,
     updateEventStatus,
     getAllAttendanceRecords,
+    getAttendanceRecordsByStudent,
     getAttendanceRecordsByOrg,
     getAttendanceRecordsByOsws,
     getAttendanceRecordsByEvent,
