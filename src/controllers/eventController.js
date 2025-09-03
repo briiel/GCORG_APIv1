@@ -145,6 +145,33 @@ exports.getEventsByParticipant = async (req, res) => {
     }
 };
 
+// Get attended events (history) for a student
+exports.getAttendedEventsByStudent = async (req, res) => {
+    try {
+        const user = req.user;
+        // Allow students to fetch only their own history; org/admin can fetch any student
+        const { student_id } = req.params;
+        if (!student_id) return handleErrorResponse(res, 'student_id is required', 400);
+        if (user?.role === 'student' && String(user.id) !== String(student_id)) {
+            return handleErrorResponse(res, 'Forbidden', 403);
+        }
+
+        const events = await eventService.getAttendanceRecordsByStudent(student_id);
+
+        // Normalize poster URLs when relative
+        const host = req.protocol + '://' + req.get('host');
+        const data = events.map(ev => ({
+            ...ev,
+            event_poster: ev.event_poster && ev.event_poster.startsWith('http')
+                ? ev.event_poster
+                : (ev.event_poster ? `${host}/${String(ev.event_poster).replace(/\\/g, '/')}` : null)
+        }));
+        return handleSuccessResponse(res, data);
+    } catch (error) {
+        return handleErrorResponse(res, error.message);
+    }
+};
+
 exports.getEventsByCreator = async (req, res) => {
     try {
         const { creator_id } = req.params;
