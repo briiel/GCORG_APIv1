@@ -323,9 +323,11 @@ const updateEvent = async (eventId, eventData) => {
         event_poster, // Optional: only update if provided
         status
     } = eventData;
-    // Ensure dates are yyyy-MM-dd strings
+
+    // Ensure dates are yyyy-MM-dd strings only when provided
     const normalizeDate = (d) => {
-        if (!d) return '';
+        if (d === undefined) return null; // signal to keep existing
+        if (!d) return ''; // allow clearing when explicitly empty/falsey
         if (typeof d === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(d)) return d;
         const dateObj = new Date(d);
         if (isNaN(dateObj.getTime())) return '';
@@ -333,15 +335,36 @@ const updateEvent = async (eventId, eventData) => {
         const day = dateObj.getDate().toString().padStart(2, '0');
         return `${dateObj.getFullYear()}-${month}-${day}`;
     };
-    const startDateStr = normalizeDate(start_date);
-    const endDateStr = normalizeDate(end_date);
 
+    const startDateVal = normalizeDate(start_date);
+    const endDateVal = normalizeDate(end_date);
+
+    // Use COALESCE so undefined (mapped to NULL) preserves existing
     let query = `
         UPDATE created_events
-        SET title = ?, description = ?, location = ?, start_date = ?, start_time = ?, end_date = ?, end_time = ?, status = ?
+        SET
+            title = COALESCE(?, title),
+            description = COALESCE(?, description),
+            location = COALESCE(?, location),
+            start_date = COALESCE(?, start_date),
+            start_time = COALESCE(?, start_time),
+            end_date = COALESCE(?, end_date),
+            end_time = COALESCE(?, end_time),
+            status = COALESCE(?, status)
     `;
-    const params = [title, description, location, startDateStr, start_time, endDateStr, end_time, status];
 
+    const params = [
+        title ?? null,
+        description ?? null,
+        location ?? null,
+        startDateVal,
+        start_time ?? null,
+        endDateVal,
+        end_time ?? null,
+        status ?? null,
+    ];
+
+    // Special handling for event_poster
     if (event_poster !== undefined) {
         if (event_poster === '') {
             query += `, event_poster = NULL`;
