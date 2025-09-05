@@ -94,6 +94,20 @@ function buildRegistrationHtml({ event = {}, student = {}, qrUrl }) {
   const startPretty = `${formatDateHuman(start_date)} · ${formatTime12h(start_time)}`;
   const endPretty = `${formatDateHuman(end_date)} · ${formatTime12h(end_time)}`;
 
+  // Build Google Calendar link (no explicit timezone)
+  const pad2 = (n) => String(n).padStart(2, '0');
+  const ymd = (d) => `${d.getFullYear()}${pad2(d.getMonth() + 1)}${pad2(d.getDate())}`;
+  const hm = (t) => {
+    const tt = normalizeTime(t) || { h: 9, m: 0 };
+    return `${pad2(tt.h)}${pad2(tt.m)}00`;
+  };
+  const sd = normalizeDate(start_date) || new Date();
+  const ed = normalizeDate(end_date) || sd;
+  const s = `${ymd(sd)}T${hm(start_time)}`;
+  const e = `${ymd(ed)}T${hm(end_time)}`;
+  const gcalParams = new URLSearchParams({ action: 'TEMPLATE', text: title, dates: `${s}/${e}`, location: location || '' });
+  const gcalUrl = `https://www.google.com/calendar/render?${gcalParams.toString()}`;
+
   return `
   <div style="background:#f6f9fc;padding:16px;font-family:Segoe UI, Roboto, Helvetica, Arial, sans-serif;color:#1f2937;">
     <table role="presentation" width="100%" cellspacing="0" cellpadding="0" style="max-width:640px;margin:0 auto;background:#ffffff;border-radius:12px;overflow:hidden;border:1px solid #e5e7eb;">
@@ -112,8 +126,17 @@ function buildRegistrationHtml({ event = {}, student = {}, qrUrl }) {
       </tr>
       <tr>
         <td style="padding:20px;">
-          <h1 style="font-size:20px;margin:0 0 12px 0;color:#111827;">You're in, ${studentName}! 🎉</h1>
-          <p style="margin:0 0 16px 0;line-height:1.6;">You've successfully registered for <strong>${title}</strong>.</p>
+          <table role="presentation" width="100%" cellspacing="0" cellpadding="0">
+            <tr>
+              <td style="vertical-align:middle;">
+                <h1 style="font-size:20px;margin:0;color:#111827;display:inline-block;">You're in, ${studentName}! 🎉</h1>
+              </td>
+              <td style="text-align:right;vertical-align:middle;">
+                <a href="${gcalUrl}" target="_blank" style="background:${BRAND_PRIMARY_COLOR};color:#ffffff;text-decoration:none;padding:10px 14px;border-radius:10px;display:inline-block;font-weight:600;font-size:14px;">Add to Google Calendar</a>
+              </td>
+            </tr>
+          </table>
+          <p style="margin:12px 0 16px 0;line-height:1.6;">You've successfully registered for <strong>${title}</strong>.</p>
 
           <table role="presentation" width="100%" cellspacing="0" cellpadding="0" style="border:1px solid #e5e7eb;border-radius:10px;margin:16px 0;">
             <tr>
@@ -145,6 +168,8 @@ function buildRegistrationHtml({ event = {}, student = {}, qrUrl }) {
             </tr>
           </table>
 
+          
+
           <p style="margin:16px 0;color:#374151;line-height:1.6;">Tip: Save this email or add the event to your calendar so you don't miss it.</p>
           <p style="margin:0;color:#6b7280;font-size:12px;">If you have questions, reply to this email.</p>
         </td>
@@ -158,8 +183,8 @@ function buildRegistrationHtml({ event = {}, student = {}, qrUrl }) {
   </div>`;
 }
 
-// Internal: build a friendly HTML email for event reminders
-function buildReminderHtml({ event = {}, student = {}, windowLabel = 'Reminder', qrUrl }) {
+// Internal: build a friendly HTML email for event reminders (disabled)
+/* function buildReminderHtml({ event = {}, student = {}, windowLabel = 'Reminder', qrUrl }) {
   const monthNames = ['January','February','March','April','May','June','July','August','September','October','November','December'];
   const isValidDate = (d) => d instanceof Date && !isNaN(d.getTime());
   const normalizeDate = (value) => {
@@ -239,7 +264,7 @@ function buildReminderHtml({ event = {}, student = {}, windowLabel = 'Reminder',
   const ed = normalizeDate(end_date) || sd;
   const s = `${ymd(sd)}T${hm(start_time)}`;
   const e = `${ymd(ed)}T${hm(end_time)}`;
-  const params = new URLSearchParams({ action: 'TEMPLATE', text: title, dates: `${s}/${e}`, location: location || '', ctz: BRAND_TIMEZONE });
+  const params = new URLSearchParams({ action: 'TEMPLATE', text: title, dates: `${s}/${e}`, location: location || '' });
   const gcalUrl = `https://www.google.com/calendar/render?${params.toString()}`;
   const mapsUrl = location ? `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(location)}` : '';
 
@@ -330,7 +355,7 @@ function buildReminderHtml({ event = {}, student = {}, windowLabel = 'Reminder',
       </tr>
     </table>
   </div>`;
-}
+} */
 
 // New flexible API (object-based). Supports building an HTML email with branding and optional QR code.
 async function sendRegistrationEmailObject({ to, subject, text, event, student, qrUrl }) {
@@ -378,27 +403,17 @@ function sendRegistrationEmail(arg1, subject, text, qrUrl) {
   return sendRegistrationEmailLegacy(arg1, subject, text, qrUrl);
 }
 
-async function sendReminderEmail({ to, event, student, windowLabel, qrUrl }) {
-  const html = buildReminderHtml({ event, student, windowLabel, qrUrl });
-  const attachments = [
-    {
-      filename: 'logo.png',
-      path: path.join(__dirname, '../assets/GC-Logo.png'),
-      cid: 'gc-logo',
-    },
-  ];
-  if (qrUrl) {
-    attachments.push({ filename: 'registration-qr.png', path: qrUrl, cid: 'rem-qr' });
-  }
+// async function sendReminderEmail(...) { /* disabled */ }
+
+async function sendGenericEmail({ to, subject, text, html }) {
   const mailOptions = {
     from: SMTP_USER,
     to,
-    subject: `Reminder: ${event?.title || 'Event'} starts soon`,
-    text: `Reminder: ${event?.title || 'Event'} at ${event?.location || ''} starting ${event?.start_date || ''} ${event?.start_time || ''}.`,
+    subject,
+    text: text || (html ? undefined : ''),
     html,
-    attachments,
   };
   return transporter.sendMail(mailOptions);
 }
 
-module.exports = { sendRegistrationEmail, sendReminderEmail };
+module.exports = { sendRegistrationEmail, /* sendReminderEmail, */ sendGenericEmail };

@@ -128,23 +128,42 @@ async function ensureRemoteFonts() {
     FONTS_READY = true;
 }
 
+// Normalize various date inputs to a local date-only object (no time component)
+function toLocalDateOnly(input) {
+    if (!input) return null;
+    // If it's already a Date
+    if (input instanceof Date && !isNaN(input)) {
+        return new Date(input.getFullYear(), input.getMonth(), input.getDate());
+    }
+    const s = String(input).trim();
+    // If formatted as YYYY-MM-DD, avoid timezone shifts by constructing local date
+    const m = s.match(/^(\d{4})-(\d{1,2})-(\d{1,2})$/);
+    if (m) {
+        const y = Number(m[1]);
+        const mo = Number(m[2]);
+        const d = Number(m[3]);
+        const dt = new Date(y, mo - 1, d);
+        if (!isNaN(dt)) return dt;
+    }
+    // Fallback: let JS parse common date strings, then strip time
+    const parsed = new Date(s);
+    if (!isNaN(parsed)) {
+        return new Date(parsed.getFullYear(), parsed.getMonth(), parsed.getDate());
+    }
+    return null;
+}
+
 // Helper to format date as "Month Day, Year"
-function formatDate(dateStr) {
-    if (!dateStr) return '';
-    // Parse as local date
-    const [year, month, day] = String(dateStr).split('-').map(Number);
-    const date = new Date(year, month - 1, day);
-    if (isNaN(date.getTime())) return String(dateStr);
+function formatDate(dateInput) {
+    const date = toLocalDateOnly(dateInput);
+    if (!date) return String(dateInput || '');
     return date.toLocaleDateString('en-US', { year: 'numeric', month: 'long', day: 'numeric' });
 }
 
 // Helper to format date as "27th of June 2025"
-function formatDateOrdinal(dateStr) {
-    if (!dateStr) return '';
-    // Parse as local date
-    const [year, month, day] = String(dateStr).split('-').map(Number);
-    const d = new Date(year, month - 1, day);
-    if (isNaN(d.getTime())) return String(dateStr);
+function formatDateOrdinal(dateInput) {
+    const d = toLocalDateOnly(dateInput);
+    if (!d) return String(dateInput || '');
     const dayNum = d.getDate();
     const monthName = d.toLocaleDateString('en-US', { month: 'long' });
     const yearNum = d.getFullYear();

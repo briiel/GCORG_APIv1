@@ -20,6 +20,7 @@ const { registerParticipant } = require('../services/registrationService');
 const { handleErrorResponse, handleSuccessResponse } = require('../utils/errorHandler');
 const db = require('../config/db');
 const { generateCertificate, generateCertificatePreview } = require('../utils/certificateGenerator');
+const { sendGenericEmail } = require('../utils/mailer');
 const { v2: cloudinary } = require('cloudinary');
 const { upload, convertToWebpAndUpload } = require('../middleware/uploadMiddleware');
 const fs = require('fs');
@@ -758,5 +759,153 @@ exports.getEventById = async (req, res) => {
         res.json({ success: true, data: event });
     } catch (error) {
         res.status(500).json({ success: false, message: error.message });
+    }
+};
+
+// POST /api/event/events/:id/request-certificate
+// Sends an email to the event organizer (org or OSWS) from the authenticated student requesting an e‑certificate
+exports.requestCertificate = async (req, res) => {
+    try {
+        const user = req.user;
+        if (!user || user.role !== 'student') {
+            return handleErrorResponse(res, 'Only students can request certificates.', 403);
+        }
+        const eventId = req.params.id;
+        if (!eventId) return handleErrorResponse(res, 'Event ID is required', 400);
+
+        // Fetch event and organizer contact
+        const [rows] = await db.query(
+            `SELECT ce.event_id, ce.title, ce.location, ce.start_date, ce.end_date,
+                    ce.created_by_org_id, ce.created_by_osws_id,
+                    org.org_name, org.email AS org_email,
+                    osws.name AS osws_name, osws.email AS osws_email
+             FROM created_events ce
+             LEFT JOIN student_organizations org ON ce.created_by_org_id = org.id
+             LEFT JOIN osws_admins osws ON ce.created_by_osws_id = osws.id
+             WHERE ce.event_id = ? LIMIT 1`,
+            [eventId]
+        );
+        if (!rows.length) return handleErrorResponse(res, 'Event not found', 404);
+        const ev = rows[0];
+        // Server-side safety: block OSWS-created (auto-generated) certificates
+        if (ev.created_by_osws_id) {
+            return handleErrorResponse(res, 'Certificates are auto-generated for OSWS events.', 400);
+        }
+        const to = ev.org_email || ev.osws_email;
+        if (!to) return handleErrorResponse(res, 'Organizer email not available for this event.', 400);
+
+        // Ensure log table exists (idempotent)
+        await db.query(`
+            CREATE TABLE IF NOT EXISTS certificate_request_logs (
+                id INT NOT NULL AUTO_INCREMENT PRIMARY KEY,
+                event_id INT NOT NULL,
+                student_id VARCHAR(20) NOT NULL,
+                requested_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                KEY idx_event_student_time (event_id, student_id, requested_at)
+            ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci;
+        `);
+
+        // Enforce: max 2 requests per 48 hours per (student,event)
+        const studentIdStr = String(user.id);
+        const [cntRows] = await db.query(
+            `SELECT COUNT(*) AS cnt FROM certificate_request_logs
+             WHERE event_id = ? AND student_id = ? AND requested_at >= (NOW() - INTERVAL 48 HOUR)`,
+            [eventId, studentIdStr]
+        );
+        const recentCount = Number(cntRows?.[0]?.cnt || 0);
+        if (recentCount >= 2) {
+            const [firstRows] = await db.query(
+                `SELECT MIN(requested_at) AS first_in_window FROM certificate_request_logs
+                 WHERE event_id = ? AND student_id = ? AND requested_at >= (NOW() - INTERVAL 48 HOUR)`,
+                [eventId, studentIdStr]
+            );
+            const firstDateStr = firstRows?.[0]?.first_in_window;
+            let retryMsg = 'You can request up to 2 times every 48 hours. Please try again later.';
+            if (firstDateStr) {
+                const firstDate = new Date(firstDateStr);
+                const now = new Date();
+                const msElapsed = now.getTime() - firstDate.getTime();
+                const msLeft = (48 * 60 * 60 * 1000) - Math.max(0, msElapsed);
+                if (msLeft > 0) {
+                    const hours = Math.floor(msLeft / (60 * 60 * 1000));
+                    const minutes = Math.floor((msLeft % (60 * 60 * 1000)) / (60 * 1000));
+                    retryMsg = `Limit reached (2 per 48 hours). Try again in ${hours}h ${minutes}m.`;
+                }
+            }
+            return handleErrorResponse(res, retryMsg, 429);
+        }
+
+        // Fetch student info
+        const [srows] = await db.query(
+            `SELECT id, email, first_name, last_name, middle_initial, suffix, department, program
+             FROM students WHERE id = ? LIMIT 1`,
+            [user.id]
+        );
+        const st = srows[0] || {};
+        const studentName = [st.first_name, st.middle_initial ? `${st.middle_initial}.` : '', st.last_name, st.suffix || '']
+            .filter(Boolean).join(' ').replace(/\s+/g, ' ');
+
+        const subject = `E-Certificate Request: ${ev.title}`;
+
+        // Format dates without timezone or time
+        const monthNames = ['January','February','March','April','May','June','July','August','September','October','November','December'];
+        const normalizeDate = (value) => {
+            if (!value) return null;
+            if (value instanceof Date) return isNaN(value.getTime()) ? null : value;
+            if (typeof value === 'string') {
+                const v = value.trim();
+                // YYYY-MM-DD
+                const m = v.match(/^(\d{4})-(\d{1,2})-(\d{1,2})$/);
+                if (m) {
+                    const y = parseInt(m[1], 10);
+                    const mo = parseInt(m[2], 10) - 1;
+                    const d = parseInt(m[3], 10);
+                    const dt = new Date(y, mo, d);
+                    return isNaN(dt.getTime()) ? null : dt;
+                }
+                // Fallback: Date parse
+                const d = new Date(v);
+                return isNaN(d.getTime()) ? null : d;
+            }
+            if (typeof value === 'number') {
+                const d = new Date(value);
+                return isNaN(d.getTime()) ? null : d;
+            }
+            return null;
+        };
+        const formatDateHuman = (value) => {
+            const d = normalizeDate(value);
+            if (!d) return '';
+            return `${monthNames[d.getMonth()]} ${d.getDate()}, ${d.getFullYear()}`;
+        };
+        const startPretty = formatDateHuman(ev.start_date);
+        const endPretty = formatDateHuman(ev.end_date || ev.start_date);
+        const eventDatesLine = startPretty
+            ? `Event ${startPretty === endPretty ? 'Date' : 'Dates'}: ${startPretty}${startPretty !== endPretty ? ` to ${endPretty}` : ''}`
+            : undefined;
+
+        const lines = [
+            `Hello ${ev.org_name || ev.osws_name || 'Organizer'},`,
+            '',
+            `I attended the event "${ev.title}" and would like to request my e-certificate.`,
+            `Student: ${studentName} (ID: ${st.id})`,
+            `Email: ${st.email}`,
+            eventDatesLine,
+            ev.location ? `Location: ${ev.location}` : undefined,
+            '',
+            'Thank you.'
+        ].filter(Boolean);
+        const text = lines.join('\n');
+
+        await sendGenericEmail({ to, subject, text });
+        // Log successful request
+        await db.query(
+            'INSERT INTO certificate_request_logs (event_id, student_id) VALUES (?, ?)',
+            [eventId, studentIdStr]
+        );
+        return handleSuccessResponse(res, { message: 'Request email sent to organizer.' });
+    } catch (error) {
+        console.error('requestCertificate error:', error);
+        return handleErrorResponse(res, error.message);
     }
 };
