@@ -772,15 +772,56 @@ exports.getCertificatesByStudent = async (req, res) => {
         const { student_id } = req.query;
         if (!student_id) return res.status(400).json({ success: false, message: 'student_id required' });
 
-        const [certs] = await db.query(
-            `SELECT c.*, ce.title AS event_title, ce.start_date, ce.end_date, ce.start_time, ce.end_time, s.first_name, s.last_name, s.middle_initial, s.suffix, s.department, s.program
-             FROM certificates c
-             JOIN created_events ce ON c.event_id = ce.event_id
-             JOIN students s ON c.student_id = s.id
-             WHERE c.student_id = ?`,
+        // Get all attended events with evaluation status
+        const [attendedEvents] = await db.query(
+            `SELECT ar.event_id, ce.title AS event_title, ce.start_date, ce.end_date, ce.start_time, ce.end_time,
+                    ce.created_by_osws_id,
+                    ar.evaluation_submitted, ar.evaluation_submitted_at,
+                    c.id as cert_id, c.certificate_url, c.certificate_public_id, c.generated_at,
+                    s.first_name, s.last_name, s.middle_initial, s.suffix, s.department, s.program
+             FROM attendance_records ar
+             JOIN created_events ce ON ar.event_id = ce.event_id
+             JOIN students s ON ar.student_id = s.id
+             LEFT JOIN certificates c ON c.event_id = ar.event_id AND c.student_id = ar.student_id
+             WHERE ar.student_id = ? AND ar.deleted_at IS NULL AND ce.deleted_at IS NULL
+             ORDER BY ce.end_date DESC, ce.start_date DESC`,
             [student_id]
         );
-        res.json({ success: true, data: certs });
+
+        // Build response with evaluation gate logic
+        const data = attendedEvents.map(event => {
+            const isOswsEvent = !!event.created_by_osws_id;
+            const hasEvaluated = event.evaluation_submitted === 1;
+            const hasCertificate = !!event.certificate_url;
+            
+            return {
+                event_id: event.event_id,
+                event_title: event.event_title,
+                start_date: event.start_date,
+                end_date: event.end_date,
+                start_time: event.start_time,
+                end_time: event.end_time,
+                first_name: event.first_name,
+                last_name: event.last_name,
+                middle_initial: event.middle_initial,
+                suffix: event.suffix,
+                department: event.department,
+                program: event.program,
+                // Certificate availability
+                id: event.cert_id,
+                certificate_url: event.certificate_url,
+                certificate_public_id: event.certificate_public_id,
+                generated_at: event.generated_at,
+                // Evaluation gate
+                evaluation_required: true, // All events now require evaluation
+                evaluation_submitted: hasEvaluated,
+                evaluation_submitted_at: event.evaluation_submitted_at,
+                can_download_certificate: hasEvaluated && hasCertificate,
+                is_osws_event: isOswsEvent
+            };
+        });
+
+        res.json({ success: true, data });
     } catch (err) {
         res.status(500).json({ success: false, message: err.message });
     }
