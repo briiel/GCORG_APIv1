@@ -80,7 +80,7 @@ CREATE TABLE `created_events` (
   `created_at` timestamp NOT NULL DEFAULT current_timestamp(),
   `created_by_org_id` int(11) DEFAULT NULL,
   `created_by_osws_id` int(11) DEFAULT NULL,
-  `status` enum('not yet started','ongoing','completed','cancelled') DEFAULT 'not yet started',
+  `status` enum('not yet started','ongoing','concluded','cancelled') DEFAULT 'not yet started',
   `deleted_at` datetime DEFAULT NULL,
   `deleted_by` int(11) DEFAULT NULL
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci;

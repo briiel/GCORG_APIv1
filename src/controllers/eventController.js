@@ -1,3 +1,17 @@
+// Trash (soft-delete) multiple events
+exports.trashMultipleEvents = async (req, res) => {
+    try {
+        const user = req.user;
+        const { eventIds } = req.body;
+        if (!Array.isArray(eventIds) || eventIds.length === 0) {
+            return handleErrorResponse(res, 'eventIds (array) required', 400);
+        }
+        const result = await eventService.trashMultipleEvents(eventIds, user?.id);
+        return handleSuccessResponse(res, { message: 'Events moved to trash', result });
+    } catch (error) {
+        return handleErrorResponse(res, error.message);
+    }
+};
 // Get attendance records for a specific event
 exports.getAttendanceRecordsByEvent = async (req, res) => {
     try {
@@ -20,7 +34,7 @@ const { registerParticipant } = require('../services/registrationService');
 const { handleErrorResponse, handleSuccessResponse } = require('../utils/errorHandler');
 const db = require('../config/db');
 const { generateCertificate, generateCertificatePreview } = require('../utils/certificateGenerator');
-const { sendGenericEmail } = require('../utils/mailer');
+const notificationService = require('../services/notificationService');
 const { v2: cloudinary } = require('cloudinary');
 const { upload, convertToWebpAndUpload } = require('../middleware/uploadMiddleware');
 const fs = require('fs');
@@ -55,9 +69,25 @@ exports.createEvent = async (req, res) => {
         }
         eventData.status = eventData.status || 'not yet started';
 
+        // Normalize is_paid from frontend ("paid"/"free" or boolean)
+        if (eventData.is_paid !== undefined) {
+            const v = eventData.is_paid;
+            const s = typeof v === 'string' ? v.toLowerCase() : v;
+            eventData.is_paid = (s === true || s === 1 || s === '1' || s === 'true' || s === 'paid' || s === 'yes') ? 1 : 0;
+        }
+        // Normalize registration_fee
+        if (eventData.registration_fee !== undefined) {
+            const n = parseFloat(eventData.registration_fee);
+            eventData.registration_fee = isNaN(n) || n < 0 ? 0 : Number(n.toFixed(2));
+        }
+
         console.log('Event Data Received:', eventData);
 
-        const newEventId = await eventService.createNewEvent(eventData);
+        // Service returns either a numeric id or an object { id, ...eventData }
+        const created = await eventService.createNewEvent(eventData);
+        const newEventId = (created && typeof created === 'object' && 'id' in created)
+            ? created.id
+            : created;
 
         return handleSuccessResponse(res, { eventId: newEventId }, 201);
     } catch (error) {
@@ -70,21 +100,29 @@ exports.getEvents = async (req, res) => {
         let events = await eventService.fetchAllEvents();
         const now = new Date();
 
+        const computeAutoStatus = (ev) => {
+            const statusStr = (ev.status || '').toString().toLowerCase();
+            if (statusStr === 'cancelled') return null; // never auto-override cancelled
+            const sd = ev.start_date ? new Date(`${ev.start_date}T${ev.start_time || '00:00:00'}`) : null;
+            const ed = ev.end_date ? new Date(`${ev.end_date}T${ev.end_time || '23:59:59'}`) : null;
+            if (!sd) return null;
+            const start = sd;
+            const end = ed && !isNaN(ed.getTime()) ? ed : new Date(`${ev.start_date}T${ev.end_time || '23:59:59'}`);
+            if (isNaN(start.getTime()) || isNaN(end.getTime())) return null;
+            if (now < start) return 'not yet started';
+            if (now >= start && now <= end) return 'ongoing';
+            if (now > end) return 'concluded';
+            return null;
+        };
+
         events = events.map(event => {
-            // Date-based status override logic commented out:
-            // const eventStart = new Date(`${event.start_date}T${event.start_time}`);
-            // const eventEnd = new Date(`${event.end_date}T${event.end_time}`);
-            // if (event.status !== 'cancelled') {
-            //     if (eventStart > now) {
-            //         event.status = 'not yet started';
-            //     } else if (eventStart <= now && eventEnd >= now) {
-            //         event.status = 'ongoing';
-            //     } else if (eventEnd < now) {
-            //         event.status = 'concluded';
-            //     }
-            // }
+            const auto_status = computeAutoStatus(event);
+            const curr = (event.status || '').toString().toLowerCase();
+            const auto_mismatch = !!(auto_status && auto_status !== curr);
             return {
                 ...event,
+                auto_status,
+                auto_mismatch,
                 event_poster: event.event_poster?.startsWith('http')
                     ? event.event_poster
                     : null,
@@ -108,6 +146,17 @@ exports.registerParticipant = [
                 event_id,
                 student_id
             } = req.body;
+
+            // If event is marked as paid, require proof_of_payment
+            try {
+                const ev = await eventService.getEventById(event_id);
+                const isPaid = !!(ev && (ev.is_paid === 1 || ev.is_paid === true));
+                if (isPaid && !req.file) {
+                    return handleErrorResponse(res, 'Proof of payment is required for paid events.', 400);
+                }
+            } catch (e) {
+                // If lookup fails, continue; registration may fail later on foreign key
+            }
 
             // Get proof of payment URL from uploaded file
             const proof_of_payment = req.file ? req.file.cloudinaryUrl : null;
@@ -137,7 +186,8 @@ exports.getEventsByParticipant = async (req, res) => {
 
         const eventsWithQrUrl = events.map(event => ({
             ...event,
-            qr_code: event.qr_code?.startsWith('http') ? event.qr_code : null
+            qr_code: event.qr_code?.startsWith('http') ? event.qr_code : null,
+            registration_status: event.registration_status || 'approved'
         }));
 
         return handleSuccessResponse(res, eventsWithQrUrl);
@@ -178,6 +228,21 @@ exports.getEventsByCreator = async (req, res) => {
         const { creator_id } = req.params;
         const events = await eventService.getEventsByCreator(creator_id);
         const host = req.protocol + '://' + req.get('host');
+        const now = new Date();
+        const computeAutoStatus = (ev) => {
+            const statusStr = (ev.status || '').toString().toLowerCase();
+            if (statusStr === 'cancelled') return null;
+            const sd = ev.start_date ? new Date(`${ev.start_date}T${ev.start_time || '00:00:00'}`) : null;
+            const ed = ev.end_date ? new Date(`${ev.end_date}T${ev.end_time || '23:59:59'}`) : null;
+            if (!sd) return null;
+            const start = sd;
+            const end = ed && !isNaN(ed.getTime()) ? ed : new Date(`${ev.start_date}T${ev.end_time || '23:59:59'}`);
+            if (isNaN(start.getTime()) || isNaN(end.getTime())) return null;
+            if (now < start) return 'not yet started';
+            if (now >= start && now <= end) return 'ongoing';
+            if (now > end) return 'concluded';
+            return null;
+        };
         const eventsWithPosterUrl = events.map(event => {
             const poster = event.event_poster;
             const normalizedPoster = poster
@@ -185,10 +250,15 @@ exports.getEventsByCreator = async (req, res) => {
                     ? poster
                     : `${host}/${poster.replace(/\\/g, '/')}`)
                 : null;
+            const auto_status = computeAutoStatus(event);
+            const curr = (event.status || '').toString().toLowerCase();
+            const auto_mismatch = !!(auto_status && auto_status !== curr);
             return {
                 ...event,
                 event_poster: normalizedPoster,
-                department: event.department // Now included from the join
+                department: event.department, // Now included from the join
+                auto_status,
+                auto_mismatch
             };
         });
         return handleSuccessResponse(res, eventsWithPosterUrl);
@@ -202,6 +272,7 @@ exports.updateEventStatus = async (req, res) => {
 
         const { id } = req.params;
         let { status } = req.body;
+        const user = req.user;
 
         if (!status) {
             return handleErrorResponse(res, 'Status is required', 400);
@@ -210,9 +281,45 @@ exports.updateEventStatus = async (req, res) => {
         // Normalize status to lowercase and trimmed
         status = status.toString().trim().toLowerCase();
 
+        // Load event details
+        const ev = await eventService.getEventById(id);
+        if (!ev || ev.deleted_at) return handleErrorResponse(res, 'Event not found', 404);
+        if (!user) return handleErrorResponse(res, 'Unauthorized', 401);
+        if (user.role === 'organization' && ev.created_by_org_id !== user.id) return handleErrorResponse(res, 'Forbidden', 403);
+        if (user.role === 'admin' && ev.created_by_osws_id !== user.id) return handleErrorResponse(res, 'Forbidden', 403);
+
+        // Compute auto status (as of now); never auto-override 'cancelled'
+        const now = new Date();
+        const computeAutoStatus = (e) => {
+            const statusStr = (e.status || '').toString().toLowerCase();
+            if (statusStr === 'cancelled') return null;
+            const sd = e.start_date ? new Date(`${e.start_date}T${e.start_time || '00:00:00'}`) : null;
+            const ed = e.end_date ? new Date(`${e.end_date}T${e.end_time || '23:59:59'}`) : null;
+            if (!sd) return null;
+            const start = sd;
+            const end = ed && !isNaN(ed.getTime()) ? ed : new Date(`${e.start_date}T${e.end_time || '23:59:59'}`);
+            if (isNaN(start.getTime()) || isNaN(end.getTime())) return null;
+            if (now < start) return 'not yet started';
+            if (now >= start && now <= end) return 'ongoing';
+            if (now > end) return 'concluded';
+            return null;
+        };
+        const autoStatus = computeAutoStatus(ev);
+
+        // Manual status change rules:
+        // - Always allow setting to 'cancelled'.
+        // - Otherwise, allow only if desired equals computed auto status AND current stored differs (i.e., auto didn't update).
+        const desired = status;
+        const current = (ev.status || '').toString().toLowerCase();
+        const desiredLower = desired.toString().toLowerCase();
+        const allowed = desiredLower === 'cancelled' || (autoStatus && desiredLower === autoStatus && desiredLower !== current);
+        if (!allowed) {
+            return handleErrorResponse(res, 'Manual status change not allowed. Only permitted when automatic status did not update (or to cancel).', 403);
+        }
+
         await eventService.updateEventStatus(id, status);
 
-        if (status === 'concluded') {
+    if (status === 'concluded') {
             // Only release certificates for events created by OSWS
             const event = await eventService.getEventById(id);
             const isOswsCreated = event && event.created_by_osws_id; // truthy when created by OSWS
@@ -316,7 +423,7 @@ exports.updateEventStatus = async (req, res) => {
 
 exports.markAttendance = async (req, res) => {
     try {
-        let { registration_id, event_id, student_id } = req.body;
+    let { registration_id, event_id, student_id, mode } = req.body;
         const user = req.user;
 
         if (!student_id || !user || !user.id) {
@@ -450,24 +557,100 @@ exports.markAttendance = async (req, res) => {
         if (reg.length === 0) {
             return handleErrorResponse(res, 'Registration not found', 404);
         }
-
-        // Check if already attended for this event
-        const [existing] = await db.query(
-            'SELECT * FROM attendance_records WHERE event_id = ? AND student_id = ?',
-            [event_id, student_id]
-        );
-        if (existing.length > 0) {
-            return handleErrorResponse(res, 'Attendance already recorded', 409);
+        // Enforce approval for paid events: only approved registrations can attend
+        const [evPaidRows] = await db.query('SELECT is_paid FROM created_events WHERE event_id = ? LIMIT 1', [event_id]);
+        const isPaidEvent = !!(evPaidRows?.[0]?.is_paid);
+        if (isPaidEvent) {
+            const status = (reg[0].status || 'approved').toString().toLowerCase();
+            if (status !== 'approved') {
+                return handleErrorResponse(res, 'Registration is not approved for this paid event.', 403);
+            }
         }
 
-        // Insert attendance record. For OSWS admin scans, set scanned_by_org_id to NULL.
-        const scannedByOrgId = role === 'organization' ? user.id : null;
-        await db.query(
-            'INSERT INTO attendance_records (event_id, student_id, attended_at, scanned_by_org_id) VALUES (?, ?, NOW(), ?)',
-            [event_id, student_id, scannedByOrgId]
+        // Normalize requested mode (optional): 'time_in' | 'time_out'
+        const desired = typeof mode === 'string' ? mode.toString().trim().toLowerCase() : '';
+
+        // Fetch existing record for this student+event
+        const [existing] = await db.query(
+            'SELECT id, time_in, time_out FROM attendance_records WHERE event_id = ? AND student_id = ? LIMIT 1',
+            [event_id, student_id]
         );
 
-        return handleSuccessResponse(res, { message: 'Attendance recorded' });
+        const scannedByOrgId = role === 'organization' ? user.id : null;
+        const scannedByOswsId = role === 'admin' ? user.id : null;
+
+        // Helper writers
+        const doTimeInInsert = async () => {
+            await db.query(
+                `INSERT INTO attendance_records (event_id, student_id, attended_at, time_in, scanned_by_org_id, scanned_by_osws_id)
+                 VALUES (?, ?, NOW(), NOW(), ?, ?)`,
+                [event_id, student_id, scannedByOrgId, scannedByOswsId]
+            );
+        };
+        const doTimeInUpdate = async (id) => {
+            await db.query(
+                `UPDATE attendance_records 
+                 SET time_in = COALESCE(time_in, NOW()), attended_at = COALESCE(attended_at, NOW()),
+                     scanned_by_org_id = COALESCE(scanned_by_org_id, ?),
+                     scanned_by_osws_id = COALESCE(scanned_by_osws_id, ?)
+                 WHERE id = ?`,
+                [scannedByOrgId, scannedByOswsId, id]
+            );
+        };
+        const doTimeOutUpdate = async (id) => {
+            await db.query(
+                `UPDATE attendance_records 
+                 SET time_out = NOW(),
+                     scanned_by_org_id = COALESCE(scanned_by_org_id, ?),
+                     scanned_by_osws_id = COALESCE(scanned_by_osws_id, ?)
+                 WHERE id = ?`,
+                [scannedByOrgId, scannedByOswsId, id]
+            );
+        };
+
+        // If explicit mode requested
+        if (desired === 'time_in') {
+            if (!existing.length) {
+                await doTimeInInsert();
+                return handleSuccessResponse(res, { message: 'Time-in recorded' });
+            }
+            const rec = existing[0];
+            if (rec.time_in && !rec.time_out) {
+                return handleErrorResponse(res, 'Already timed in.', 409);
+            }
+            if (rec.time_in && rec.time_out) {
+                return handleErrorResponse(res, 'Attendance already recorded', 409);
+            }
+            // No time_in yet on existing row (edge case) -> set it
+            await doTimeInUpdate(rec.id);
+            return handleSuccessResponse(res, { message: 'Time-in recorded' });
+        }
+        if (desired === 'time_out') {
+            if (!existing.length) {
+                return handleErrorResponse(res, 'Cannot time-out: no time-in found for this attendee.', 409);
+            }
+            const rec = existing[0];
+            if (!rec.time_in) {
+                return handleErrorResponse(res, 'Cannot time-out: no time-in found for this attendee.', 409);
+            }
+            if (rec.time_out) {
+                return handleErrorResponse(res, 'Already timed out.', 409);
+            }
+            await doTimeOutUpdate(rec.id);
+            return handleSuccessResponse(res, { message: 'Time-out recorded' });
+        }
+
+        // Auto mode (legacy behavior): first scan -> time-in; second -> time-out
+        if (!existing.length) {
+            await doTimeInInsert();
+            return handleSuccessResponse(res, { message: 'Time-in recorded' });
+        }
+        const rec = existing[0];
+        if (rec.time_in && !rec.time_out) {
+            await doTimeOutUpdate(rec.id);
+            return handleSuccessResponse(res, { message: 'Time-out recorded' });
+        }
+        return handleErrorResponse(res, 'Attendance already recorded', 409);
     } catch (error) {
         return handleErrorResponse(res, error.message);
     }
@@ -608,6 +791,21 @@ exports.getEventsByAdmin = async (req, res) => {
         const { admin_id } = req.params;
         const events = await eventService.getEventsByAdmin(admin_id);
         const host = req.protocol + '://' + req.get('host');
+        const now = new Date();
+        const computeAutoStatus = (ev) => {
+            const statusStr = (ev.status || '').toString().toLowerCase();
+            if (statusStr === 'cancelled') return null;
+            const sd = ev.start_date ? new Date(`${ev.start_date}T${ev.start_time || '00:00:00'}`) : null;
+            const ed = ev.end_date ? new Date(`${ev.end_date}T${ev.end_time || '23:59:59'}`) : null;
+            if (!sd) return null;
+            const start = sd;
+            const end = ed && !isNaN(ed.getTime()) ? ed : new Date(`${ev.start_date}T${ev.end_time || '23:59:59'}`);
+            if (isNaN(start.getTime()) || isNaN(end.getTime())) return null;
+            if (now < start) return 'not yet started';
+            if (now >= start && now <= end) return 'ongoing';
+            if (now > end) return 'concluded';
+            return null;
+        };
         const eventsWithPosterUrl = events.map(event => {
             const poster = event.event_poster;
             const normalizedPoster = poster
@@ -615,10 +813,15 @@ exports.getEventsByAdmin = async (req, res) => {
                     ? poster
                     : `${host}/${poster.replace(/\\/g, '/')}`)
                 : null;
+            const auto_status = computeAutoStatus(event);
+            const curr = (event.status || '').toString().toLowerCase();
+            const auto_mismatch = !!(auto_status && auto_status !== curr);
             return {
                 ...event,
                 event_poster: normalizedPoster,
-                department: event.department
+                department: event.department,
+                auto_status,
+                auto_mismatch
             };
         });
         return handleSuccessResponse(res, eventsWithPosterUrl);
@@ -631,6 +834,21 @@ exports.getAllOrgEvents = async (req, res) => {
     try {
         const events = await eventService.getAllOrgEvents();
         const host = req.protocol + '://' + req.get('host');
+        const now = new Date();
+        const computeAutoStatus = (ev) => {
+            const statusStr = (ev.status || '').toString().toLowerCase();
+            if (statusStr === 'cancelled') return null;
+            const sd = ev.start_date ? new Date(`${ev.start_date}T${ev.start_time || '00:00:00'}`) : null;
+            const ed = ev.end_date ? new Date(`${ev.end_date}T${ev.end_time || '23:59:59'}`) : null;
+            if (!sd) return null;
+            const start = sd;
+            const end = ed && !isNaN(ed.getTime()) ? ed : new Date(`${ev.start_date}T${ev.end_time || '23:59:59'}`);
+            if (isNaN(start.getTime()) || isNaN(end.getTime())) return null;
+            if (now < start) return 'not yet started';
+            if (now >= start && now <= end) return 'ongoing';
+            if (now > end) return 'concluded';
+            return null;
+        };
         const eventsWithPosterUrl = events.map(event => {
             const poster = event.event_poster;
             const normalizedPoster = poster
@@ -638,10 +856,15 @@ exports.getAllOrgEvents = async (req, res) => {
                     ? poster
                     : `${host}/${poster.replace(/\\/g, '/')}`)
                 : null;
+            const auto_status = computeAutoStatus(event);
+            const curr = (event.status || '').toString().toLowerCase();
+            const auto_mismatch = !!(auto_status && auto_status !== curr);
             return {
                 ...event,
                 event_poster: normalizedPoster,
-                department: event.department
+                department: event.department,
+                auto_status,
+                auto_mismatch
             };
         });
         return res.status(200).json({ success: true, data: eventsWithPosterUrl });
@@ -654,6 +877,21 @@ exports.getAllOswsEvents = async (req, res) => {
     try {
         const events = await eventService.getAllOswsEvents();
         const host = req.protocol + '://' + req.get('host');
+        const now = new Date();
+        const computeAutoStatus = (ev) => {
+            const statusStr = (ev.status || '').toString().toLowerCase();
+            if (statusStr === 'cancelled') return null;
+            const sd = ev.start_date ? new Date(`${ev.start_date}T${ev.start_time || '00:00:00'}`) : null;
+            const ed = ev.end_date ? new Date(`${ev.end_date}T${ev.end_time || '23:59:59'}`) : null;
+            if (!sd) return null;
+            const start = sd;
+            const end = ed && !isNaN(ed.getTime()) ? ed : new Date(`${ev.start_date}T${ev.end_time || '23:59:59'}`);
+            if (isNaN(start.getTime()) || isNaN(end.getTime())) return null;
+            if (now < start) return 'not yet started';
+            if (now >= start && now <= end) return 'ongoing';
+            if (now > end) return 'concluded';
+            return null;
+        };
         const eventsWithPosterUrl = events.map(event => {
             const poster = event.event_poster;
             const normalizedPoster = poster
@@ -661,10 +899,15 @@ exports.getAllOswsEvents = async (req, res) => {
                     ? poster
                     : `${host}/${poster.replace(/\\/g, '/')}`)
                 : null;
+            const auto_status = computeAutoStatus(event);
+            const curr = (event.status || '').toString().toLowerCase();
+            const auto_mismatch = !!(auto_status && auto_status !== curr);
             return {
                 ...event,
                 event_poster: normalizedPoster,
-                department: event.department
+                department: event.department,
+                auto_status,
+                auto_mismatch
             };
         });
         return handleSuccessResponse(res, eventsWithPosterUrl);
@@ -675,21 +918,24 @@ exports.getAllOswsEvents = async (req, res) => {
 
 exports.getEventParticipants = async (req, res) => {
     try {
-        const { event_id } = req.params;
-        const [rows] = await db.query(
-            `SELECT 
-         er.student_id,
-         er.proof_of_payment,
-         s.first_name, 
-         s.last_name, 
-         s.suffix, 
-         s.department, 
-         s.program
-       FROM event_registrations er
-       JOIN students s ON er.student_id = s.id
-       WHERE er.event_id = ?`,
-            [event_id]
-        );
+                const { event_id } = req.params;
+                const [rows] = await db.query(
+                        `SELECT 
+                 er.id AS registration_id,
+                 er.student_id,
+                 er.proof_of_payment,
+                 er.status,
+                 s.first_name, 
+                 s.last_name, 
+                 s.suffix, 
+                 s.department, 
+                 s.program
+             FROM event_registrations er
+             JOIN students s ON er.student_id = s.id
+             WHERE er.event_id = ?
+             ORDER BY FIELD(er.status, 'pending','approved','rejected'), er.id DESC`,
+                        [event_id]
+                );
 
         // Normalize proof_of_payment to absolute URL if needed
         const host = req.protocol + '://' + req.get('host');
@@ -706,6 +952,94 @@ exports.getEventParticipants = async (req, res) => {
     } catch (error) {
         console.error('getEventParticipants error:', error);
         res.status(500).json({ success: false, message: error.message });
+    }
+};
+
+// Approve a pending registration
+exports.approveRegistration = async (req, res) => {
+    try {
+        const user = req.user;
+        if (!user || (user.role !== 'organization' && user.role !== 'admin')) {
+            return handleErrorResponse(res, 'Forbidden', 403);
+        }
+        const { registration_id } = req.params;
+        if (!registration_id) return handleErrorResponse(res, 'registration_id required', 400);
+
+        // Load registration and event ownership
+        const [rows] = await db.query(
+            `SELECT er.*, ce.created_by_org_id, ce.created_by_osws_id, ce.title
+             FROM event_registrations er
+             JOIN created_events ce ON er.event_id = ce.event_id
+             WHERE er.id = ? LIMIT 1`,
+            [registration_id]
+        );
+        if (!rows.length) return handleErrorResponse(res, 'Registration not found', 404);
+        const rec = rows[0];
+        if (user.role === 'organization' && rec.created_by_org_id !== user.id) {
+            return handleErrorResponse(res, 'Forbidden', 403);
+        }
+        if (user.role === 'admin' && rec.created_by_osws_id !== user.id) {
+            return handleErrorResponse(res, 'Forbidden', 403);
+        }
+        if ((rec.status || '').toLowerCase() === 'approved') {
+            return handleSuccessResponse(res, { message: 'Already approved' });
+        }
+        await db.query(
+            `UPDATE event_registrations SET status = 'approved', approved_at = NOW(),
+             approved_by_org_id = ?, approved_by_osws_id = ?
+             WHERE id = ?`,
+            [user.role === 'organization' ? user.id : null, user.role === 'admin' ? user.id : null, registration_id]
+        );
+        // Notify student
+        try {
+            await notificationService.createNotification({
+                user_id: String(rec.student_id),
+                event_id: rec.event_id,
+                message: `Your registration for "${rec.title}" has been approved.`
+            });
+        } catch (_) {}
+        return handleSuccessResponse(res, { message: 'Registration approved' });
+    } catch (error) {
+        return handleErrorResponse(res, error.message);
+    }
+};
+
+// Reject a pending registration
+exports.rejectRegistration = async (req, res) => {
+    try {
+        const user = req.user;
+        if (!user || (user.role !== 'organization' && user.role !== 'admin')) {
+            return handleErrorResponse(res, 'Forbidden', 403);
+        }
+        const { registration_id } = req.params;
+        if (!registration_id) return handleErrorResponse(res, 'registration_id required', 400);
+
+        const [rows] = await db.query(
+            `SELECT er.*, ce.created_by_org_id, ce.created_by_osws_id, ce.title
+             FROM event_registrations er
+             JOIN created_events ce ON er.event_id = ce.event_id
+             WHERE er.id = ? LIMIT 1`,
+            [registration_id]
+        );
+        if (!rows.length) return handleErrorResponse(res, 'Registration not found', 404);
+        const rec = rows[0];
+        if (user.role === 'organization' && rec.created_by_org_id !== user.id) {
+            return handleErrorResponse(res, 'Forbidden', 403);
+        }
+        if (user.role === 'admin' && rec.created_by_osws_id !== user.id) {
+            return handleErrorResponse(res, 'Forbidden', 403);
+        }
+        await db.query(`UPDATE event_registrations SET status = 'rejected' WHERE id = ?`, [registration_id]);
+        try {
+            await notificationService.createNotification({
+                user_id: String(rec.student_id),
+                event_id: rec.event_id,
+                message: `Your registration for "${rec.title}" has been rejected.`
+            });
+        } catch (_) {}
+        return handleSuccessResponse(res, { message: 'Registration rejected' });
+    } catch (error) {
+        return handleErrorResponse(res, error.message);
     }
 };
 
@@ -743,6 +1077,29 @@ exports.updateEvent = async (req, res) => {
                 eventData.event_poster_public_id = req.file.cloudinaryPublicId;
             }
         }
+        if (eventData.is_paid !== undefined) {
+            const v = eventData.is_paid;
+            const s = typeof v === 'string' ? v.toLowerCase() : v;
+            eventData.is_paid = (s === true || s === 1 || s === '1' || s === 'true' || s === 'paid' || s === 'yes') ? 1 : 0;
+        }
+        if (eventData.registration_fee !== undefined) {
+            const n = parseFloat(eventData.registration_fee);
+            eventData.registration_fee = isNaN(n) || n < 0 ? 0 : Number(n.toFixed(2));
+        }
+
+        // Guard: prevent manual status change through PUT unless setting to 'cancelled'
+        if (eventData.status !== undefined && eventData.status !== null && String(eventData.status).trim() !== '') {
+            const desired = String(eventData.status).trim().toLowerCase();
+            if (desired !== 'cancelled') {
+                return handleErrorResponse(res, 'Only manual change allowed is setting status to "cancelled".', 403);
+            }
+            const ev = await eventService.getEventById(id);
+            if (!ev || ev.deleted_at) return handleErrorResponse(res, 'Event not found', 404);
+            const user = req.user;
+            if (!user) return handleErrorResponse(res, 'Unauthorized', 401);
+            if (user.role === 'organization' && ev.created_by_org_id !== user.id) return handleErrorResponse(res, 'Forbidden', 403);
+            if (user.role === 'admin' && ev.created_by_osws_id !== user.id) return handleErrorResponse(res, 'Forbidden', 403);
+        }
         await eventService.updateEvent(id, eventData);
         return handleSuccessResponse(res, { message: 'Event updated successfully' });
     } catch (error) {
@@ -763,7 +1120,7 @@ exports.getEventById = async (req, res) => {
 };
 
 // POST /api/event/events/:id/request-certificate
-// Sends an email to the event organizer (org or OSWS) from the authenticated student requesting an e‑certificate
+// Creates a notification to the event organizer (org or OSWS) from the authenticated student requesting an e‑certificate
 exports.requestCertificate = async (req, res) => {
     try {
         const user = req.user;
@@ -791,8 +1148,9 @@ exports.requestCertificate = async (req, res) => {
         if (ev.created_by_osws_id) {
             return handleErrorResponse(res, 'Certificates are auto-generated for OSWS events.', 400);
         }
-        const to = ev.org_email || ev.osws_email;
-        if (!to) return handleErrorResponse(res, 'Organizer email not available for this event.', 400);
+    const toOrgId = ev.created_by_org_id ? String(ev.created_by_org_id) : null;
+    const toOswsId = ev.created_by_osws_id ? String(ev.created_by_osws_id) : null;
+    if (!toOrgId && !toOswsId) return handleErrorResponse(res, 'Organizer account not available for this event.', 400);
 
         // Ensure log table exists (idempotent)
         await db.query(`
@@ -845,7 +1203,7 @@ exports.requestCertificate = async (req, res) => {
         const studentName = [st.first_name, st.middle_initial ? `${st.middle_initial}.` : '', st.last_name, st.suffix || '']
             .filter(Boolean).join(' ').replace(/\s+/g, ' ');
 
-        const subject = `E-Certificate Request: ${ev.title}`;
+    const subject = `E-Certificate Request: ${ev.title}`;
 
         // Format dates without timezone or time
         const monthNames = ['January','February','March','April','May','June','July','August','September','October','November','December'];
@@ -897,13 +1255,22 @@ exports.requestCertificate = async (req, res) => {
         ].filter(Boolean);
         const text = lines.join('\n');
 
-        await sendGenericEmail({ to, subject, text });
+        // Create notification to organizer account; OSWS-admin events already blocked earlier
+        try {
+            await notificationService.createNotification({
+                user_id: toOrgId || toOswsId,
+                event_id: ev.event_id,
+                message: `[${subject}]\n${text}`.slice(0, 480) // keep within 500 chars
+            });
+        } catch (nerr) {
+            console.warn('Notification create failed (requestCertificate):', nerr?.message || nerr);
+        }
         // Log successful request
         await db.query(
             'INSERT INTO certificate_request_logs (event_id, student_id) VALUES (?, ?)',
             [eventId, studentIdStr]
         );
-        return handleSuccessResponse(res, { message: 'Request email sent to organizer.' });
+        return handleSuccessResponse(res, { message: 'Certificate request submitted.' });
     } catch (error) {
         console.error('requestCertificate error:', error);
         return handleErrorResponse(res, error.message);

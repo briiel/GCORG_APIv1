@@ -10,10 +10,15 @@ const getAttendanceRecordsByEvent = async (eventId) => {
             s.suffix,
             s.department,
             s.program,
-            ar.attended_at
+            ar.time_in,
+            ar.time_out,
+            COALESCE(ar.time_in, ar.attended_at) AS attended_at,
+            COALESCE(org.org_name, osws.name) AS scanned_by
         FROM attendance_records ar
         JOIN created_events ce ON ar.event_id = ce.event_id
         JOIN students s ON ar.student_id = s.id
+        LEFT JOIN student_organizations org ON ar.scanned_by_org_id = org.id
+        LEFT JOIN osws_admins osws ON ar.scanned_by_osws_id = osws.id
         WHERE ar.event_id = ?
     `;
     try {
@@ -30,8 +35,21 @@ const createEvent = async (eventData) => {
     const {
         title, description, location,
         start_date, start_time, end_date, end_time,
-        event_poster, created_by_org_id, created_by_osws_id, status
+        event_poster, created_by_org_id, created_by_osws_id, status,
+        is_paid,
+        registration_fee
     } = eventData;
+    const normalizeIsPaid = (v) => {
+        if (v === undefined || v === null || v === '') return 0;
+        if (typeof v === 'number') return v ? 1 : 0;
+        if (typeof v === 'boolean') return v ? 1 : 0;
+        const s = String(v).toLowerCase();
+        return (s === '1' || s === 'true' || s === 'paid' || s === 'yes') ? 1 : 0;
+    };
+    const normalizeFee = (v) => {
+        const n = parseFloat(v);
+        return isNaN(n) || n < 0 ? 0 : Number(n.toFixed(2));
+    };
     // Ensure dates are yyyy-MM-dd strings
     const normalizeDate = (d) => {
         if (!d) return '';
@@ -53,8 +71,8 @@ const createEvent = async (eventData) => {
     const endDateStr = normalizeDate(end_date);
     const query = `
         INSERT INTO created_events
-        (title, description, location, start_date, start_time, end_date, end_time, event_poster, created_by_org_id, created_by_osws_id, status)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        (title, description, location, start_date, start_time, end_date, end_time, event_poster, is_paid, registration_fee, created_by_org_id, created_by_osws_id, status)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     `;
     try {
         const [result] = await db.query(query, [
@@ -66,6 +84,8 @@ const createEvent = async (eventData) => {
             endDateStr,
             end_time,
             event_poster,
+            normalizeIsPaid(is_paid),
+            normalizeIsPaid(is_paid) ? normalizeFee(registration_fee) : 0,
             created_by_org_id && created_by_org_id !== 'undefined' && created_by_org_id !== '' ? created_by_org_id : null,
             created_by_osws_id && created_by_osws_id !== 'undefined' && created_by_osws_id !== '' ? created_by_osws_id : null,
             status || 'not yet started'
@@ -96,7 +116,7 @@ const getAllEvents = async () => {
 
 const getEventsByParticipant = async (student_id) => {
     const query = `
-        SELECT ce.*, er.qr_code, 
+        SELECT ce.*, er.qr_code, er.status AS registration_status,
                org.department, org.org_name,
                osws.name AS osws_name
         FROM created_events ce
@@ -152,10 +172,15 @@ const getAllAttendanceRecords = async () => {
             s.suffix,
             s.department,
             s.program,
-            ar.attended_at
+            ar.time_in,
+            ar.time_out,
+            COALESCE(ar.time_in, ar.attended_at) AS attended_at,
+            COALESCE(org.org_name, osws.name) AS scanned_by
         FROM attendance_records ar
         JOIN created_events ce ON ar.event_id = ce.event_id
         JOIN students s ON ar.student_id = s.id
+        LEFT JOIN student_organizations org ON ar.scanned_by_org_id = org.id
+        LEFT JOIN osws_admins osws ON ar.scanned_by_osws_id = osws.id
     `;
     try {
         const [rows] = await db.query(query);
@@ -177,10 +202,15 @@ const getAttendanceRecordsByOrg = async (orgId) => {
             s.suffix,
             s.department,
             s.program,
-            ar.attended_at
+            ar.time_in,
+            ar.time_out,
+            COALESCE(ar.time_in, ar.attended_at) AS attended_at,
+            COALESCE(org.org_name, osws.name) AS scanned_by
         FROM attendance_records ar
         JOIN created_events ce ON ar.event_id = ce.event_id
         JOIN students s ON ar.student_id = s.id
+        LEFT JOIN student_organizations org ON ar.scanned_by_org_id = org.id
+        LEFT JOIN osws_admins osws ON ar.scanned_by_osws_id = osws.id
         WHERE ce.created_by_org_id = ?
     `;
     try {
@@ -188,6 +218,38 @@ const getAttendanceRecordsByOrg = async (orgId) => {
         return rows;
     } catch (error) {
         console.error('Error fetching attendance records by org:', error.stack);
+        throw error;
+    }
+};
+
+// Attendance records for OSWS admin (events created by OSWS admin)
+const getAttendanceRecordsByOsws = async (adminId) => {
+    const query = `
+        SELECT 
+            ar.event_id,
+            ce.title AS event_title,
+            ar.student_id,
+            s.first_name,
+            s.last_name,
+            s.suffix,
+            s.department,
+            s.program,
+            ar.time_in,
+            ar.time_out,
+            COALESCE(ar.time_in, ar.attended_at) AS attended_at,
+            COALESCE(org.org_name, osws.name) AS scanned_by
+        FROM attendance_records ar
+        JOIN created_events ce ON ar.event_id = ce.event_id
+        JOIN students s ON ar.student_id = s.id
+        LEFT JOIN student_organizations org ON ar.scanned_by_org_id = org.id
+        LEFT JOIN osws_admins osws ON ar.scanned_by_osws_id = osws.id
+        WHERE ce.created_by_osws_id = ?
+    `;
+    try {
+        const [rows] = await db.query(query, [adminId]);
+        return rows;
+    } catch (error) {
+        console.error('Error fetching attendance records by OSWS admin:', error.stack);
         throw error;
     }
 };
@@ -210,13 +272,15 @@ const getAttendanceRecordsByStudent = async (studentId) => {
             org.org_name,
             org.department,
             osws.name AS osws_name,
-            ar.attended_at
+            COALESCE(ar.time_in, ar.attended_at) AS attended_at,
+            ar.time_in,
+            ar.time_out
         FROM attendance_records ar
         JOIN created_events ce ON ar.event_id = ce.event_id
         LEFT JOIN student_organizations org ON ce.created_by_org_id = org.id
         LEFT JOIN osws_admins osws ON ce.created_by_osws_id = osws.id
         WHERE ar.student_id = ?
-        ORDER BY ar.attended_at DESC
+        ORDER BY COALESCE(ar.time_in, ar.attended_at) DESC
     `;
     try {
         const [rows] = await db.query(query, [studentId]);
@@ -226,33 +290,6 @@ const getAttendanceRecordsByStudent = async (studentId) => {
         throw error;
     }
 };
-
-    // Attendance records for OSWS admin (events created by OSWS admin)
-    const getAttendanceRecordsByOsws = async (adminId) => {
-        const query = `
-            SELECT 
-                ar.event_id,
-                ce.title AS event_title,
-                ar.student_id,
-                s.first_name,
-                s.last_name,
-                s.suffix,
-                s.department,
-                s.program,
-                ar.attended_at
-            FROM attendance_records ar
-            JOIN created_events ce ON ar.event_id = ce.event_id
-            JOIN students s ON ar.student_id = s.id
-            WHERE ce.created_by_osws_id = ?
-        `;
-        try {
-            const [rows] = await db.query(query, [adminId]);
-            return rows;
-        } catch (error) {
-            console.error('Error fetching attendance records by OSWS admin:', error.stack);
-            throw error;
-        }
-    };
 
 // Soft delete: mark event as trashed
 const deleteEvent = async (eventId, deletedBy) => {
@@ -321,7 +358,9 @@ const updateEvent = async (eventId, eventData) => {
         end_date,
         end_time,
         event_poster, // Optional: only update if provided
-        status
+    status,
+    is_paid,
+    registration_fee
     } = eventData;
 
     // Ensure dates are yyyy-MM-dd strings only when provided
@@ -372,6 +411,30 @@ const updateEvent = async (eventId, eventData) => {
             query += `, event_poster = ?`;
             params.push(event_poster);
         }
+    }
+
+    // Optional update for is_paid
+    if (is_paid !== undefined) {
+        const normalizeIsPaid = (v) => {
+            if (v === undefined || v === null || v === '') return null; // keep existing
+            if (typeof v === 'number') return v ? 1 : 0;
+            if (typeof v === 'boolean') return v ? 1 : 0;
+            const s = String(v).toLowerCase();
+            return (s === '1' || s === 'true' || s === 'paid' || s === 'yes') ? 1 : 0;
+        };
+        query += `, is_paid = COALESCE(?, is_paid)`;
+        params.push(normalizeIsPaid(is_paid));
+    }
+
+    // Optional update for registration_fee
+    if (registration_fee !== undefined) {
+        const normalizeFee = (v) => {
+            if (v === null || v === '') return null; // keep if not provided
+            const n = parseFloat(v);
+            return isNaN(n) || n < 0 ? 0 : Number(n.toFixed(2));
+        };
+        query += `, registration_fee = COALESCE(?, registration_fee)`;
+        params.push(normalizeFee(registration_fee));
     }
 
     query += ` WHERE event_id = ?`;
@@ -474,7 +537,7 @@ module.exports = {
     getAllAttendanceRecords,
     getAttendanceRecordsByStudent,
     getAttendanceRecordsByOrg,
-        getAttendanceRecordsByOsws,
+    getAttendanceRecordsByOsws,
     getAttendanceRecordsByEvent,
     deleteEvent,
     getEventsByAdmin,
@@ -486,6 +549,110 @@ module.exports = {
     getTrashedOswsEvents,
     restoreEvent,
     hardDeleteEvent,
+    // Auto update event statuses based on current time
+    autoUpdateEventStatuses: async () => {
+        // 1) Set to 'ongoing' when now between start and end, not cancelled/trashed
+        const [ongoingRes] = await db.query(
+            `UPDATE created_events
+             SET status = 'ongoing'
+             WHERE deleted_at IS NULL
+               AND TIMESTAMP(start_date, start_time) <= NOW()
+               AND TIMESTAMP(end_date, end_time) >= NOW()
+               AND LOWER(COALESCE(status, '')) NOT IN ('cancelled','ongoing')`
+        );
+        // 2) Set to 'concluded' when past end, not cancelled/trashed/already concluded
+        const [concludedRes] = await db.query(
+            `UPDATE created_events
+             SET status = 'concluded'
+             WHERE deleted_at IS NULL
+               AND TIMESTAMP(end_date, end_time) < NOW()
+               AND LOWER(COALESCE(status, '')) NOT IN ('cancelled','concluded')`
+        );
+        // 3) Normalize future events to 'not yet started' (unless cancelled)
+        const [notYetRes] = await db.query(
+            `UPDATE created_events
+             SET status = 'not yet started'
+             WHERE deleted_at IS NULL
+               AND TIMESTAMP(start_date, start_time) > NOW()
+               AND LOWER(COALESCE(status, '')) NOT IN ('cancelled','not yet started')`
+        );
+        return {
+            toOngoing: ongoingRes?.affectedRows || 0,
+            toConcluded: concludedRes?.affectedRows || 0,
+            toNotYetStarted: notYetRes?.affectedRows || 0
+        };
+    },
+    // Ensure schema has is_paid column
+    ensureIsPaidColumn: async () => {
+        try {
+            const [rows] = await db.query(
+                `SELECT 1 FROM information_schema.COLUMNS WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'created_events' AND COLUMN_NAME = 'is_paid'`
+            );
+            if (!Array.isArray(rows) || rows.length === 0) {
+                await db.query(`ALTER TABLE created_events ADD COLUMN is_paid TINYINT(1) NOT NULL DEFAULT 0 AFTER event_poster`);
+                try {
+                    await db.query(`UPDATE created_events SET is_paid = 0 WHERE is_paid IS NULL`);
+                } catch (_) { /* no-op */ }
+                console.log('[DB] Added is_paid column to created_events');
+            }
+        } catch (e) {
+            console.warn('[DB] ensureIsPaidColumn check failed:', e.message || e);
+        }
+    },
+    // Ensure schema has registration_fee column
+    ensureRegistrationFeeColumn: async () => {
+        try {
+            const [rows] = await db.query(
+                `SELECT 1 FROM information_schema.COLUMNS WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'created_events' AND COLUMN_NAME = 'registration_fee'`
+            );
+            if (!Array.isArray(rows) || rows.length === 0) {
+                await db.query(`ALTER TABLE created_events ADD COLUMN registration_fee DECIMAL(10,2) NOT NULL DEFAULT 0 AFTER is_paid`);
+                try { await db.query(`UPDATE created_events SET registration_fee = 0 WHERE registration_fee IS NULL`); } catch(_) {}
+                console.log('[DB] Added registration_fee column to created_events');
+            }
+        } catch (e) {
+            console.warn('[DB] ensureRegistrationFeeColumn check failed:', e.message || e);
+        }
+    },
+    // Ensure event_registrations has status and approval metadata
+    ensureRegistrationStatusColumns: async () => {
+        try {
+            // status column
+            const [scol] = await db.query(
+                `SELECT 1 FROM information_schema.COLUMNS WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'event_registrations' AND COLUMN_NAME = 'status'`
+            );
+            if (!Array.isArray(scol) || scol.length === 0) {
+                await db.query(`ALTER TABLE event_registrations ADD COLUMN status VARCHAR(20) NOT NULL DEFAULT 'approved' AFTER qr_code`);
+                console.log('[DB] Added status column to event_registrations');
+            }
+            // approved_at
+            const [acol] = await db.query(
+                `SELECT 1 FROM information_schema.COLUMNS WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'event_registrations' AND COLUMN_NAME = 'approved_at'`
+            );
+            if (!Array.isArray(acol) || acol.length === 0) {
+                await db.query(`ALTER TABLE event_registrations ADD COLUMN approved_at DATETIME NULL AFTER status`);
+                console.log('[DB] Added approved_at column to event_registrations');
+            }
+            // approved_by_org_id
+            const [aborg] = await db.query(
+                `SELECT 1 FROM information_schema.COLUMNS WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'event_registrations' AND COLUMN_NAME = 'approved_by_org_id'`
+            );
+            if (!Array.isArray(aborg) || aborg.length === 0) {
+                await db.query(`ALTER TABLE event_registrations ADD COLUMN approved_by_org_id INT NULL AFTER approved_at`);
+                console.log('[DB] Added approved_by_org_id column to event_registrations');
+            }
+            // approved_by_osws_id
+            const [abosws] = await db.query(
+                `SELECT 1 FROM information_schema.COLUMNS WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'event_registrations' AND COLUMN_NAME = 'approved_by_osws_id'`
+            );
+            if (!Array.isArray(abosws) || abosws.length === 0) {
+                await db.query(`ALTER TABLE event_registrations ADD COLUMN approved_by_osws_id INT NULL AFTER approved_by_org_id`);
+                console.log('[DB] Added approved_by_osws_id column to event_registrations');
+            }
+        } catch (e) {
+            console.warn('[DB] ensureRegistrationStatusColumns check failed:', e.message || e);
+        }
+    },
     // Stats: upcoming/ongoing/cancelled exclude trashed, concluded includes trashed
     getOrgDashboardStats: async (orgId) => {
         const nowQuery = 'NOW()';
@@ -565,70 +732,33 @@ module.exports = {
             concluded: cm[0]?.cnt || 0,
         };
     },
-    // Auto-start events whose start time has arrived
-    /*
-    // autoStartScheduledEvents: async () => {
-    //     ...existing code...
-    // },
-    // autoCompleteFinishedEvents: async () => {
-    //     ...existing code...
-    // },
-    // autoTrashConcludedEvents: async () => {
-    //     ...existing code...
-    // },
-    */
-    // Ensure reminders log table exists (idempotent)
-    ensureEmailRemindersTable: async () => {
-        const sql = `
-            CREATE TABLE IF NOT EXISTS email_reminders (
-                id INT NOT NULL AUTO_INCREMENT PRIMARY KEY,
-                event_id INT NOT NULL,
-                student_id VARCHAR(20) NOT NULL,
-                reminder_key VARCHAR(64) NOT NULL,
-                sent_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
-                UNIQUE KEY uniq_reminder (event_id, student_id, reminder_key),
-                KEY idx_event (event_id),
-                KEY idx_student (student_id)
-            ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci;
-        `;
-        await db.query(sql);
-    },
-    // Fetch registrations whose event starts within leadMinutes from now and haven't received this reminder yet
-    getUpcomingRegistrationsForReminder: async (leadMinutes) => {
-        const reminderKey = `before_${parseInt(leadMinutes, 10)}m`;
-        const query = `
-            SELECT 
-                er.event_id,
-                er.student_id,
-                s.email,
-                s.first_name,
-                s.last_name,
-                er.qr_code,
-                ce.title,
-                ce.location,
-                ce.start_date,
-                ce.start_time,
-                ce.end_date,
-                ce.end_time
-            FROM event_registrations er
-            JOIN students s ON er.student_id = s.id
-            JOIN created_events ce ON er.event_id = ce.event_id
-            LEFT JOIN email_reminders r 
-                ON r.event_id = er.event_id 
-               AND r.student_id = er.student_id 
-               AND r.reminder_key = ?
-            WHERE ce.deleted_at IS NULL
-              AND TIMESTAMP(ce.start_date, ce.start_time) > NOW()
-              AND TIMESTAMP(ce.start_date, ce.start_time) <= (NOW() + INTERVAL ? MINUTE)
-              AND r.id IS NULL
-        `;
-        const [rows] = await db.query(query, [reminderKey, parseInt(leadMinutes, 10)]);
-        return rows;
-    },
-    markReminderSent: async ({ event_id, student_id, leadMinutes }) => {
-        const reminderKey = `before_${parseInt(leadMinutes, 10)}m`;
-        const sql = `INSERT IGNORE INTO email_reminders (event_id, student_id, reminder_key) VALUES (?, ?, ?)`;
-        const [res] = await db.query(sql, [event_id, String(student_id), reminderKey]);
-        return res.affectedRows > 0;
+    // New: ensure attendance supports time-in/out and OSWS scanner id
+    ensureAttendanceColumns: async () => {
+        try {
+            const [ti] = await db.query(
+                `SELECT 1 FROM information_schema.COLUMNS WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'attendance_records' AND COLUMN_NAME = 'time_in'`
+            );
+            if (!Array.isArray(ti) || ti.length === 0) {
+                await db.query(`ALTER TABLE attendance_records ADD COLUMN time_in DATETIME NULL AFTER student_id`);
+            }
+            const [to] = await db.query(
+                `SELECT 1 FROM information_schema.COLUMNS WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'attendance_records' AND COLUMN_NAME = 'time_out'`
+            );
+            if (!Array.isArray(to) || to.length === 0) {
+                await db.query(`ALTER TABLE attendance_records ADD COLUMN time_out DATETIME NULL AFTER time_in`);
+            }
+            const [sb] = await db.query(
+                `SELECT 1 FROM information_schema.COLUMNS WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'attendance_records' AND COLUMN_NAME = 'scanned_by_osws_id'`
+            );
+            if (!Array.isArray(sb) || sb.length === 0) {
+                await db.query(`ALTER TABLE attendance_records ADD COLUMN scanned_by_osws_id INT(11) NULL AFTER scanned_by_org_id`);
+            }
+            // Backfill time_in from attended_at
+            try {
+                await db.query(`UPDATE attendance_records SET time_in = attended_at WHERE time_in IS NULL AND attended_at IS NOT NULL`);
+            } catch (_) {}
+        } catch (e) {
+            console.warn('[DB] ensureAttendanceColumns check failed:', e.message || e);
+        }
     }
 };

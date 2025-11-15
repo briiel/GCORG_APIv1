@@ -1,3 +1,18 @@
+// Trash (soft-delete) multiple events
+const trashMultipleEvents = async (eventIds, deletedBy) => {
+    if (!Array.isArray(eventIds) || eventIds.length === 0) return 0;
+    // You may want to add permission checks here
+    let trashed = 0;
+    for (const id of eventIds) {
+        try {
+            const ok = await eventModel.deleteEvent(id, deletedBy);
+            if (ok) trashed++;
+        } catch (e) {
+            // Optionally log error for each failed event
+        }
+    }
+    return trashed;
+};
 // Get attendance records for a specific event
 const getAttendanceRecordsByEvent = async (eventId) => {
     return await eventModel.getAttendanceRecordsByEvent(eventId);
@@ -163,12 +178,11 @@ module.exports = {
     getTrashedOrgEvents: eventModel.getTrashedOrgEvents,
     getTrashedOswsEvents: eventModel.getTrashedOswsEvents,
     restoreEvent: eventModel.restoreEvent,
+    autoUpdateEventStatuses: eventModel.autoUpdateEventStatuses,
     // autoStartScheduledEvents: eventModel.autoStartScheduledEvents,
     // autoCompleteFinishedEvents: eventModel.autoCompleteFinishedEvents,
     // autoTrashConcludedEvents: eventModel.autoTrashConcludedEvents, // fully commented out
-    ensureEmailRemindersTable: eventModel.ensureEmailRemindersTable,
-    getUpcomingRegistrationsForReminder: eventModel.getUpcomingRegistrationsForReminder,
-    markReminderSent: eventModel.markReminderSent,
+    // Email reminder functionality removed
     permanentDeleteEvent: async ({ eventId, user }) => {
         // Fetch event and check ownership and trashed state
         const ev = await eventModel.getEventById(eventId);
@@ -182,5 +196,6 @@ module.exports = {
         }
         const ok = await eventModel.hardDeleteEvent(eventId);
         return { deleted: ok };
-    }
+    },
+    trashMultipleEvents
 };

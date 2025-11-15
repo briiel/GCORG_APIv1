@@ -5,6 +5,7 @@ const authRoutes = require('./routes/authRoutes');
 const eventRoutes = require('./routes/eventRoutes');
 const adminRoutes = require('./routes/adminRoutes');
 const metricsRoutes = require('./routes/metricsRoutes');
+const notificationRoutes = require('./routes/notificationRoutes');
 require('dotenv').config();
 const path = require('path');
 
@@ -17,6 +18,7 @@ app.use('/api/auth', authRoutes);
 app.use('/api/event', eventRoutes);
 app.use('/api', adminRoutes);
 app.use('/api', metricsRoutes);
+app.use('/api/notifications', notificationRoutes);
 
 app.use('/uploads', express.static(path.join(__dirname, '../uploads')));
 
@@ -27,6 +29,24 @@ app.use((req, res) => {
 const PORT = process.env.PORT || 5000;
 app.listen(PORT, async () => {
     console.log(`Server running on port ${PORT}`);
+    // Ensure DB has latest columns
+    try {
+        const eventModel = require('./models/eventModel');
+        if (eventModel.ensureIsPaidColumn) {
+            await eventModel.ensureIsPaidColumn();
+        }
+        if (eventModel.ensureRegistrationFeeColumn) {
+            await eventModel.ensureRegistrationFeeColumn();
+        }
+        if (eventModel.ensureRegistrationStatusColumns) {
+            await eventModel.ensureRegistrationStatusColumns();
+        }
+        if (eventModel.ensureAttendanceColumns) {
+            await eventModel.ensureAttendanceColumns();
+        }
+    } catch (e) {
+        console.warn('Schema ensure failed:', e.message);
+    }
     // Optional font warm-up: pre-register Google Fonts and resolve via a tiny render
     try {
         process.env.USE_REMOTE_FONTS = process.env.USE_REMOTE_FONTS ?? 'true';
@@ -44,46 +64,24 @@ app.listen(PORT, async () => {
         console.warn('Font warm-up skipped or failed:', e.message);
     }
 
-    // Background tasks: auto-start, auto-complete, and auto-trash events are disabled (manual only)
-    /*
+    // Background task: auto-update event statuses based on schedule
     try {
         const eventService = require('./services/eventService');
-        const { runReminderSweep } = require('./services/reminderService');
-        const runAutoUpdate = async () => {
+        const runAutoStatus = async () => {
             try {
-                const started = await eventService.autoStartScheduledEvents();
-                if (started > 0) {
-                    console.log(`[AutoStatus] Marked ${started} event(s) as ongoing.`);
-                }
-                const concluded = await eventService.autoCompleteFinishedEvents();
-                if (concluded > 0) {
-                    console.log(`[AutoStatus] Marked ${concluded} event(s) as concluded.`);
-                }
-                const trashed = await eventService.autoTrashConcludedEvents();
-                if (trashed > 0) {
-                    console.log(`[AutoTrash] Moved ${trashed} concluded event(s) to trash.`);
-                }
-                // Email reminders: fixed window at 10 minutes before start
-                const leadWindows = [10];
-                for (const lead of leadWindows) {
-                    try {
-                        const { sent, attempted } = await runReminderSweep(lead);
-                        if (sent > 0) {
-                            console.log(`[Reminders] Sent ${sent}/${attempted} reminder(s) for ${lead}m window.`);
-                        }
-                    } catch (e) {
-                        console.warn(`[Reminders] Sweep ${lead}m failed:`, e.message || e);
-                    }
+                const res = await eventService.autoUpdateEventStatuses();
+                const total = (res.toOngoing || 0) + (res.toConcluded || 0) + (res.toNotYetStarted || 0);
+                if (total > 0) {
+                    console.log(`[AutoStatus] Updates -> ongoing:${res.toOngoing} concluded:${res.toConcluded} notYet:${res.toNotYetStarted}`);
                 }
             } catch (err) {
                 console.error('[AutoStatus] Error:', err.message || err);
             }
         };
         // Run at startup and then every 60 seconds
-        runAutoUpdate();
-        setInterval(runAutoUpdate, 60 * 1000);
+        runAutoStatus();
+        setInterval(runAutoStatus, 60 * 1000);
     } catch (e) {
         console.warn('Auto-status scheduler not started:', e.message);
     }
-    */
 });

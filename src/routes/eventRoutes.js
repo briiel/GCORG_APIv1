@@ -21,6 +21,8 @@ router.post('/events/attendance', authenticateToken, eventController.markAttenda
 router.get('/attendance-records', authenticateToken, eventController.getAllAttendanceRecords); // Get all attendance records
 router.get('/attendance-records/event/:eventId', authenticateToken, eventController.getAttendanceRecordsByEvent); // Get attendance records for a specific event
 router.delete('/events/:id', authenticateToken, eventController.deleteEvent); // Soft-delete an event
+// Bulk trash (soft-delete) multiple events
+router.post('/events/trash-multiple', authenticateToken, eventController.trashMultipleEvents); // Trash multiple events
 router.get('/events/trash', authenticateToken, eventController.getTrashedEvents); // List trashed events for current user
 router.post('/events/:id/restore', authenticateToken, eventController.restoreEvent); // Restore trashed event
 router.delete('/events/:id/permanent', authenticateToken, eventController.permanentDeleteEvent); // Permanently delete a trashed event
@@ -29,8 +31,11 @@ router.get('/events/admin/:admin_id', eventController.getEventsByAdmin); // Get 
 router.get('/events/organizations', eventController.getAllOrgEvents); // Get all events by organizations
 router.get('/events/osws', eventController.getAllOswsEvents); // Route for all OSWS-created events
 router.get('/:event_id/participants', eventController.getEventParticipants); // Get participants of an event
+// Registration approval endpoints
+router.post('/registrations/:registration_id/approve', authenticateToken, eventController.approveRegistration);
+router.post('/registrations/:registration_id/reject', authenticateToken, eventController.rejectRegistration);
 router.get('/events/:id', eventController.getEventById);
-router.put('/events/:id', upload.single('event_poster'), convertToWebpAndUpload, eventController.updateEvent);
+router.put('/events/:id', authenticateToken, upload.single('event_poster'), convertToWebpAndUpload, eventController.updateEvent);
 router.post('/events/:id/request-certificate', authenticateToken, eventController.requestCertificate);
 router.post('/events/:id/request-certificate', authenticateToken, eventController.requestCertificate);
 
