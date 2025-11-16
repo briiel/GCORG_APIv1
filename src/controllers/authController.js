@@ -112,7 +112,7 @@ const login = async (req, res) => {
     if (roles.includes('OrgOfficer') && studentId) {
       const [orgMemberships] = await db.query(
         `SELECT om.org_id, om.position, o.org_name
-         FROM organization_members om
+         FROM organizationmembers om
          JOIN student_organizations o ON om.org_id = o.id
          WHERE om.student_id = ? AND om.is_active = TRUE
          LIMIT 1`,
