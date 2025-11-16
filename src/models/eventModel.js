@@ -321,11 +321,21 @@ const getAttendanceRecordsByStudent = async (studentId) => {
             osws.name AS osws_name,
             COALESCE(ar.time_in, ar.attended_at) AS attended_at,
             ar.time_in,
-            ar.time_out
+            ar.time_out,
+            COALESCE(
+                CONCAT(officer.first_name, ' ', officer.last_name),
+                osws_scanner.name,
+                org_scanner.org_name
+            ) AS scanned_by_name,
+            om.position AS scanned_by_position
         FROM attendance_records ar
         JOIN created_events ce ON ar.event_id = ce.event_id
         LEFT JOIN student_organizations org ON ce.created_by_org_id = org.id
         LEFT JOIN osws_admins osws ON ce.created_by_osws_id = osws.id
+        LEFT JOIN students officer ON ar.scanned_by_student_id = officer.id
+        LEFT JOIN student_organizations org_scanner ON ar.scanned_by_org_id = org_scanner.id
+        LEFT JOIN osws_admins osws_scanner ON ar.scanned_by_osws_id = osws_scanner.id
+        LEFT JOIN OrganizationMembers om ON ar.scanned_by_student_id = om.student_id AND om.org_id = ar.scanned_by_org_id AND om.is_active = TRUE
         WHERE ar.student_id = ?
         ORDER BY COALESCE(ar.time_in, ar.attended_at) DESC
     `;
