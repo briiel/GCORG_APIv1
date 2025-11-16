@@ -71,7 +71,7 @@ const submitRoleRequest = async (req, res) => {
 
     // Check if user already has a pending request for this organization
     const [existingRequests] = await db.query(
-      `SELECT request_id FROM OrganizationRoleRequests 
+      `SELECT request_id FROM organization_role_requests 
        WHERE student_id = ? AND org_id = ? AND status = 'pending'`,
       [studentId, org_id]
     );
@@ -85,7 +85,7 @@ const submitRoleRequest = async (req, res) => {
 
     // Check if user is already an officer in this organization
     const [existingMemberships] = await db.query(
-      `SELECT member_id FROM OrganizationMembers 
+      `SELECT member_id FROM organization_members 
        WHERE student_id = ? AND org_id = ? AND is_active = TRUE`,
       [studentId, org_id]
     );
@@ -99,7 +99,7 @@ const submitRoleRequest = async (req, res) => {
 
     // Create the request
     await db.query(
-      `INSERT INTO OrganizationRoleRequests 
+      `INSERT INTO organization_role_requests 
        (student_id, org_id, requested_position, justification, status) 
        VALUES (?, ?, ?, ?, 'pending')`,
       [studentId, org_id, requested_position, justification || null]
@@ -139,7 +139,7 @@ const getPendingRequests = async (req, res) => {
         s.id as student_id,
         o.org_name,
         o.department
-       FROM OrganizationRoleRequests orr
+       FROM organization_role_requests orr
        JOIN students s ON orr.student_id = s.id
        JOIN student_organizations o ON orr.org_id = o.id
        WHERE orr.status = 'pending'
@@ -186,7 +186,7 @@ const getAllRequests = async (req, res) => {
         o.org_name,
         o.department,
         ra.name AS reviewer_name
-       FROM OrganizationRoleRequests orr
+       FROM organization_role_requests orr
        JOIN students s ON orr.student_id = s.id
        JOIN student_organizations o ON orr.org_id = o.id
        LEFT JOIN osws_admins ra ON orr.reviewed_by_admin_id = ra.id
@@ -242,7 +242,7 @@ const approveRequest = async (req, res) => {
     // Step 1: Get request details
     const [requests] = await connection.query(
       `SELECT student_id, org_id, requested_position, status 
-       FROM OrganizationRoleRequests 
+       FROM organization_role_requests 
        WHERE request_id = ? FOR UPDATE`,
       [requestId]
     );
@@ -270,7 +270,7 @@ const approveRequest = async (req, res) => {
 
     // Step 2: Update request status to 'approved'
     await connection.query(
-      `UPDATE OrganizationRoleRequests 
+      `UPDATE organization_role_requests 
        SET status = 'approved', 
            reviewed_at = NOW(), 
            reviewed_by_admin_id = ?,
@@ -279,9 +279,9 @@ const approveRequest = async (req, res) => {
       [reviewerAdminId, review_notes || null, requestId]
     );
 
-    // Step 3: Add to OrganizationMembers
+    // Step 3: Add to organization_members
     await connection.query(
-      `INSERT INTO OrganizationMembers 
+      `INSERT INTO organization_members 
        (student_id, org_id, position, is_active, added_by_admin_id) 
        VALUES (?, ?, ?, TRUE, ?)`,
       [request.student_id, request.org_id, request.requested_position, reviewerAdminId]
@@ -328,7 +328,7 @@ const rejectRequest = async (req, res) => {
   try {
     // Check if request exists and is pending
     const [requests] = await db.query(
-      `SELECT status FROM OrganizationRoleRequests WHERE request_id = ?`,
+      `SELECT status FROM organization_role_requests WHERE request_id = ?`,
       [requestId]
     );
 
@@ -348,7 +348,7 @@ const rejectRequest = async (req, res) => {
 
     // Update request status to 'rejected'
     await db.query(
-      `UPDATE OrganizationRoleRequests 
+      `UPDATE organization_role_requests 
        SET status = 'rejected', 
            reviewed_at = NOW(), 
            reviewed_by_admin_id = ?,
@@ -399,7 +399,7 @@ const getMyRequests = async (req, res) => {
         o.org_name,
         o.department,
         ra.name AS reviewer_name
-       FROM OrganizationRoleRequests orr
+       FROM organization_role_requests orr
        JOIN student_organizations o ON orr.org_id = o.id
        LEFT JOIN osws_admins ra ON orr.reviewed_by_admin_id = ra.id
        WHERE orr.student_id = ?

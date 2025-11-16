@@ -25,7 +25,7 @@ const getAttendanceRecordsByEvent = async (eventId) => {
         LEFT JOIN students officer ON ar.scanned_by_student_id = officer.id
         LEFT JOIN student_organizations org ON ar.scanned_by_org_id = org.id
         LEFT JOIN osws_admins osws ON ar.scanned_by_osws_id = osws.id
-        LEFT JOIN OrganizationMembers om ON ar.scanned_by_student_id = om.student_id AND om.org_id = ar.scanned_by_org_id AND om.is_active = TRUE
+        LEFT JOIN organization_members om ON ar.scanned_by_student_id = om.student_id AND om.org_id = ar.scanned_by_org_id AND om.is_active = TRUE
         WHERE ar.event_id = ?
     `;
     try {
@@ -213,7 +213,7 @@ const getAllAttendanceRecords = async () => {
         LEFT JOIN students officer ON ar.scanned_by_student_id = officer.id
         LEFT JOIN student_organizations org ON ar.scanned_by_org_id = org.id
         LEFT JOIN osws_admins osws ON ar.scanned_by_osws_id = osws.id
-        LEFT JOIN OrganizationMembers om ON ar.scanned_by_student_id = om.student_id AND om.org_id = ar.scanned_by_org_id AND om.is_active = TRUE
+        LEFT JOIN organization_members om ON ar.scanned_by_student_id = om.student_id AND om.org_id = ar.scanned_by_org_id AND om.is_active = TRUE
     `;
     try {
         const [rows] = await db.query(query);
@@ -250,7 +250,7 @@ const getAttendanceRecordsByOrg = async (orgId) => {
         LEFT JOIN students officer ON ar.scanned_by_student_id = officer.id
         LEFT JOIN student_organizations org ON ar.scanned_by_org_id = org.id
         LEFT JOIN osws_admins osws ON ar.scanned_by_osws_id = osws.id
-        LEFT JOIN OrganizationMembers om ON ar.scanned_by_student_id = om.student_id AND om.org_id = ar.scanned_by_org_id AND om.is_active = TRUE
+        LEFT JOIN organization_members om ON ar.scanned_by_student_id = om.student_id AND om.org_id = ar.scanned_by_org_id AND om.is_active = TRUE
         WHERE ce.created_by_org_id = ?
     `;
     try {
@@ -289,7 +289,7 @@ const getAttendanceRecordsByOsws = async (adminId) => {
         LEFT JOIN students officer ON ar.scanned_by_student_id = officer.id
         LEFT JOIN student_organizations org ON ar.scanned_by_org_id = org.id
         LEFT JOIN osws_admins osws ON ar.scanned_by_osws_id = osws.id
-        LEFT JOIN OrganizationMembers om ON ar.scanned_by_student_id = om.student_id AND om.org_id = ar.scanned_by_org_id AND om.is_active = TRUE
+        LEFT JOIN organization_members om ON ar.scanned_by_student_id = om.student_id AND om.org_id = ar.scanned_by_org_id AND om.is_active = TRUE
         WHERE ce.created_by_osws_id = ?
     `;
     try {
@@ -335,7 +335,7 @@ const getAttendanceRecordsByStudent = async (studentId) => {
         LEFT JOIN students officer ON ar.scanned_by_student_id = officer.id
         LEFT JOIN student_organizations org_scanner ON ar.scanned_by_org_id = org_scanner.id
         LEFT JOIN osws_admins osws_scanner ON ar.scanned_by_osws_id = osws_scanner.id
-        LEFT JOIN OrganizationMembers om ON ar.scanned_by_student_id = om.student_id AND om.org_id = ar.scanned_by_org_id AND om.is_active = TRUE
+        LEFT JOIN organization_members om ON ar.scanned_by_student_id = om.student_id AND om.org_id = ar.scanned_by_org_id AND om.is_active = TRUE
         WHERE ar.student_id = ?
         ORDER BY COALESCE(ar.time_in, ar.attended_at) DESC
     `;

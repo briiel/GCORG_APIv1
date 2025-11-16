@@ -21,11 +21,11 @@ INSERT INTO `Roles` (`role_id`, `role_name`, `description`) VALUES
 ON DUPLICATE KEY UPDATE `description` = VALUES(`description`);
 
 -- ============================================
--- Table 1: OrganizationMembers
+-- Table 1: organization_members
 -- Links organization officers to their specific organizations and positions
 -- Note: Role assignment is determined by table membership rather than UserRoles junction
 -- ============================================
-CREATE TABLE IF NOT EXISTS `OrganizationMembers` (
+CREATE TABLE IF NOT EXISTS `organization_members` (
   `member_id` INT AUTO_INCREMENT PRIMARY KEY,
   `student_id` VARCHAR(20) NOT NULL COMMENT 'Student ID from students table',
   `org_id` INT NOT NULL COMMENT 'Organization ID from student_organizations table',
@@ -56,10 +56,10 @@ CREATE TABLE IF NOT EXISTS `OrganizationMembers` (
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci;
 
 -- ============================================
--- Table 2: OrganizationRoleRequests
+-- Table 2: organization_role_requests
 -- Manages the "Request & Approve" workflow for role promotions
 -- ============================================
-CREATE TABLE IF NOT EXISTS `OrganizationRoleRequests` (
+CREATE TABLE IF NOT EXISTS `organization_role_requests` (
   `request_id` INT AUTO_INCREMENT PRIMARY KEY,
   `student_id` VARCHAR(20) NOT NULL COMMENT 'Student requesting the role',
   `org_id` INT NOT NULL COMMENT 'Organization they want to join',
