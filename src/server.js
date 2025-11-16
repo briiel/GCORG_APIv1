@@ -15,6 +15,24 @@ const app = express();
 app.use(cors());
 app.use(express.json());
 
+// Health check endpoint for Render and monitoring services
+app.get('/', (req, res) => {
+    res.status(200).json({ 
+        success: true, 
+        message: 'GC Organize API is running',
+        timestamp: new Date().toISOString()
+    });
+});
+
+app.get('/health', (req, res) => {
+    res.status(200).json({ 
+        success: true, 
+        status: 'healthy',
+        uptime: process.uptime(),
+        timestamp: new Date().toISOString()
+    });
+});
+
 app.use('/api', userRoutes);
 app.use('/api/auth', authRoutes);
 app.use('/api/event', eventRoutes);
