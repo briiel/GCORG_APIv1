@@ -85,7 +85,7 @@ const submitRoleRequest = async (req, res) => {
 
     // Check if user is already an officer in this organization
     const [existingMemberships] = await db.query(
-      `SELECT member_id FROM organization_members 
+      `SELECT member_id FROM organizationmembers 
        WHERE student_id = ? AND org_id = ? AND is_active = TRUE`,
       [studentId, org_id]
     );
@@ -279,9 +279,9 @@ const approveRequest = async (req, res) => {
       [reviewerAdminId, review_notes || null, requestId]
     );
 
-    // Step 3: Add to organization_members
+    // Step 3: Add to organizationmembers
     await connection.query(
-      `INSERT INTO organization_members 
+      `INSERT INTO organizationmembers 
        (student_id, org_id, position, is_active, added_by_admin_id) 
        VALUES (?, ?, ?, TRUE, ?)`,
       [request.student_id, request.org_id, request.requested_position, reviewerAdminId]
