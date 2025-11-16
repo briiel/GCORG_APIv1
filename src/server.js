@@ -1,3 +1,5 @@
+
+require('dotenv').config();
 const express = require('express');
 const cors = require('cors');
 const userRoutes = require('./routes/userRoutes');
@@ -8,7 +10,6 @@ const metricsRoutes = require('./routes/metricsRoutes');
 const notificationRoutes = require('./routes/notificationRoutes');
 const evaluationRoutes = require('./routes/evaluationRoutes');
 const roleRequestRoutes = require('./routes/roleRequestRoutes');
-require('dotenv').config();
 const path = require('path');
 
 const eventService = require('./services/eventService');
