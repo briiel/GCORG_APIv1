@@ -7,6 +7,7 @@ const adminRoutes = require('./routes/adminRoutes');
 const metricsRoutes = require('./routes/metricsRoutes');
 const notificationRoutes = require('./routes/notificationRoutes');
 const evaluationRoutes = require('./routes/evaluationRoutes');
+const roleRequestRoutes = require('./routes/roleRequestRoutes');
 require('dotenv').config();
 const path = require('path');
 
@@ -21,6 +22,7 @@ app.use('/api', adminRoutes);
 app.use('/api', metricsRoutes);
 app.use('/api/notifications', notificationRoutes);
 app.use('/api', evaluationRoutes);
+app.use('/api', roleRequestRoutes);
 
 app.use('/uploads', express.static(path.join(__dirname, '../uploads')));
 

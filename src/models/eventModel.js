@@ -13,12 +13,19 @@ const getAttendanceRecordsByEvent = async (eventId) => {
             ar.time_in,
             ar.time_out,
             COALESCE(ar.time_in, ar.attended_at) AS attended_at,
-            COALESCE(org.org_name, osws.name) AS scanned_by
+            COALESCE(
+                CONCAT(officer.first_name, ' ', officer.last_name),
+                osws.name,
+                org.org_name
+            ) AS scanned_by,
+            om.position AS scanned_by_position
         FROM attendance_records ar
         JOIN created_events ce ON ar.event_id = ce.event_id
         JOIN students s ON ar.student_id = s.id
+        LEFT JOIN students officer ON ar.scanned_by_student_id = officer.id
         LEFT JOIN student_organizations org ON ar.scanned_by_org_id = org.id
         LEFT JOIN osws_admins osws ON ar.scanned_by_osws_id = osws.id
+        LEFT JOIN OrganizationMembers om ON ar.scanned_by_student_id = om.student_id AND om.org_id = ar.scanned_by_org_id AND om.is_active = TRUE
         WHERE ar.event_id = ?
     `;
     try {
@@ -53,19 +60,38 @@ const createEvent = async (eventData) => {
     // Ensure dates are yyyy-MM-dd strings
     const normalizeDate = (d) => {
         if (!d) return '';
+        
+        // If already in correct format, return as-is
         if (typeof d === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(d)) return d;
-        // Parse as local date if string is in ISO or similar format
+        
+        // Parse the date string/object to extract components
         let dateObj;
-        if (typeof d === 'string' && /^\d{4}-\d{2}-\d{2}/.test(d)) {
-            const [year, month, day] = d.split('T')[0].split('-').map(Number);
-            dateObj = new Date(year, month - 1, day);
+        if (typeof d === 'string') {
+            // Extract date part if it contains time (YYYY-MM-DDTHH:mm:ss or YYYY-MM-DD HH:mm:ss)
+            const datePart = d.split('T')[0].split(' ')[0];
+            const match = datePart.match(/^(\d{4})-(\d{1,2})-(\d{1,2})$/);
+            if (match) {
+                // Construct date using local timezone to avoid UTC conversion issues
+                const year = parseInt(match[1], 10);
+                const month = parseInt(match[2], 10) - 1; // JS months are 0-indexed
+                const day = parseInt(match[3], 10);
+                dateObj = new Date(year, month, day);
+            } else {
+                // Fallback to Date constructor for other formats
+                dateObj = new Date(d);
+            }
         } else {
             dateObj = new Date(d);
         }
+        
+        // Validate the date
         if (isNaN(dateObj.getTime())) return '';
+        
+        // Format as YYYY-MM-DD using local timezone
+        const year = dateObj.getFullYear();
         const month = (dateObj.getMonth() + 1).toString().padStart(2, '0');
         const day = dateObj.getDate().toString().padStart(2, '0');
-        return `${dateObj.getFullYear()}-${month}-${day}`;
+        return `${year}-${month}-${day}`;
     };
     const startDateStr = normalizeDate(start_date);
     const endDateStr = normalizeDate(end_date);
@@ -175,12 +201,19 @@ const getAllAttendanceRecords = async () => {
             ar.time_in,
             ar.time_out,
             COALESCE(ar.time_in, ar.attended_at) AS attended_at,
-            COALESCE(org.org_name, osws.name) AS scanned_by
+            COALESCE(
+                CONCAT(officer.first_name, ' ', officer.last_name),
+                osws.name,
+                org.org_name
+            ) AS scanned_by,
+            om.position AS scanned_by_position
         FROM attendance_records ar
         JOIN created_events ce ON ar.event_id = ce.event_id
         JOIN students s ON ar.student_id = s.id
+        LEFT JOIN students officer ON ar.scanned_by_student_id = officer.id
         LEFT JOIN student_organizations org ON ar.scanned_by_org_id = org.id
         LEFT JOIN osws_admins osws ON ar.scanned_by_osws_id = osws.id
+        LEFT JOIN OrganizationMembers om ON ar.scanned_by_student_id = om.student_id AND om.org_id = ar.scanned_by_org_id AND om.is_active = TRUE
     `;
     try {
         const [rows] = await db.query(query);
@@ -205,12 +238,19 @@ const getAttendanceRecordsByOrg = async (orgId) => {
             ar.time_in,
             ar.time_out,
             COALESCE(ar.time_in, ar.attended_at) AS attended_at,
-            COALESCE(org.org_name, osws.name) AS scanned_by
+            COALESCE(
+                CONCAT(officer.first_name, ' ', officer.last_name),
+                osws.name,
+                org.org_name
+            ) AS scanned_by,
+            om.position AS scanned_by_position
         FROM attendance_records ar
         JOIN created_events ce ON ar.event_id = ce.event_id
         JOIN students s ON ar.student_id = s.id
+        LEFT JOIN students officer ON ar.scanned_by_student_id = officer.id
         LEFT JOIN student_organizations org ON ar.scanned_by_org_id = org.id
         LEFT JOIN osws_admins osws ON ar.scanned_by_osws_id = osws.id
+        LEFT JOIN OrganizationMembers om ON ar.scanned_by_student_id = om.student_id AND om.org_id = ar.scanned_by_org_id AND om.is_active = TRUE
         WHERE ce.created_by_org_id = ?
     `;
     try {
@@ -237,12 +277,19 @@ const getAttendanceRecordsByOsws = async (adminId) => {
             ar.time_in,
             ar.time_out,
             COALESCE(ar.time_in, ar.attended_at) AS attended_at,
-            COALESCE(org.org_name, osws.name) AS scanned_by
+            COALESCE(
+                CONCAT(officer.first_name, ' ', officer.last_name),
+                osws.name,
+                org.org_name
+            ) AS scanned_by,
+            om.position AS scanned_by_position
         FROM attendance_records ar
         JOIN created_events ce ON ar.event_id = ce.event_id
         JOIN students s ON ar.student_id = s.id
+        LEFT JOIN students officer ON ar.scanned_by_student_id = officer.id
         LEFT JOIN student_organizations org ON ar.scanned_by_org_id = org.id
         LEFT JOIN osws_admins osws ON ar.scanned_by_osws_id = osws.id
+        LEFT JOIN OrganizationMembers om ON ar.scanned_by_student_id = om.student_id AND om.org_id = ar.scanned_by_org_id AND om.is_active = TRUE
         WHERE ce.created_by_osws_id = ?
     `;
     try {
@@ -367,12 +414,38 @@ const updateEvent = async (eventId, eventData) => {
     const normalizeDate = (d) => {
         if (d === undefined) return null; // signal to keep existing
         if (!d) return ''; // allow clearing when explicitly empty/falsey
+        
+        // If already in correct format, return as-is
         if (typeof d === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(d)) return d;
-        const dateObj = new Date(d);
+        
+        // Parse the date string/object to extract components
+        let dateObj;
+        if (typeof d === 'string') {
+            // Extract date part if it contains time (YYYY-MM-DDTHH:mm:ss or YYYY-MM-DD HH:mm:ss)
+            const datePart = d.split('T')[0].split(' ')[0];
+            const match = datePart.match(/^(\d{4})-(\d{1,2})-(\d{1,2})$/);
+            if (match) {
+                // Construct date using local timezone to avoid UTC conversion issues
+                const year = parseInt(match[1], 10);
+                const month = parseInt(match[2], 10) - 1; // JS months are 0-indexed
+                const day = parseInt(match[3], 10);
+                dateObj = new Date(year, month, day);
+            } else {
+                // Fallback to Date constructor for other formats
+                dateObj = new Date(d);
+            }
+        } else {
+            dateObj = new Date(d);
+        }
+        
+        // Validate the date
         if (isNaN(dateObj.getTime())) return '';
+        
+        // Format as YYYY-MM-DD using local timezone
+        const year = dateObj.getFullYear();
         const month = (dateObj.getMonth() + 1).toString().padStart(2, '0');
         const day = dateObj.getDate().toString().padStart(2, '0');
-        return `${dateObj.getFullYear()}-${month}-${day}`;
+        return `${year}-${month}-${day}`;
     };
 
     const startDateVal = normalizeDate(start_date);
@@ -752,6 +825,12 @@ module.exports = {
             );
             if (!Array.isArray(sb) || sb.length === 0) {
                 await db.query(`ALTER TABLE attendance_records ADD COLUMN scanned_by_osws_id INT(11) NULL AFTER scanned_by_org_id`);
+            }
+            const [sbs] = await db.query(
+                `SELECT 1 FROM information_schema.COLUMNS WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'attendance_records' AND COLUMN_NAME = 'scanned_by_student_id'`
+            );
+            if (!Array.isArray(sbs) || sbs.length === 0) {
+                await db.query(`ALTER TABLE attendance_records ADD COLUMN scanned_by_student_id INT(11) NULL AFTER scanned_by_osws_id`);
             }
             // Backfill time_in from attended_at
             try {

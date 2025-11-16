@@ -16,7 +16,18 @@ const authenticateToken = (req, res, next) => {
                     }
                     return res.status(401).json({ message: 'Invalid token' });
                 }
-                req.user = decoded; // Attach the decoded user info to the request object
+                
+                // Attach the decoded user info to the request object
+                req.user = decoded;
+                
+                // Add backwards-compatible fields for old code
+                if (decoded.userType && !decoded.role) {
+                    req.user.role = decoded.userType;
+                }
+                if (decoded.legacyId && !decoded.id) {
+                    req.user.id = decoded.legacyId;
+                }
+                
                 next();
             });
 };

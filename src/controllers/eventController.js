@@ -203,8 +203,15 @@ exports.getAttendedEventsByStudent = async (req, res) => {
         // Allow students to fetch only their own history; org/admin can fetch any student
         const { student_id } = req.params;
         if (!student_id) return handleErrorResponse(res, 'student_id is required', 400);
-        if (user?.role === 'student' && String(user.id) !== String(student_id)) {
-            return handleErrorResponse(res, 'Forbidden', 403);
+        
+        const roles = user?.roles || [];
+        const isStudent = roles.includes('Student');
+        const isOrgOfficer = roles.includes('OrgOfficer');
+        const isAdmin = roles.includes('OSWSAdmin');
+        
+        // Students without officer/admin role can only fetch their own history
+        if (isStudent && !isOrgOfficer && !isAdmin && String(user.studentId) !== String(student_id)) {
+            return handleErrorResponse(res, 'Forbidden: You can only view your own attendance history', 403);
         }
 
         const events = await eventService.getAttendanceRecordsByStudent(student_id);
@@ -285,8 +292,15 @@ exports.updateEventStatus = async (req, res) => {
         const ev = await eventService.getEventById(id);
         if (!ev || ev.deleted_at) return handleErrorResponse(res, 'Event not found', 404);
         if (!user) return handleErrorResponse(res, 'Unauthorized', 401);
-        if (user.role === 'organization' && ev.created_by_org_id !== user.id) return handleErrorResponse(res, 'Forbidden', 403);
-        if (user.role === 'admin' && ev.created_by_osws_id !== user.id) return handleErrorResponse(res, 'Forbidden', 403);
+        
+        const roles = user.roles || [];
+        const isOrgOfficer = roles.includes('OrgOfficer');
+        const isAdmin = roles.includes('OSWSAdmin');
+        const orgId = isOrgOfficer && user.organization ? user.organization.org_id : null;
+        const adminId = isAdmin ? user.legacyId : null;
+        
+        if (isOrgOfficer && ev.created_by_org_id !== orgId) return handleErrorResponse(res, 'Forbidden', 403);
+        if (isAdmin && ev.created_by_osws_id !== adminId) return handleErrorResponse(res, 'Forbidden', 403);
 
         // Compute auto status (as of now); never auto-override 'cancelled'
         const now = new Date();
@@ -426,15 +440,22 @@ exports.markAttendance = async (req, res) => {
     let { registration_id, event_id, student_id, mode } = req.body;
         const user = req.user;
 
-        if (!student_id || !user || !user.id) {
+        if (!student_id || !user) {
             return handleErrorResponse(res, 'Missing required fields', 400);
         }
 
-        const role = user.role;
-        // Only organizations and OSWS admins are allowed to scan
-        if (role !== 'organization' && role !== 'admin') {
-            return handleErrorResponse(res, 'Forbidden', 403);
+        const roles = user.roles || [];
+        const isOrgOfficer = roles.includes('OrgOfficer');
+        const isAdmin = roles.includes('OSWSAdmin');
+        
+        // Only organization officers and OSWS admins are allowed to scan
+        if (!isOrgOfficer && !isAdmin) {
+            return handleErrorResponse(res, 'Forbidden: Only organization officers and admins can mark attendance', 403);
         }
+
+        // Get IDs based on role
+        const orgId = isOrgOfficer && user.organization ? user.organization.org_id : null;
+        const adminId = isAdmin ? user.legacyId : null;
 
     // Note: Department-based restrictions intentionally not enforced. Cross-department registrations are allowed.
 
@@ -445,7 +466,7 @@ exports.markAttendance = async (req, res) => {
         if (!registration_id && !event_id) {
             let query;
             let params;
-            if (role === 'organization') {
+            if (isOrgOfficer) {
                 query = `SELECT er.id AS registration_id, er.event_id
                          FROM event_registrations er
                          JOIN created_events ce ON er.event_id = ce.event_id
@@ -461,9 +482,9 @@ exports.markAttendance = async (req, res) => {
                              END ASC,
                              ce.start_date DESC, ce.start_time DESC
                          LIMIT 1`;
-                params = [student_id, user.id];
+                params = [student_id, orgId];
             } else {
-                // role === 'admin' (OSWS)
+                // isAdmin (OSWS)
                 query = `SELECT er.id AS registration_id, er.event_id
                          FROM event_registrations er
                          JOIN created_events ce ON er.event_id = ce.event_id
@@ -479,7 +500,7 @@ exports.markAttendance = async (req, res) => {
                              END ASC,
                              ce.start_date DESC, ce.start_time DESC
                          LIMIT 1`;
-                params = [student_id, user.id];
+                params = [student_id, adminId];
             }
 
             const [rows] = await db.query(query, params);
@@ -534,10 +555,10 @@ exports.markAttendance = async (req, res) => {
             return handleErrorResponse(res, 'Event not found', 404);
         }
         const ev = evRows[0];
-        if (role === 'organization' && ev.created_by_org_id !== user.id) {
+        if (isOrgOfficer && ev.created_by_org_id !== orgId) {
             return handleErrorResponse(res, 'You are not authorized to record attendance for this event.', 403);
         }
-        if (role === 'admin' && ev.created_by_osws_id !== user.id) {
+        if (isAdmin && ev.created_by_osws_id !== adminId) {
             return handleErrorResponse(res, 'You are not authorized to record attendance for this event.', 403);
         }
         if (ev.deleted_at) {
@@ -576,15 +597,16 @@ exports.markAttendance = async (req, res) => {
             [event_id, student_id]
         );
 
-        const scannedByOrgId = role === 'organization' ? user.id : null;
-        const scannedByOswsId = role === 'admin' ? user.id : null;
+        const scannedByOrgId = isOrgOfficer ? orgId : null;
+        const scannedByOswsId = isAdmin ? adminId : null;
+        const scannedByStudentId = isOrgOfficer ? user.studentId : null;
 
         // Helper writers
         const doTimeInInsert = async () => {
             await db.query(
-                `INSERT INTO attendance_records (event_id, student_id, attended_at, time_in, scanned_by_org_id, scanned_by_osws_id)
-                 VALUES (?, ?, NOW(), NOW(), ?, ?)`,
-                [event_id, student_id, scannedByOrgId, scannedByOswsId]
+                `INSERT INTO attendance_records (event_id, student_id, attended_at, time_in, scanned_by_org_id, scanned_by_osws_id, scanned_by_student_id)
+                 VALUES (?, ?, NOW(), NOW(), ?, ?, ?)`,
+                [event_id, student_id, scannedByOrgId, scannedByOswsId, scannedByStudentId]
             );
         };
         const doTimeInUpdate = async (id) => {
@@ -592,9 +614,10 @@ exports.markAttendance = async (req, res) => {
                 `UPDATE attendance_records 
                  SET time_in = COALESCE(time_in, NOW()), attended_at = COALESCE(attended_at, NOW()),
                      scanned_by_org_id = COALESCE(scanned_by_org_id, ?),
-                     scanned_by_osws_id = COALESCE(scanned_by_osws_id, ?)
+                     scanned_by_osws_id = COALESCE(scanned_by_osws_id, ?),
+                     scanned_by_student_id = COALESCE(scanned_by_student_id, ?)
                  WHERE id = ?`,
-                [scannedByOrgId, scannedByOswsId, id]
+                [scannedByOrgId, scannedByOswsId, scannedByStudentId, id]
             );
         };
         const doTimeOutUpdate = async (id) => {
@@ -602,9 +625,10 @@ exports.markAttendance = async (req, res) => {
                 `UPDATE attendance_records 
                  SET time_out = NOW(),
                      scanned_by_org_id = COALESCE(scanned_by_org_id, ?),
-                     scanned_by_osws_id = COALESCE(scanned_by_osws_id, ?)
+                     scanned_by_osws_id = COALESCE(scanned_by_osws_id, ?),
+                     scanned_by_student_id = COALESCE(scanned_by_student_id, ?)
                  WHERE id = ?`,
-                [scannedByOrgId, scannedByOswsId, id]
+                [scannedByOrgId, scannedByOswsId, scannedByStudentId, id]
             );
         };
 
@@ -663,13 +687,21 @@ exports.getAllAttendanceRecords = async (req, res) => {
             return handleErrorResponse(res, 'Unauthorized', 401);
         }
 
+        const roles = user.roles || [];
+        const isOrgOfficer = roles.includes('OrgOfficer');
+        const isAdmin = roles.includes('OSWSAdmin');
+        const isStudent = roles.includes('Student');
+        
         let records;
-        if (user.role === 'organization') {
-            records = await eventService.getAttendanceRecordsByOrg(user.id);
-        } else if (user.role === 'admin') {
-            records = await eventService.getAttendanceRecordsByOsws(user.id);
-        } else if (user.role === 'student') {
-            // Students should not access all attendance records
+        if (isOrgOfficer) {
+            const orgId = user.organization ? user.organization.org_id : null;
+            if (!orgId) return handleErrorResponse(res, 'Organization not found', 400);
+            records = await eventService.getAttendanceRecordsByOrg(orgId);
+        } else if (isAdmin) {
+            const adminId = user.legacyId;
+            records = await eventService.getAttendanceRecordsByOsws(adminId);
+        } else if (isStudent && !isOrgOfficer && !isAdmin) {
+            // Students without officer/admin role should not access all attendance records
             return handleErrorResponse(res, 'Forbidden', 403);
         } else {
             // default fallback: return none
@@ -699,10 +731,15 @@ exports.getTrashedEvents = async (req, res) => {
         const user = req.user;
         if (!user) return handleErrorResponse(res, 'Unauthorized', 401);
         let rows = [];
-        if (user.role === 'organization') {
-            rows = await eventService.getTrashedOrgEvents(user.id);
-        } else if (user.role === 'admin') {
-            rows = await eventService.getTrashedOswsEvents(user.id);
+        
+        // Check roles array instead of userType for RBAC compatibility
+        if (user.roles && user.roles.includes('OrgOfficer')) {
+            // For OrgOfficers (including students with approved org officer role)
+            // Use organization.org_id for students, or legacyId for legacy org accounts
+            const orgId = user.organization?.org_id || user.legacyId;
+            rows = await eventService.getTrashedOrgEvents(orgId);
+        } else if (user.roles && user.roles.includes('OSWSAdmin')) {
+            rows = await eventService.getTrashedOswsEvents(user.legacyId);
         } else {
             return handleErrorResponse(res, 'Forbidden', 403);
         }
@@ -746,8 +783,18 @@ exports.getOrgDashboardStats = async (req, res) => {
     try {
         const user = req.user;
         if (!user) return handleErrorResponse(res, 'Unauthorized', 401);
-        if (user.role !== 'organization') return handleErrorResponse(res, 'Forbidden', 403);
-        const stats = await eventService.getOrgDashboardStats(user.id);
+        
+        // RBAC: Check if user has OrgOfficer role
+        const roles = user.roles || [];
+        if (!roles.includes('OrgOfficer')) {
+            return handleErrorResponse(res, 'Forbidden', 403);
+        }
+
+        // Use organization ID from JWT
+        const orgId = user.organization?.org_id;
+        if (!orgId) return handleErrorResponse(res, 'Organization ID not found', 400);
+
+        const stats = await eventService.getOrgDashboardStats(orgId);
         return handleSuccessResponse(res, stats);
     } catch (error) {
         return handleErrorResponse(res, error.message);
@@ -759,7 +806,13 @@ exports.getOswsDashboardStats = async (req, res) => {
     try {
         const user = req.user;
         if (!user) return handleErrorResponse(res, 'Unauthorized', 401);
-        if (user.role !== 'admin') return handleErrorResponse(res, 'Forbidden', 403);
+        
+        // RBAC: Check if user has OSWSAdmin role
+        const roles = user.roles || [];
+        if (!roles.includes('OSWSAdmin')) {
+            return handleErrorResponse(res, 'Forbidden', 403);
+        }
+
         const stats = await eventService.getOswsDashboardStats();
         return handleSuccessResponse(res, stats);
     } catch (error) {
@@ -1000,11 +1053,20 @@ exports.getEventParticipants = async (req, res) => {
 exports.approveRegistration = async (req, res) => {
     try {
         const user = req.user;
-        if (!user || (user.role !== 'organization' && user.role !== 'admin')) {
-            return handleErrorResponse(res, 'Forbidden', 403);
+        const roles = user.roles || [];
+        const isOrgOfficer = roles.includes('OrgOfficer');
+        const isAdmin = roles.includes('OSWSAdmin');
+        
+        if (!user || (!isOrgOfficer && !isAdmin)) {
+            return handleErrorResponse(res, 'Forbidden: Only organization officers and admins can approve registrations', 403);
         }
+        
         const { registration_id } = req.params;
         if (!registration_id) return handleErrorResponse(res, 'registration_id required', 400);
+
+        // Get org_id for OrgOfficer
+        const orgId = isOrgOfficer && user.organization ? user.organization.org_id : null;
+        const adminId = isAdmin ? user.legacyId : null;
 
         // Load registration and event ownership
         const [rows] = await db.query(
@@ -1016,12 +1078,15 @@ exports.approveRegistration = async (req, res) => {
         );
         if (!rows.length) return handleErrorResponse(res, 'Registration not found', 404);
         const rec = rows[0];
-        if (user.role === 'organization' && rec.created_by_org_id !== user.id) {
-            return handleErrorResponse(res, 'Forbidden', 403);
+        
+        // Check ownership
+        if (isOrgOfficer && rec.created_by_org_id !== orgId) {
+            return handleErrorResponse(res, 'Forbidden: You can only approve registrations for your organization events', 403);
         }
-        if (user.role === 'admin' && rec.created_by_osws_id !== user.id) {
-            return handleErrorResponse(res, 'Forbidden', 403);
+        if (isAdmin && rec.created_by_osws_id !== adminId) {
+            return handleErrorResponse(res, 'Forbidden: You can only approve registrations for your OSWS events', 403);
         }
+        
         if ((rec.status || '').toLowerCase() === 'approved') {
             return handleSuccessResponse(res, { message: 'Already approved' });
         }
@@ -1029,7 +1094,7 @@ exports.approveRegistration = async (req, res) => {
             `UPDATE event_registrations SET status = 'approved', approved_at = NOW(),
              approved_by_org_id = ?, approved_by_osws_id = ?
              WHERE id = ?`,
-            [user.role === 'organization' ? user.id : null, user.role === 'admin' ? user.id : null, registration_id]
+            [isOrgOfficer ? orgId : null, isAdmin ? adminId : null, registration_id]
         );
         // Notify student
         try {
@@ -1049,11 +1114,20 @@ exports.approveRegistration = async (req, res) => {
 exports.rejectRegistration = async (req, res) => {
     try {
         const user = req.user;
-        if (!user || (user.role !== 'organization' && user.role !== 'admin')) {
-            return handleErrorResponse(res, 'Forbidden', 403);
+        const roles = user.roles || [];
+        const isOrgOfficer = roles.includes('OrgOfficer');
+        const isAdmin = roles.includes('OSWSAdmin');
+        
+        if (!user || (!isOrgOfficer && !isAdmin)) {
+            return handleErrorResponse(res, 'Forbidden: Only organization officers and admins can reject registrations', 403);
         }
+        
         const { registration_id } = req.params;
         if (!registration_id) return handleErrorResponse(res, 'registration_id required', 400);
+
+        // Get org_id for OrgOfficer
+        const orgId = isOrgOfficer && user.organization ? user.organization.org_id : null;
+        const adminId = isAdmin ? user.legacyId : null;
 
         const [rows] = await db.query(
             `SELECT er.*, ce.created_by_org_id, ce.created_by_osws_id, ce.title
@@ -1064,11 +1138,13 @@ exports.rejectRegistration = async (req, res) => {
         );
         if (!rows.length) return handleErrorResponse(res, 'Registration not found', 404);
         const rec = rows[0];
-        if (user.role === 'organization' && rec.created_by_org_id !== user.id) {
-            return handleErrorResponse(res, 'Forbidden', 403);
+        
+        // Check ownership
+        if (isOrgOfficer && rec.created_by_org_id !== orgId) {
+            return handleErrorResponse(res, 'Forbidden: You can only reject registrations for your organization events', 403);
         }
-        if (user.role === 'admin' && rec.created_by_osws_id !== user.id) {
-            return handleErrorResponse(res, 'Forbidden', 403);
+        if (isAdmin && rec.created_by_osws_id !== adminId) {
+            return handleErrorResponse(res, 'Forbidden: You can only reject registrations for your OSWS events', 403);
         }
         await db.query(`UPDATE event_registrations SET status = 'rejected' WHERE id = ?`, [registration_id]);
         try {
@@ -1138,8 +1214,15 @@ exports.updateEvent = async (req, res) => {
             if (!ev || ev.deleted_at) return handleErrorResponse(res, 'Event not found', 404);
             const user = req.user;
             if (!user) return handleErrorResponse(res, 'Unauthorized', 401);
-            if (user.role === 'organization' && ev.created_by_org_id !== user.id) return handleErrorResponse(res, 'Forbidden', 403);
-            if (user.role === 'admin' && ev.created_by_osws_id !== user.id) return handleErrorResponse(res, 'Forbidden', 403);
+            
+            const roles = user.roles || [];
+            const isOrgOfficer = roles.includes('OrgOfficer');
+            const isAdmin = roles.includes('OSWSAdmin');
+            const orgId = isOrgOfficer && user.organization ? user.organization.org_id : null;
+            const adminId = isAdmin ? user.legacyId : null;
+            
+            if (isOrgOfficer && ev.created_by_org_id !== orgId) return handleErrorResponse(res, 'Forbidden', 403);
+            if (isAdmin && ev.created_by_osws_id !== adminId) return handleErrorResponse(res, 'Forbidden', 403);
         }
         await eventService.updateEvent(id, eventData);
         return handleSuccessResponse(res, { message: 'Event updated successfully' });
