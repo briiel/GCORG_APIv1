@@ -11,6 +11,8 @@ const roleRequestRoutes = require('./routes/roleRequestRoutes');
 require('dotenv').config();
 const path = require('path');
 
+const eventService = require('./services/eventService');
+
 const app = express();
 app.use(cors());
 app.use(express.json());
@@ -31,6 +33,34 @@ app.get('/health', (req, res) => {
         uptime: process.uptime(),
         timestamp: new Date().toISOString()
     });
+});
+
+app.post('/api/cron/run-status-updates', async (req, res) => {
+    // 1. Get the secret from the request headers
+    const authHeader = req.headers['authorization'];
+    const secret = authHeader && authHeader.split(' ')[1]; // "Bearer <secret>"
+
+    // 2. Check if the secret is valid
+    if (secret !== process.env.CRON_JOB_SECRET) {
+        console.warn('[AutoStatus] Unauthorized cron attempt.');
+        return res.status(401).json({ success: false, message: 'Unauthorized' });
+    }
+
+    // 3. If valid, run the job
+    try {
+        console.log('[AutoStatus] Cron job starting via webhook...');
+        const result = await eventService.autoUpdateEventStatuses();
+        const total = (result.toOngoing || 0) + (result.toConcluded || 0) + (result.toNotYetStarted || 0);
+
+        console.log(`[AutoStatus] Webhook success -> ongoing:${result.toOngoing} concluded:${result.toConcluded} notYet:${result.toNotYetStarted}`);
+        
+        // 4. Send a success response
+        res.status(200).json({ success: true, updates: total });
+
+    } catch (err) {
+        console.error('[AutoStatus] Webhook error:', err.message || err);
+        res.status(500).json({ success: false, message: 'Cron job failed' });
+    }
 });
 
 app.use('/api', userRoutes);
@@ -86,24 +116,24 @@ app.listen(PORT, async () => {
         console.warn('Font warm-up skipped or failed:', e.message);
     }
 
-    // Background task: auto-update event statuses based on schedule
-    try {
-        const eventService = require('./services/eventService');
-        const runAutoStatus = async () => {
-            try {
-                const res = await eventService.autoUpdateEventStatuses();
-                const total = (res.toOngoing || 0) + (res.toConcluded || 0) + (res.toNotYetStarted || 0);
-                if (total > 0) {
-                    console.log(`[AutoStatus] Updates -> ongoing:${res.toOngoing} concluded:${res.toConcluded} notYet:${res.toNotYetStarted}`);
-                }
-            } catch (err) {
-                console.error('[AutoStatus] Error:', err.message || err);
-            }
-        };
-        // Run at startup and then every 60 seconds
-        runAutoStatus();
-        setInterval(runAutoStatus, 60 * 1000);
-    } catch (e) {
-        console.warn('Auto-status scheduler not started:', e.message);
-    }
+    // // Background task: auto-update event statuses based on schedule
+    // try {
+    //     const eventService = require('./services/eventService');
+    //     const runAutoStatus = async () => {
+    //         try {
+    //             const res = await eventService.autoUpdateEventStatuses();
+    //             const total = (res.toOngoing || 0) + (res.toConcluded || 0) + (res.toNotYetStarted || 0);
+    //             if (total > 0) {
+    //                 console.log(`[AutoStatus] Updates -> ongoing:${res.toOngoing} concluded:${res.toConcluded} notYet:${res.toNotYetStarted}`);
+    //             }
+    //         } catch (err) {
+    //             console.error('[AutoStatus] Error:', err.message || err);
+    //         }
+    //     };
+    //     // Run at startup and then every 60 seconds
+    //     runAutoStatus();
+    //     setInterval(runAutoStatus, 60 * 1000);
+    // } catch (e) {
+    //     console.warn('Auto-status scheduler not started:', e.message);
+    // }
 });
