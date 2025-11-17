@@ -37,6 +37,7 @@ const getAttendanceRecordsByEvent = async (eventId) => {
     }
 };
 const db = require('../config/db');
+const { retryQuery } = require('../utils/dbRetry');
 
 const createEvent = async (eventData) => {
     const {
@@ -671,15 +672,17 @@ module.exports = {
     // Ensure schema has is_paid column
     ensureIsPaidColumn: async () => {
         try {
-            const [rows] = await db.query(
-                `SELECT 1 FROM information_schema.COLUMNS WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'created_events' AND COLUMN_NAME = 'is_paid'`
-            );
-            if (!Array.isArray(rows) || rows.length === 0) {
-                await db.query(`ALTER TABLE created_events ADD COLUMN is_paid TINYINT(1) NOT NULL DEFAULT 0 AFTER event_poster`);
-                try {
-                    await db.query(`UPDATE created_events SET is_paid = 0 WHERE is_paid IS NULL`);
-                } catch (_) { /* no-op */ }
-            }
+            await retryQuery(async () => {
+                const [rows] = await db.query(
+                    `SELECT 1 FROM information_schema.COLUMNS WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'created_events' AND COLUMN_NAME = 'is_paid'`
+                );
+                if (!Array.isArray(rows) || rows.length === 0) {
+                    await db.query(`ALTER TABLE created_events ADD COLUMN is_paid TINYINT(1) NOT NULL DEFAULT 0 AFTER event_poster`);
+                    try {
+                        await db.query(`UPDATE created_events SET is_paid = 0 WHERE is_paid IS NULL`);
+                    } catch (_) { /* no-op */ }
+                }
+            }, { operationName: 'Ensure is_paid column', maxRetries: 5, initialDelay: 200 });
         } catch (e) {
             console.warn('[DB] ensureIsPaidColumn check failed:', e.message || e);
         }
@@ -687,13 +690,15 @@ module.exports = {
     // Ensure schema has registration_fee column
     ensureRegistrationFeeColumn: async () => {
         try {
-            const [rows] = await db.query(
-                `SELECT 1 FROM information_schema.COLUMNS WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'created_events' AND COLUMN_NAME = 'registration_fee'`
-            );
-            if (!Array.isArray(rows) || rows.length === 0) {
-                await db.query(`ALTER TABLE created_events ADD COLUMN registration_fee DECIMAL(10,2) NOT NULL DEFAULT 0 AFTER is_paid`);
-                try { await db.query(`UPDATE created_events SET registration_fee = 0 WHERE registration_fee IS NULL`); } catch(_) {}
-            }
+            await retryQuery(async () => {
+                const [rows] = await db.query(
+                    `SELECT 1 FROM information_schema.COLUMNS WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'created_events' AND COLUMN_NAME = 'registration_fee'`
+                );
+                if (!Array.isArray(rows) || rows.length === 0) {
+                    await db.query(`ALTER TABLE created_events ADD COLUMN registration_fee DECIMAL(10,2) NOT NULL DEFAULT 0 AFTER is_paid`);
+                    try { await db.query(`UPDATE created_events SET registration_fee = 0 WHERE registration_fee IS NULL`); } catch(_) {}
+                }
+            }, { operationName: 'Ensure registration_fee column', maxRetries: 5, initialDelay: 200 });
         } catch (e) {
             console.warn('[DB] ensureRegistrationFeeColumn check failed:', e.message || e);
         }
@@ -701,34 +706,36 @@ module.exports = {
     // Ensure event_registrations has status and approval metadata
     ensureRegistrationStatusColumns: async () => {
         try {
-            // status column
-            const [scol] = await db.query(
-                `SELECT 1 FROM information_schema.COLUMNS WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'event_registrations' AND COLUMN_NAME = 'status'`
-            );
-            if (!Array.isArray(scol) || scol.length === 0) {
-                await db.query(`ALTER TABLE event_registrations ADD COLUMN status VARCHAR(20) NOT NULL DEFAULT 'approved' AFTER qr_code`);
-            }
-            // approved_at
-            const [acol] = await db.query(
-                `SELECT 1 FROM information_schema.COLUMNS WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'event_registrations' AND COLUMN_NAME = 'approved_at'`
-            );
-            if (!Array.isArray(acol) || acol.length === 0) {
-                await db.query(`ALTER TABLE event_registrations ADD COLUMN approved_at DATETIME NULL AFTER status`);
-            }
-            // approved_by_org_id
-            const [aborg] = await db.query(
-                `SELECT 1 FROM information_schema.COLUMNS WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'event_registrations' AND COLUMN_NAME = 'approved_by_org_id'`
-            );
-            if (!Array.isArray(aborg) || aborg.length === 0) {
-                await db.query(`ALTER TABLE event_registrations ADD COLUMN approved_by_org_id INT NULL AFTER approved_at`);
-            }
-            // approved_by_osws_id
-            const [abosws] = await db.query(
-                `SELECT 1 FROM information_schema.COLUMNS WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'event_registrations' AND COLUMN_NAME = 'approved_by_osws_id'`
-            );
-            if (!Array.isArray(abosws) || abosws.length === 0) {
-                await db.query(`ALTER TABLE event_registrations ADD COLUMN approved_by_osws_id INT NULL AFTER approved_by_org_id`);
-            }
+            await retryQuery(async () => {
+                // status column
+                const [scol] = await db.query(
+                    `SELECT 1 FROM information_schema.COLUMNS WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'event_registrations' AND COLUMN_NAME = 'status'`
+                );
+                if (!Array.isArray(scol) || scol.length === 0) {
+                    await db.query(`ALTER TABLE event_registrations ADD COLUMN status VARCHAR(20) NOT NULL DEFAULT 'approved' AFTER qr_code`);
+                }
+                // approved_at
+                const [acol] = await db.query(
+                    `SELECT 1 FROM information_schema.COLUMNS WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'event_registrations' AND COLUMN_NAME = 'approved_at'`
+                );
+                if (!Array.isArray(acol) || acol.length === 0) {
+                    await db.query(`ALTER TABLE event_registrations ADD COLUMN approved_at DATETIME NULL AFTER status`);
+                }
+                // approved_by_org_id
+                const [aborg] = await db.query(
+                    `SELECT 1 FROM information_schema.COLUMNS WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'event_registrations' AND COLUMN_NAME = 'approved_by_org_id'`
+                );
+                if (!Array.isArray(aborg) || aborg.length === 0) {
+                    await db.query(`ALTER TABLE event_registrations ADD COLUMN approved_by_org_id INT NULL AFTER approved_at`);
+                }
+                // approved_by_osws_id
+                const [abosws] = await db.query(
+                    `SELECT 1 FROM information_schema.COLUMNS WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'event_registrations' AND COLUMN_NAME = 'approved_by_osws_id'`
+                );
+                if (!Array.isArray(abosws) || abosws.length === 0) {
+                    await db.query(`ALTER TABLE event_registrations ADD COLUMN approved_by_osws_id INT NULL AFTER approved_by_org_id`);
+                }
+            }, { operationName: 'Ensure registration status columns', maxRetries: 5, initialDelay: 200 });
         } catch (e) {
             console.warn('[DB] ensureRegistrationStatusColumns check failed:', e.message || e);
         }
@@ -815,34 +822,36 @@ module.exports = {
     // New: ensure attendance supports time-in/out and OSWS scanner id
     ensureAttendanceColumns: async () => {
         try {
-            const [ti] = await db.query(
-                `SELECT 1 FROM information_schema.COLUMNS WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'attendance_records' AND COLUMN_NAME = 'time_in'`
-            );
-            if (!Array.isArray(ti) || ti.length === 0) {
-                await db.query(`ALTER TABLE attendance_records ADD COLUMN time_in DATETIME NULL AFTER student_id`);
-            }
-            const [to] = await db.query(
-                `SELECT 1 FROM information_schema.COLUMNS WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'attendance_records' AND COLUMN_NAME = 'time_out'`
-            );
-            if (!Array.isArray(to) || to.length === 0) {
-                await db.query(`ALTER TABLE attendance_records ADD COLUMN time_out DATETIME NULL AFTER time_in`);
-            }
-            const [sb] = await db.query(
-                `SELECT 1 FROM information_schema.COLUMNS WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'attendance_records' AND COLUMN_NAME = 'scanned_by_osws_id'`
-            );
-            if (!Array.isArray(sb) || sb.length === 0) {
-                await db.query(`ALTER TABLE attendance_records ADD COLUMN scanned_by_osws_id INT(11) NULL AFTER scanned_by_org_id`);
-            }
-            const [sbs] = await db.query(
-                `SELECT 1 FROM information_schema.COLUMNS WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'attendance_records' AND COLUMN_NAME = 'scanned_by_student_id'`
-            );
-            if (!Array.isArray(sbs) || sbs.length === 0) {
-                await db.query(`ALTER TABLE attendance_records ADD COLUMN scanned_by_student_id INT(11) NULL AFTER scanned_by_osws_id`);
-            }
-            // Backfill time_in from attended_at
-            try {
-                await db.query(`UPDATE attendance_records SET time_in = attended_at WHERE time_in IS NULL AND attended_at IS NOT NULL`);
-            } catch (_) {}
+            await retryQuery(async () => {
+                const [ti] = await db.query(
+                    `SELECT 1 FROM information_schema.COLUMNS WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'attendance_records' AND COLUMN_NAME = 'time_in'`
+                );
+                if (!Array.isArray(ti) || ti.length === 0) {
+                    await db.query(`ALTER TABLE attendance_records ADD COLUMN time_in DATETIME NULL AFTER student_id`);
+                }
+                const [to] = await db.query(
+                    `SELECT 1 FROM information_schema.COLUMNS WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'attendance_records' AND COLUMN_NAME = 'time_out'`
+                );
+                if (!Array.isArray(to) || to.length === 0) {
+                    await db.query(`ALTER TABLE attendance_records ADD COLUMN time_out DATETIME NULL AFTER time_in`);
+                }
+                const [sb] = await db.query(
+                    `SELECT 1 FROM information_schema.COLUMNS WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'attendance_records' AND COLUMN_NAME = 'scanned_by_osws_id'`
+                );
+                if (!Array.isArray(sb) || sb.length === 0) {
+                    await db.query(`ALTER TABLE attendance_records ADD COLUMN scanned_by_osws_id INT(11) NULL AFTER scanned_by_org_id`);
+                }
+                const [sbs] = await db.query(
+                    `SELECT 1 FROM information_schema.COLUMNS WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'attendance_records' AND COLUMN_NAME = 'scanned_by_student_id'`
+                );
+                if (!Array.isArray(sbs) || sbs.length === 0) {
+                    await db.query(`ALTER TABLE attendance_records ADD COLUMN scanned_by_student_id INT(11) NULL AFTER scanned_by_osws_id`);
+                }
+                // Backfill time_in from attended_at
+                try {
+                    await db.query(`UPDATE attendance_records SET time_in = attended_at WHERE time_in IS NULL AND attended_at IS NOT NULL`);
+                } catch (_) {}
+            }, { operationName: 'Ensure attendance columns', maxRetries: 5, initialDelay: 200 });
         } catch (e) {
             console.warn('[DB] ensureAttendanceColumns check failed:', e.message || e);
         }
