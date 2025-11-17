@@ -13,16 +13,14 @@ const db = mysql.createPool({
     // Connection pool resilience settings to prevent ECONNRESET errors
     enableKeepAlive: true,
     keepAliveInitialDelay: 0,
-    // Automatically remove broken connections from the pool
-    removeNodeErrorCount: 3,
-    // Retry failed connections
-    acquireTimeout: 60000,
-    // Timeout for connection establishment
+    // Timeout for connection establishment (in milliseconds)
     connectTimeout: 60000,
-    // Prevent idle connections from timing out
+    // Maximum number of milliseconds to wait when checking out a connection
+    acquireTimeout: 60000,
+    // Maximum lifetime of a connection in the pool (10 minutes)
+    maxIdle: 600000,
+    // How often to check for idle connections to kill (in milliseconds)
     idleTimeout: 60000,
-    // Maximum time a connection can be used before being retired
-    maxIdle: 10,
     // ssl: {
     //     rejectUnauthorized: false
     // }
