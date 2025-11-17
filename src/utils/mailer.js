@@ -1,11 +1,16 @@
 const nodemailer = require('nodemailer');
 const path = require('path');
 
-// Prefer environment variables; fall back to existing values to avoid breaking current setups
-const SMTP_USER = process.env.SMTP_USER || 'gc.ccs.organize@gmail.com';
-const SMTP_PASS = process.env.SMTP_PASS || 'lhex wnkz qahe bmox';
-const BRAND_PRIMARY_COLOR = process.env.BRAND_PRIMARY_COLOR || '#0d9488'; // align with app branding
+// SECURITY: Use environment variables only - no hardcoded credentials
+const SMTP_USER = process.env.SMTP_USER;
+const SMTP_PASS = process.env.SMTP_PASS;
+const BRAND_PRIMARY_COLOR = process.env.BRAND_PRIMARY_COLOR || '#0d9488';
 const BRAND_TIMEZONE = process.env.BRAND_TIMEZONE || 'Asia/Manila';
+
+// Validate required email configuration
+if (!SMTP_USER || !SMTP_PASS) {
+  console.warn('⚠️  WARNING: SMTP_USER and SMTP_PASS environment variables not set. Email functionality will not work.');
+}
 
 const transporter = nodemailer.createTransport({
   service: 'gmail',
