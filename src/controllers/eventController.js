@@ -81,8 +81,6 @@ exports.createEvent = async (req, res) => {
             eventData.registration_fee = isNaN(n) || n < 0 ? 0 : Number(n.toFixed(2));
         }
 
-        console.log('Event Data Received:', eventData);
-
         // Service returns either a numeric id or an object { id, ...eventData }
         const created = await eventService.createNewEvent(eventData);
         const newEventId = (created && typeof created === 'object' && 'id' in created)
@@ -132,9 +130,7 @@ exports.getEvents = async (req, res) => {
 
         return handleSuccessResponse(res, events);
     } catch (error) {
-        console.error('Error in getEvents controller:', error);
-        // Return empty array on error to prevent breaking the frontend
-        return handleSuccessResponse(res, []);
+        return handleErrorResponse(res, error.message);
     }
 };
 
@@ -340,7 +336,6 @@ exports.updateEventStatus = async (req, res) => {
             const event = await eventService.getEventById(id);
             const isOswsCreated = event && event.created_by_osws_id; // truthy when created by OSWS
             if (!isOswsCreated) {
-                console.log(`Skipping certificate generation for event ${id} - not an OSWS-created event.`);
                 // Auto-trash concluded events regardless of creator per requirement
                 /*
                 try {
@@ -394,8 +389,6 @@ exports.updateEventStatus = async (req, res) => {
                     // Upload certificate to Cloudinary with corrected settings
                     const uploadResult = await uploadCertificateToCloudinary(tempCertPath, id, attendee.student_id);
 
-                    console.log(`Certificate uploaded to Cloudinary: ${uploadResult.secure_url}`);
-
                     // Save Cloudinary URL and public_id in database
                     await db.query(
                         `INSERT INTO certificates (student_id, event_id, certificate_url, certificate_public_id)
@@ -421,7 +414,6 @@ exports.updateEventStatus = async (req, res) => {
                 }
             }
 
-            console.log(`Successfully processed certificates for ${attendees.length} attendees`);
             // Auto-trash disabled - events will remain visible after completion
             // try {
             //     await eventService.deleteEvent(id, null);
