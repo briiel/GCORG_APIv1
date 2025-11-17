@@ -169,8 +169,6 @@ const registerParticipant = async ({
             ).end(qrBuffer);
         });
 
-        console.log('QR Code uploaded to Cloudinary:', uploadResult.secure_url);
-
         // 5. Update event_registrations with Cloudinary URL and public_id
         await conn.query(
             `UPDATE event_registrations SET qr_code = ?, qr_code_public_id = ? WHERE id = ?`,

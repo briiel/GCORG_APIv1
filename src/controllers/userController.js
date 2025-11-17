@@ -4,7 +4,6 @@ const { handleErrorResponse, handleSuccessResponse } = require('../utils/errorHa
 exports.getUsers = async (req, res) => {
     try {
         const users = await userService.fetchAllusers();
-        console.log('Users in controller:', users); // Debugging
         return handleSuccessResponse(res, users);
     } catch (error) {
         return handleErrorResponse(res, error.message);

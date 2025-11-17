@@ -43,22 +43,12 @@ const checkRole = (allowedRoles) => {
       );
 
       if (!hasRequiredRole) {
-        console.log('❌ Role check failed:');
-        console.log('   User roles:', req.user.roles);
-        console.log('   Required roles:', allowedRoles);
-        console.log('   User ID:', req.user.userId);
-        console.log('   User Type:', req.user.userType);
-        
         return res.status(403).json({
           success: false,
           message: `Access denied. Required role(s): ${allowedRoles.join(', ')}`,
-          userRoles: req.user.roles // Include for debugging (remove in production if sensitive)
+          userRoles: req.user.roles
         });
       }
-
-      console.log('✅ Role check passed:');
-      console.log('   User roles:', req.user.roles);
-      console.log('   Required roles:', allowedRoles);
 
       // User has required role, proceed
       next();

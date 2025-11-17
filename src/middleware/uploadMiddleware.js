@@ -74,7 +74,6 @@ const convertToWebpAndUpload = async (req, res, next) => {
         req.file.cloudinaryPublicId = uploadResult.public_id;
         req.file.path = uploadResult.secure_url; // Keep this for backward compatibility
 
-        console.log(`Image uploaded to Cloudinary (${folder}):`, uploadResult.secure_url);
         next();
     } catch (error) {
         console.error('Error uploading to Cloudinary:', error);

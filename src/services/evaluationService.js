@@ -76,14 +76,10 @@ async function submitEvaluation({ event_id, student_id, responses }) {
   // Generate certificate immediately after evaluation submission
   let certificateUrl = null;
   try {
-    console.log(`Starting certificate generation for student ${student_id}, event ${event_id}`);
-    
     // Create temporary file
     const tempDir = os.tmpdir();
     const certFilename = `certificate_${event_id}_${student_id}.png`;
     const tempCertPath = path.join(tempDir, certFilename);
-    
-    console.log(`Generating certificate to ${tempCertPath}`);
     
     // Generate certificate
     await generateCertificate({
@@ -94,8 +90,6 @@ async function submitEvaluation({ event_id, student_id, responses }) {
       eventEndDate: eventData.end_date,
       certificatePath: tempCertPath
     });
-    
-    console.log('Certificate file generated, uploading to Cloudinary...');
     
     // Upload to Cloudinary
     const uploadResult = await cloudinary.uploader.upload(tempCertPath, {
@@ -108,7 +102,6 @@ async function submitEvaluation({ event_id, student_id, responses }) {
     });
     
     certificateUrl = uploadResult.secure_url;
-    console.log(`Certificate uploaded to Cloudinary: ${certificateUrl}`);
     
     // Save certificate to database
     await db.query(
@@ -120,8 +113,6 @@ async function submitEvaluation({ event_id, student_id, responses }) {
       [student_id, event_id, uploadResult.secure_url, uploadResult.public_id]
     );
     
-    console.log('Certificate saved to database');
-    
     // Clean up temporary file
     try {
       if (fs.existsSync(tempCertPath)) {
@@ -130,8 +121,6 @@ async function submitEvaluation({ event_id, student_id, responses }) {
     } catch (cleanupError) {
       console.warn(`Failed to cleanup temp file: ${tempCertPath}`, cleanupError);
     }
-    
-    console.log(`Certificate generated and uploaded successfully for student ${student_id}, event ${event_id}`);
   } catch (certError) {
     console.error('Failed to generate certificate:', certError);
     console.error('Certificate error stack:', certError.stack);
