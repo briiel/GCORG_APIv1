@@ -14,7 +14,7 @@ const poolConfig = {
     idleTimeout: 30000, // Close idle connections faster (30 seconds)
     enableKeepAlive: true,
     keepAliveInitialDelay: 10000, // Keep-alive after 10 seconds
-    connectTimeout: 10000, // Faster timeout (10 seconds)
+    connectTimeout: 30000, // Increased to 30 seconds for slow cloud DBs
     // SSL configuration for production databases
     ssl: process.env.DB_SSL === 'true' ? {
         rejectUnauthorized: false
@@ -50,10 +50,11 @@ const queryWithRetry = async (sql, params, maxRetries = 3) => {
             const isRetryable = err.code === 'ECONNRESET' || 
                                err.code === 'PROTOCOL_CONNECTION_LOST' ||
                                err.code === 'ETIMEDOUT' ||
+                               err.code === 'ENOTFOUND' ||
                                err.errno === -104;
             
             if (isRetryable && attempt < maxRetries) {
-                const delay = Math.min(1000 * Math.pow(2, attempt - 1), 5000); // Exponential backoff, max 5s
+                const delay = Math.min(2000 * Math.pow(2, attempt - 1), 10000); // Exponential backoff, max 10s
                 console.log(`Database query failed (attempt ${attempt}/${maxRetries}), retrying in ${delay}ms...`, err.code);
                 await new Promise(resolve => setTimeout(resolve, delay));
             } else {
@@ -82,10 +83,11 @@ if (originalExecute) {
                 const isRetryable = err.code === 'ECONNRESET' || 
                                    err.code === 'PROTOCOL_CONNECTION_LOST' ||
                                    err.code === 'ETIMEDOUT' ||
+                                   err.code === 'ENOTFOUND' ||
                                    err.errno === -104;
                 
                 if (isRetryable && attempt < maxRetries) {
-                    const delay = Math.min(1000 * Math.pow(2, attempt - 1), 5000);
+                    const delay = Math.min(2000 * Math.pow(2, attempt - 1), 10000);
                     console.log(`Database execute failed (attempt ${attempt}/${maxRetries}), retrying in ${delay}ms...`, err.code);
                     await new Promise(resolve => setTimeout(resolve, delay));
                 } else {

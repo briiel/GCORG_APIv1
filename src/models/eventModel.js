@@ -636,39 +636,51 @@ module.exports = {
     // Auto update event statuses based on current time
     autoUpdateEventStatuses: async () => {
         // Use NOW() directly - database is already configured for Asia/Singapore (PHT timezone)
-        // Note: If your production database is in UTC, you'll need to add the interval there
         const localNow = "NOW()";
 
-        // 1) Set to 'ongoing' when now between start and end, not cancelled/trashed
-        const [ongoingRes] = await db.query(
-            `UPDATE created_events
-             SET status = 'ongoing'
-             WHERE deleted_at IS NULL
-               AND TIMESTAMP(start_date, start_time) <= ${localNow}
-               AND TIMESTAMP(end_date, end_time) >= ${localNow}
-               AND LOWER(COALESCE(status, '')) NOT IN ('cancelled','ongoing')`
-        );
-        // 2) Set to 'concluded' when past end, not cancelled/trashed/already concluded
-        const [concludedRes] = await db.query(
-            `UPDATE created_events
-             SET status = 'concluded'
-             WHERE deleted_at IS NULL
-               AND TIMESTAMP(end_date, end_time) < ${localNow}
-               AND LOWER(COALESCE(status, '')) NOT IN ('cancelled','concluded')`
-        );
-        // 3) Normalize future events to 'not yet started' (unless cancelled)
-        const [notYetRes] = await db.query(
-            `UPDATE created_events
-             SET status = 'not yet started'
-             WHERE deleted_at IS NULL
-               AND TIMESTAMP(start_date, start_time) > ${localNow}
-               AND LOWER(COALESCE(status, '')) NOT IN ('cancelled','not yet started')`
-        );
-        return {
-            toOngoing: ongoingRes?.affectedRows || 0,
-            toConcluded: concludedRes?.affectedRows || 0,
-            toNotYetStarted: notYetRes?.affectedRows || 0
-        };
+        try {
+            // Run all three updates in a single transaction for better performance
+            await db.query('START TRANSACTION');
+            
+            // 1) Set to 'ongoing' when now between start and end, not cancelled/trashed
+            const [ongoingRes] = await db.query(
+                `UPDATE created_events
+                 SET status = 'ongoing'
+                 WHERE deleted_at IS NULL
+                   AND TIMESTAMP(start_date, start_time) <= ${localNow}
+                   AND TIMESTAMP(end_date, end_time) >= ${localNow}
+                   AND LOWER(COALESCE(status, '')) NOT IN ('cancelled','ongoing')`
+            );
+            
+            // 2) Set to 'concluded' when past end, not cancelled/trashed/already concluded
+            const [concludedRes] = await db.query(
+                `UPDATE created_events
+                 SET status = 'concluded'
+                 WHERE deleted_at IS NULL
+                   AND TIMESTAMP(end_date, end_time) < ${localNow}
+                   AND LOWER(COALESCE(status, '')) NOT IN ('cancelled','concluded')`
+            );
+            
+            // 3) Normalize future events to 'not yet started' (unless cancelled)
+            const [notYetRes] = await db.query(
+                `UPDATE created_events
+                 SET status = 'not yet started'
+                 WHERE deleted_at IS NULL
+                   AND TIMESTAMP(start_date, start_time) > ${localNow}
+                   AND LOWER(COALESCE(status, '')) NOT IN ('cancelled','not yet started')`
+            );
+            
+            await db.query('COMMIT');
+            
+            return {
+                toOngoing: ongoingRes?.affectedRows || 0,
+                toConcluded: concludedRes?.affectedRows || 0,
+                toNotYetStarted: notYetRes?.affectedRows || 0
+            };
+        } catch (err) {
+            await db.query('ROLLBACK');
+            throw err;
+        }
     },
     // Ensure schema has is_paid column
     ensureIsPaidColumn: async () => {
