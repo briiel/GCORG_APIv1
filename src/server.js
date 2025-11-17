@@ -168,25 +168,34 @@ app.listen(PORT, async () => {
     } catch (e) {
         console.warn('Font warm-up skipped or failed:', e.message);
     }
+    
+    // Background task: auto-update event statuses based on schedule
+    // Only runs in development; production uses external cron job
+    if (process.env.NODE_ENV !== 'production') {
+        try {
+            console.log('>>> Starting auto-status update scheduler (development mode)...');
+            
+            const runAutoStatus = async () => {
+                try {
+                    const res = await eventService.autoUpdateEventStatuses();
+                    const total = (res.toOngoing || 0) + (res.toConcluded || 0) + (res.toNotYetStarted || 0);
+                    if (total > 0) {
+                        console.log(`[AutoStatus] Updates -> ongoing:${res.toOngoing} concluded:${res.toConcluded} notYet:${res.toNotYetStarted}`);
+                    } else {
+                        console.log('[AutoStatus] Ran check, no updates needed.');
+                    }
+                } catch (err) {
+                    console.error('[AutoStatus] Error:', err.message || err);
+                }
+            };
 
-    // // Background task: auto-update event statuses based on schedule
-    // try {
-    //     const eventService = require('./services/eventService');
-    //     const runAutoStatus = async () => {
-    //         try {
-    //             const res = await eventService.autoUpdateEventStatuses();
-    //             const total = (res.toOngoing || 0) + (res.toConcluded || 0) + (res.toNotYetStarted || 0);
-    //             if (total > 0) {
-    //                 console.log(`[AutoStatus] Updates -> ongoing:${res.toOngoing} concluded:${res.toConcluded} notYet:${res.toNotYetStarted}`);
-    //             }
-    //         } catch (err) {
-    //             console.error('[AutoStatus] Error:', err.message || err);
-    //         }
-    //     };
-    //     // Run at startup and then every 60 seconds
-    //     runAutoStatus();
-    //     setInterval(runAutoStatus, 60 * 1000);
-    // } catch (e) {
-    //     console.warn('Auto-status scheduler not started:', e.message);
-    // }
+            // Run at startup and then every 60 seconds
+            runAutoStatus();
+            setInterval(runAutoStatus, 60 * 1000);
+        } catch (e) {
+            console.warn('Auto-status scheduler not started:', e.message);
+        }
+    } else {
+        console.log('>>> Auto-status updates handled by external cron job (production mode)');
+    }
 });
