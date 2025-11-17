@@ -19,14 +19,10 @@ const getAttendanceRecordsByEvent = async (eventId) => {
 };
 
 const eventModel = require('../models/eventModel');
-const { retryQuery } = require('../utils/dbRetry');
 
 const createNewEvent = async (eventData) => {
     try {
-        const eventId = await retryQuery(
-            () => eventModel.createEvent(eventData),
-            { operationName: 'Create event' }
-        );
+        const eventId = await eventModel.createEvent(eventData);
         return { id: eventId, ...eventData };
     } catch (error) {
         console.error('Error in event service:', error);
@@ -36,15 +32,11 @@ const createNewEvent = async (eventData) => {
 
 const fetchAllEvents = async () => {
     try {
-        const events = await retryQuery(
-            () => eventModel.getAllEvents(),
-            { operationName: 'Fetch all events' }
-        );
+        const events = await eventModel.getAllEvents();
         return events;
     } catch (error) {
         console.error('Error fetching events in service:', error);
-        // Return empty array to prevent breaking the frontend
-        return [];
+        throw error;
     }
 };
 
@@ -147,30 +139,21 @@ const updateEvent = async (eventId, eventData) => {
 };
 
 const getEventById = async (eventId) => {
-  return await retryQuery(
-    () => eventModel.getEventById(eventId),
-    { operationName: `Get event by ID ${eventId}` }
-  );
+  return await eventModel.getEventById(eventId);
 };
 
 // Aggregate stats for organization dashboard:
 // - upcoming/ongoing/cancelled exclude trashed
 // - concluded includes both non-trashed and trashed events for the org
 const getOrgDashboardStats = async (orgId) => {
-    return await retryQuery(
-      () => eventModel.getOrgDashboardStats(orgId),
-      { operationName: `Get org dashboard stats for org ${orgId}` }
-    );
+    return await eventModel.getOrgDashboardStats(orgId);
 };
 
 // Aggregate stats for OSWS dashboard (OSWS-created events only)
 // - upcoming/ongoing/cancelled exclude trashed
 // - concluded includes both non-trashed and trashed events
 const getOswsDashboardStats = async () => {
-    return await retryQuery(
-      () => eventModel.getOswsDashboardStats(),
-      { operationName: 'Get OSWS dashboard stats' }
-    );
+    return await eventModel.getOswsDashboardStats();
 };
 
 module.exports = {
