@@ -43,7 +43,8 @@ const fetchAllEvents = async () => {
         return events;
     } catch (error) {
         console.error('Error fetching events in service:', error);
-        throw error;
+        // Return empty array to prevent breaking the frontend
+        return [];
     }
 };
 
