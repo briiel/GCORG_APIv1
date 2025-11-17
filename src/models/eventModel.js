@@ -635,9 +635,6 @@ module.exports = {
     hardDeleteEvent,
     // Auto update event statuses based on current time
     autoUpdateEventStatuses: async () => {
-        // Use NOW() directly - database is already configured for Asia/Singapore (PHT timezone)
-        const localNow = "NOW()";
-
         try {
             // Run all three updates in a single transaction for better performance
             await db.query('START TRANSACTION');
@@ -649,6 +646,38 @@ module.exports = {
                 FROM created_events
             `);
             console.log(`[AutoStatus] Checking ${checkResult[0]?.active || 0} active events (${checkResult[0]?.total || 0} total)`);
+            
+            // Debug: Check database timezone and current time
+            const [tzInfo] = await db.query(`
+                SELECT NOW() as db_now,
+                       @@session.time_zone as session_tz,
+                       @@global.time_zone as global_tz
+            `);
+            console.log('[AutoStatus] Database timezone info:', tzInfo[0]);
+            
+            // Debug: Show sample event with timestamps
+            const [sampleEvent] = await db.query(`
+                SELECT event_id, title, status,
+                       start_date, start_time,
+                       end_date, end_time,
+                       TIMESTAMP(start_date, start_time) as start_ts,
+                       TIMESTAMP(end_date, end_time) as end_ts,
+                       NOW() as now_time,
+                       CASE 
+                           WHEN TIMESTAMP(start_date, start_time) > NOW() THEN 'FUTURE'
+                           WHEN TIMESTAMP(end_date, end_time) < NOW() THEN 'PAST'
+                           ELSE 'NOW'
+                       END as time_check
+                FROM created_events
+                WHERE deleted_at IS NULL
+                ORDER BY event_id DESC
+                LIMIT 1
+            `);
+            if (sampleEvent.length > 0) {
+                console.log('[AutoStatus] Sample event:', sampleEvent[0]);
+            }
+            
+            const localNow = "NOW()";
             
             // 1) Set to 'ongoing' when now between start and end, not cancelled/trashed
             const [ongoingRes] = await db.query(
