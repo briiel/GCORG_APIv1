@@ -655,11 +655,17 @@ module.exports = {
             `);
             console.log('[AutoStatus] Database timezone info:', tzInfo[0]);
             
-            // Production databases are in UTC, times are stored in PHT
-            // We need to subtract 8 hours from stored times to compare with UTC NOW()
-            const startTimeExpr = "TIMESTAMP(start_date, start_time) - INTERVAL 8 HOUR";
-            const endTimeExpr = "TIMESTAMP(end_date, end_time) - INTERVAL 8 HOUR";
+            // Detect if we need timezone conversion
+            // Production (UTC): subtract 8 hours from stored PHT times
+            // Development (PHT): use times as-is
+            const isProduction = process.env.NODE_ENV === 'production';
+            const timeOffset = isProduction ? " - INTERVAL 8 HOUR" : "";
+            
+            const startTimeExpr = `TIMESTAMP(start_date, start_time)${timeOffset}`;
+            const endTimeExpr = `TIMESTAMP(end_date, end_time)${timeOffset}`;
             const nowExpr = "NOW()";
+            
+            console.log(`[AutoStatus] Timezone mode: ${isProduction ? 'Production (UTC, -8h offset)' : 'Development (PHT, no offset)'}`);
             
             // Debug: Show sample event with corrected timestamps
             const [sampleEvent] = await db.query(`
@@ -667,9 +673,9 @@ module.exports = {
                        start_date, start_time,
                        end_date, end_time,
                        TIMESTAMP(start_date, start_time) as stored_start,
-                       ${startTimeExpr} as start_utc,
-                       ${endTimeExpr} as end_utc,
-                       ${nowExpr} as now_utc,
+                       ${startTimeExpr} as adjusted_start,
+                       ${endTimeExpr} as adjusted_end,
+                       ${nowExpr} as now_time,
                        CASE 
                            WHEN ${startTimeExpr} > ${nowExpr} THEN 'FUTURE'
                            WHEN ${endTimeExpr} < ${nowExpr} THEN 'PAST'
@@ -681,7 +687,7 @@ module.exports = {
                 LIMIT 1
             `);
             if (sampleEvent.length > 0) {
-                console.log('[AutoStatus] Sample event (UTC-corrected):', sampleEvent[0]);
+                console.log('[AutoStatus] Sample event:', sampleEvent[0]);
             }
             
             // 1) Set to 'ongoing' when now between start and end, not cancelled/trashed
