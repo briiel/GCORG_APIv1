@@ -634,13 +634,16 @@ module.exports = {
     hardDeleteEvent,
     // Auto update event statuses based on current time
     autoUpdateEventStatuses: async () => {
+        // Define the "current time" in your local timezone (PHT = UTC+8)
+        const localNow = "DATE_ADD(NOW(), INTERVAL 8 HOUR)";
+
         // 1) Set to 'ongoing' when now between start and end, not cancelled/trashed
         const [ongoingRes] = await db.query(
             `UPDATE created_events
              SET status = 'ongoing'
              WHERE deleted_at IS NULL
-               AND TIMESTAMP(start_date, start_time) <= NOW()
-               AND TIMESTAMP(end_date, end_time) >= NOW()
+               AND TIMESTAMP(start_date, start_time) <= ${localNow}
+               AND TIMESTAMP(end_date, end_time) >= ${localNow}
                AND LOWER(COALESCE(status, '')) NOT IN ('cancelled','ongoing')`
         );
         // 2) Set to 'concluded' when past end, not cancelled/trashed/already concluded
@@ -648,7 +651,7 @@ module.exports = {
             `UPDATE created_events
              SET status = 'concluded'
              WHERE deleted_at IS NULL
-               AND TIMESTAMP(end_date, end_time) < NOW()
+               AND TIMESTAMP(end_date, end_time) < ${localNow}
                AND LOWER(COALESCE(status, '')) NOT IN ('cancelled','concluded')`
         );
         // 3) Normalize future events to 'not yet started' (unless cancelled)
@@ -656,7 +659,7 @@ module.exports = {
             `UPDATE created_events
              SET status = 'not yet started'
              WHERE deleted_at IS NULL
-               AND TIMESTAMP(start_date, start_time) > NOW()
+               AND TIMESTAMP(start_date, start_time) > ${localNow}
                AND LOWER(COALESCE(status, '')) NOT IN ('cancelled','not yet started')`
         );
         return {
@@ -676,7 +679,6 @@ module.exports = {
                 try {
                     await db.query(`UPDATE created_events SET is_paid = 0 WHERE is_paid IS NULL`);
                 } catch (_) { /* no-op */ }
-                console.log('[DB] Added is_paid column to created_events');
             }
         } catch (e) {
             console.warn('[DB] ensureIsPaidColumn check failed:', e.message || e);
@@ -691,7 +693,6 @@ module.exports = {
             if (!Array.isArray(rows) || rows.length === 0) {
                 await db.query(`ALTER TABLE created_events ADD COLUMN registration_fee DECIMAL(10,2) NOT NULL DEFAULT 0 AFTER is_paid`);
                 try { await db.query(`UPDATE created_events SET registration_fee = 0 WHERE registration_fee IS NULL`); } catch(_) {}
-                console.log('[DB] Added registration_fee column to created_events');
             }
         } catch (e) {
             console.warn('[DB] ensureRegistrationFeeColumn check failed:', e.message || e);
@@ -706,7 +707,6 @@ module.exports = {
             );
             if (!Array.isArray(scol) || scol.length === 0) {
                 await db.query(`ALTER TABLE event_registrations ADD COLUMN status VARCHAR(20) NOT NULL DEFAULT 'approved' AFTER qr_code`);
-                console.log('[DB] Added status column to event_registrations');
             }
             // approved_at
             const [acol] = await db.query(
@@ -714,7 +714,6 @@ module.exports = {
             );
             if (!Array.isArray(acol) || acol.length === 0) {
                 await db.query(`ALTER TABLE event_registrations ADD COLUMN approved_at DATETIME NULL AFTER status`);
-                console.log('[DB] Added approved_at column to event_registrations');
             }
             // approved_by_org_id
             const [aborg] = await db.query(
@@ -722,7 +721,6 @@ module.exports = {
             );
             if (!Array.isArray(aborg) || aborg.length === 0) {
                 await db.query(`ALTER TABLE event_registrations ADD COLUMN approved_by_org_id INT NULL AFTER approved_at`);
-                console.log('[DB] Added approved_by_org_id column to event_registrations');
             }
             // approved_by_osws_id
             const [abosws] = await db.query(
@@ -730,7 +728,6 @@ module.exports = {
             );
             if (!Array.isArray(abosws) || abosws.length === 0) {
                 await db.query(`ALTER TABLE event_registrations ADD COLUMN approved_by_osws_id INT NULL AFTER approved_by_org_id`);
-                console.log('[DB] Added approved_by_osws_id column to event_registrations');
             }
         } catch (e) {
             console.warn('[DB] ensureRegistrationStatusColumns check failed:', e.message || e);
@@ -738,7 +735,7 @@ module.exports = {
     },
     // Stats: upcoming/ongoing/cancelled exclude trashed, concluded includes trashed
     getOrgDashboardStats: async (orgId) => {
-        const nowQuery = 'NOW()';
+        const nowQuery = 'DATE_ADD(NOW(), INTERVAL 8 HOUR)'; // <--- FIXED
         // Upcoming: start after now, not trashed
                 const [up] = await db.query(
                         `SELECT COUNT(*) AS cnt FROM created_events
@@ -780,8 +777,8 @@ module.exports = {
             concluded: cm[0]?.cnt || 0,
         };
     },
-    getOswsDashboardStats: async () => {
-        const nowQuery = 'NOW()';
+        getOswsDashboardStats: async () => {
+        const nowQuery = 'DATE_ADD(NOW(), INTERVAL 8 HOUR)'; // <--- FIXED
                 const [up] = await db.query(
                         `SELECT COUNT(*) AS cnt FROM created_events
                          WHERE created_by_osws_id IS NOT NULL AND deleted_at IS NULL
