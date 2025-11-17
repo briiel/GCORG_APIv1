@@ -642,6 +642,14 @@ module.exports = {
             // Run all three updates in a single transaction for better performance
             await db.query('START TRANSACTION');
             
+            // Log what we're about to check
+            const [checkResult] = await db.query(`
+                SELECT COUNT(*) as total,
+                       SUM(CASE WHEN deleted_at IS NULL THEN 1 ELSE 0 END) as active
+                FROM created_events
+            `);
+            console.log(`[AutoStatus] Checking ${checkResult[0]?.active || 0} active events (${checkResult[0]?.total || 0} total)`);
+            
             // 1) Set to 'ongoing' when now between start and end, not cancelled/trashed
             const [ongoingRes] = await db.query(
                 `UPDATE created_events
@@ -672,11 +680,22 @@ module.exports = {
             
             await db.query('COMMIT');
             
-            return {
+            const result = {
                 toOngoing: ongoingRes?.affectedRows || 0,
                 toConcluded: concludedRes?.affectedRows || 0,
                 toNotYetStarted: notYetRes?.affectedRows || 0
             };
+            
+            // Log current status distribution
+            const [statusDist] = await db.query(`
+                SELECT status, COUNT(*) as count
+                FROM created_events
+                WHERE deleted_at IS NULL
+                GROUP BY status
+            `);
+            console.log('[AutoStatus] Current status distribution:', statusDist);
+            
+            return result;
         } catch (err) {
             await db.query('ROLLBACK');
             throw err;
