@@ -655,18 +655,25 @@ module.exports = {
             `);
             console.log('[AutoStatus] Database timezone info:', tzInfo[0]);
             
-            // Debug: Show sample event with timestamps
+            // Production databases are in UTC, times are stored in PHT
+            // We need to subtract 8 hours from stored times to compare with UTC NOW()
+            const startTimeExpr = "TIMESTAMP(start_date, start_time) - INTERVAL 8 HOUR";
+            const endTimeExpr = "TIMESTAMP(end_date, end_time) - INTERVAL 8 HOUR";
+            const nowExpr = "NOW()";
+            
+            // Debug: Show sample event with corrected timestamps
             const [sampleEvent] = await db.query(`
                 SELECT event_id, title, status,
                        start_date, start_time,
                        end_date, end_time,
-                       TIMESTAMP(start_date, start_time) as start_ts,
-                       TIMESTAMP(end_date, end_time) as end_ts,
-                       NOW() as now_time,
+                       TIMESTAMP(start_date, start_time) as stored_start,
+                       ${startTimeExpr} as start_utc,
+                       ${endTimeExpr} as end_utc,
+                       ${nowExpr} as now_utc,
                        CASE 
-                           WHEN TIMESTAMP(start_date, start_time) > NOW() THEN 'FUTURE'
-                           WHEN TIMESTAMP(end_date, end_time) < NOW() THEN 'PAST'
-                           ELSE 'NOW'
+                           WHEN ${startTimeExpr} > ${nowExpr} THEN 'FUTURE'
+                           WHEN ${endTimeExpr} < ${nowExpr} THEN 'PAST'
+                           ELSE 'ONGOING'
                        END as time_check
                 FROM created_events
                 WHERE deleted_at IS NULL
@@ -674,18 +681,16 @@ module.exports = {
                 LIMIT 1
             `);
             if (sampleEvent.length > 0) {
-                console.log('[AutoStatus] Sample event:', sampleEvent[0]);
+                console.log('[AutoStatus] Sample event (UTC-corrected):', sampleEvent[0]);
             }
-            
-            const localNow = "NOW()";
             
             // 1) Set to 'ongoing' when now between start and end, not cancelled/trashed
             const [ongoingRes] = await db.query(
                 `UPDATE created_events
                  SET status = 'ongoing'
                  WHERE deleted_at IS NULL
-                   AND TIMESTAMP(start_date, start_time) <= ${localNow}
-                   AND TIMESTAMP(end_date, end_time) >= ${localNow}
+                   AND ${startTimeExpr} <= ${nowExpr}
+                   AND ${endTimeExpr} >= ${nowExpr}
                    AND LOWER(COALESCE(status, '')) NOT IN ('cancelled','ongoing')`
             );
             
@@ -694,7 +699,7 @@ module.exports = {
                 `UPDATE created_events
                  SET status = 'concluded'
                  WHERE deleted_at IS NULL
-                   AND TIMESTAMP(end_date, end_time) < ${localNow}
+                   AND ${endTimeExpr} < ${nowExpr}
                    AND LOWER(COALESCE(status, '')) NOT IN ('cancelled','concluded')`
             );
             
@@ -703,7 +708,7 @@ module.exports = {
                 `UPDATE created_events
                  SET status = 'not yet started'
                  WHERE deleted_at IS NULL
-                   AND TIMESTAMP(start_date, start_time) > ${localNow}
+                   AND ${startTimeExpr} > ${nowExpr}
                    AND LOWER(COALESCE(status, '')) NOT IN ('cancelled','not yet started')`
             );
             
