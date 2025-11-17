@@ -635,8 +635,9 @@ module.exports = {
     hardDeleteEvent,
     // Auto update event statuses based on current time
     autoUpdateEventStatuses: async () => {
-        // Define the "current time" in your local timezone (PHT = UTC+8)
-        const localNow = "DATE_ADD(NOW(), INTERVAL 8 HOUR)";
+        // Use NOW() directly - database is already configured for Asia/Singapore (PHT timezone)
+        // Note: If your production database is in UTC, you'll need to add the interval there
+        const localNow = "NOW()";
 
         // 1) Set to 'ongoing' when now between start and end, not cancelled/trashed
         const [ongoingRes] = await db.query(
@@ -736,7 +737,7 @@ module.exports = {
     },
     // Stats: upcoming/ongoing/cancelled exclude trashed, concluded includes trashed
     getOrgDashboardStats: async (orgId) => {
-        const nowQuery = 'DATE_ADD(NOW(), INTERVAL 8 HOUR)'; // <--- FIXED
+        const nowQuery = 'NOW()';
         // Upcoming: start after now, not trashed
                 const [up] = await db.query(
                         `SELECT COUNT(*) AS cnt FROM created_events
@@ -779,7 +780,7 @@ module.exports = {
         };
     },
         getOswsDashboardStats: async () => {
-        const nowQuery = 'DATE_ADD(NOW(), INTERVAL 8 HOUR)'; // <--- FIXED
+        const nowQuery = 'NOW()';
                 const [up] = await db.query(
                         `SELECT COUNT(*) AS cnt FROM created_events
                          WHERE created_by_osws_id IS NOT NULL AND deleted_at IS NULL
