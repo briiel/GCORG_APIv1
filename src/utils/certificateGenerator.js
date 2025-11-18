@@ -85,11 +85,11 @@ async function ensureRemoteFonts() {
         if (fs.existsSync(file) && fs.statSync(file).size > 0) return resolve(true);
         fs.mkdirSync(path.dirname(file), { recursive: true });
         const fileStream = fs.createWriteStream(file);
-        if (debug) console.log('[fonts] downloading', url);
+        
         const req = https.get(url, (res) => {
             if (res.statusCode && res.statusCode >= 300 && res.statusCode < 400 && res.headers.location) {
                 // Handle redirect
-                if (debug) console.log('[fonts] redirect to', res.headers.location);
+                
                 https.get(res.headers.location, (res2) => res2.pipe(fileStream));
             } else if (res.statusCode === 200) {
                 res.pipe(fileStream);
@@ -117,7 +117,7 @@ async function ensureRemoteFonts() {
                 if (f.style) reg.style = f.style;
                 registerFont(f.file, reg);
                 AVAILABLE_FONTS.add(f.family);
-                if (debug) console.log('[fonts] registered', f.family);
+                
             } else if (debug) {
                 console.warn('[fonts] skip register (download failed):', f.family);
             }

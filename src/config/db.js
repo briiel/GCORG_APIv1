@@ -27,7 +27,7 @@ const pool = mysql.createPool(poolConfig);
 pool.on('error', (err) => {
     console.error('Database pool error:', err.code, err.message);
     if (err.code === 'PROTOCOL_CONNECTION_LOST' || err.code === 'ECONNRESET') {
-        console.log('Database connection lost. Pool will reconnect automatically.');
+        
     }
 });
 
@@ -55,7 +55,7 @@ const queryWithRetry = async (sql, params, maxRetries = 3) => {
             
             if (isRetryable && attempt < maxRetries) {
                 const delay = Math.min(2000 * Math.pow(2, attempt - 1), 10000); // Exponential backoff, max 10s
-                console.log(`Database query failed (attempt ${attempt}/${maxRetries}), retrying in ${delay}ms...`, err.code);
+                
                 await new Promise(resolve => setTimeout(resolve, delay));
             } else {
                 throw lastError;
@@ -88,7 +88,7 @@ if (originalExecute) {
                 
                 if (isRetryable && attempt < maxRetries) {
                     const delay = Math.min(2000 * Math.pow(2, attempt - 1), 10000);
-                    console.log(`Database execute failed (attempt ${attempt}/${maxRetries}), retrying in ${delay}ms...`, err.code);
+                    
                     await new Promise(resolve => setTimeout(resolve, delay));
                 } else {
                     throw lastError;

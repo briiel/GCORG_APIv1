@@ -64,11 +64,11 @@ app.post('/api/cron/run-status-updates', async (req, res) => {
 
     // 3. If valid, run the job
     try {
-        console.log('[AutoStatus] Cron job starting via webhook...');
+        
         const result = await eventService.autoUpdateEventStatuses();
         const total = (result.toOngoing || 0) + (result.toConcluded || 0) + (result.toNotYetStarted || 0);
 
-        console.log(`[AutoStatus] Webhook success -> ongoing:${result.toOngoing} concluded:${result.toConcluded} notYet:${result.toNotYetStarted}`);
+        
         
         // 4. Send a success response
         res.status(200).json({ success: true, updates: total });
@@ -133,7 +133,7 @@ app.use((err, req, res, next) => {
 
 const PORT = process.env.PORT || 5000;
 app.listen(PORT, async () => {
-    console.log(`Server running on port ${PORT}`);
+    
     // Ensure DB has latest columns
     try {
         const eventModel = require('./models/eventModel');
@@ -173,16 +173,16 @@ app.listen(PORT, async () => {
     // Only runs in development; production uses external cron job
     if (process.env.NODE_ENV !== 'production') {
         try {
-            console.log('>>> Starting auto-status update scheduler (development mode)...');
+            
             
             const runAutoStatus = async () => {
                 try {
                     const res = await eventService.autoUpdateEventStatuses();
                     const total = (res.toOngoing || 0) + (res.toConcluded || 0) + (res.toNotYetStarted || 0);
                     if (total > 0) {
-                        console.log(`[AutoStatus] Updates -> ongoing:${res.toOngoing} concluded:${res.toConcluded} notYet:${res.toNotYetStarted}`);
+                        
                     } else {
-                        console.log('[AutoStatus] Ran check, no updates needed.');
+                        
                     }
                 } catch (err) {
                     console.error('[AutoStatus] Error:', err.message || err);
@@ -196,6 +196,6 @@ app.listen(PORT, async () => {
             console.warn('Auto-status scheduler not started:', e.message);
         }
     } else {
-        console.log('>>> Auto-status updates handled by external cron job (production mode)');
+        
     }
 });

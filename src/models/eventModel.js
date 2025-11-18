@@ -654,7 +654,7 @@ module.exports = {
                        SUM(CASE WHEN deleted_at IS NULL THEN 1 ELSE 0 END) as active
                 FROM created_events
             `);
-            console.log(`[AutoStatus] Checking ${checkResult[0]?.active || 0} active events (${checkResult[0]?.total || 0} total)`);
+            
             
             // Debug: Check database timezone and current time
             const [tzInfo] = await db.query(`
@@ -662,7 +662,7 @@ module.exports = {
                        @@session.time_zone as session_tz,
                        @@global.time_zone as global_tz
             `);
-            console.log('[AutoStatus] Database timezone info:', tzInfo[0]);
+            
             
             // Detect if we need timezone conversion
             // Production (UTC): subtract 8 hours from stored PHT times
@@ -674,7 +674,7 @@ module.exports = {
             const endTimeExpr = `TIMESTAMP(end_date, end_time)${timeOffset}`;
             const nowExpr = "NOW()";
             
-            console.log(`[AutoStatus] Timezone mode: ${isProduction ? 'Production (UTC, -8h offset)' : 'Development (PHT, no offset)'}`);
+            
             
             // Debug: Show sample event with corrected timestamps
             const [sampleEvent] = await db.query(`
@@ -696,7 +696,7 @@ module.exports = {
                 LIMIT 1
             `);
             if (sampleEvent.length > 0) {
-                console.log('[AutoStatus] Sample event:', sampleEvent[0]);
+                
             }
             
             // 1) Set to 'ongoing' when now between start and end, not cancelled/trashed
@@ -742,7 +742,7 @@ module.exports = {
                 WHERE deleted_at IS NULL
                 GROUP BY status
             `);
-            console.log('[AutoStatus] Current status distribution:', statusDist);
+            
             
             return result;
         } catch (err) {

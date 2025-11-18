@@ -22,10 +22,10 @@ async function main() {
   eventLocation: 'Gordon College Main Campus, AVR',
       certificatePath: outPath,
     });
-    console.log('Sample certificate generated at:', outPath);
+    
     if (fs.existsSync(outPath)) {
       const stats = fs.statSync(outPath);
-      console.log('File size:', stats.size, 'bytes');
+      
     }
   } catch (err) {
     console.error('Failed to generate sample certificate:', err);
