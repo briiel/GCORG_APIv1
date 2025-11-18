@@ -29,8 +29,12 @@ router.get('/visits', async (req, res) => {
 router.post('/visits', async (req, res) => {
   try {
     await ensureTable();
-    await db.execute(`INSERT INTO site_visits (id, total) VALUES (1, 1)
-                      ON DUPLICATE KEY UPDATE total = total + 1`);
+    // Prefer a simple atomic UPDATE; if no row exists, insert it.
+    const [updateRes] = await db.execute('UPDATE site_visits SET total = total + 1 WHERE id = 1');
+    if (!updateRes || updateRes.affectedRows === 0) {
+      // No row existed (shouldn't happen because ensureTable creates it, but be defensive)
+      await db.execute('INSERT INTO site_visits (id, total) VALUES (1, 1)');
+    }
     const [rows] = await db.execute('SELECT total FROM site_visits WHERE id = 1');
     const total = rows && rows[0] ? Number(rows[0].total) : 0;
     res.json({ success: true, total });
