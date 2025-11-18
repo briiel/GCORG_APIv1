@@ -117,7 +117,16 @@ const createEvent = async (eventData) => {
             created_by_osws_id && created_by_osws_id !== 'undefined' && created_by_osws_id !== '' ? created_by_osws_id : null,
             status || 'not yet started'
         ]);
-        return result.insertId;
+        // If table isn't configured with AUTO_INCREMENT (older schema), result.insertId may be 0.
+        // Fall back to obtaining the highest event_id after insert if insertId is falsy.
+        if (result && result.insertId && result.insertId > 0) {
+            return result.insertId;
+        }
+
+        // Fallback: fetch the max event_id value which should correspond to the inserted row
+        const [rows] = await db.query('SELECT MAX(event_id) AS last_id FROM created_events');
+        const lastId = rows && rows[0] && rows[0].last_id ? rows[0].last_id : 0;
+        return lastId;
     } catch (error) {
         console.error('Error creating event:', error.stack);
         throw error;
