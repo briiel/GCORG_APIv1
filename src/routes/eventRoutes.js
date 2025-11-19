@@ -2,6 +2,7 @@ const express = require('express');
 const router = express.Router();
 const eventController = require('../controllers/eventController');
 const authenticateToken = require('../middleware/authMiddleware'); // Protect routes
+const { checkRole } = require('../middleware/checkRole');
 const { upload, convertToWebpAndUpload } = require('../middleware/uploadMiddleware');
 
 router.post(
@@ -26,11 +27,11 @@ router.post('/events/trash-multiple', authenticateToken, eventController.trashMu
 router.get('/events/trash', authenticateToken, eventController.getTrashedEvents); // List trashed events for current user
 router.post('/events/:id/restore', authenticateToken, eventController.restoreEvent); // Restore trashed event
 router.delete('/events/:id/permanent', authenticateToken, eventController.permanentDeleteEvent); // Permanently delete a trashed event
-router.get('/certificates', eventController.getCertificatesByStudent); // Get certificates by student
-router.get('/events/admin/:admin_id', eventController.getEventsByAdmin); // Get events by admin
-router.get('/events/organizations', eventController.getAllOrgEvents); // Get all events by organizations
-router.get('/events/osws', eventController.getAllOswsEvents); // Route for all OSWS-created events
-router.get('/:event_id/participants', eventController.getEventParticipants); // Get participants of an event
+router.get('/certificates', authenticateToken, eventController.getCertificatesByStudent); // Get certificates by student (requires auth)
+router.get('/events/admin/:admin_id', authenticateToken, checkRole(['OSWSAdmin']), eventController.getEventsByAdmin); // Get events by admin (OSWSAdmin only)
+router.get('/events/organizations', eventController.getAllOrgEvents); // Get all events by organizations (public)
+router.get('/events/osws', eventController.getAllOswsEvents); // Route for all OSWS-created events (public)
+router.get('/:event_id/participants', authenticateToken, eventController.getEventParticipants); // Get participants of an event (requires auth)
 // Registration approval endpoints
 router.post('/registrations/:registration_id/approve', authenticateToken, eventController.approveRegistration);
 router.post('/registrations/:registration_id/reject', authenticateToken, eventController.rejectRegistration);

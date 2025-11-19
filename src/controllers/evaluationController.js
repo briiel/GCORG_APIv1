@@ -10,7 +10,8 @@ const { handleErrorResponse, handleSuccessResponse } = require('../utils/errorHa
 exports.submitEvaluation = async (req, res) => {
   try {
     const user = req.user;
-    if (!user || user.role !== 'student') {
+    const userRoles = user && Array.isArray(user.roles) ? user.roles : [];
+    if (!user || !userRoles.includes('student')) {
       return handleErrorResponse(res, 'Only students can submit evaluations.', 403);
     }
     
@@ -37,7 +38,8 @@ exports.submitEvaluation = async (req, res) => {
 exports.getEvaluationStatus = async (req, res) => {
   try {
     const user = req.user;
-    if (!user || user.role !== 'student') {
+    const userRoles = user && Array.isArray(user.roles) ? user.roles : [];
+    if (!user || !userRoles.includes('student')) {
       return handleErrorResponse(res, 'Unauthorized', 403);
     }
     
@@ -55,7 +57,8 @@ exports.getEvaluationStatus = async (req, res) => {
 exports.getMyEvaluation = async (req, res) => {
   try {
     const user = req.user;
-    if (!user || user.role !== 'student') {
+    const userRoles = user && Array.isArray(user.roles) ? user.roles : [];
+    if (!user || !userRoles.includes('student')) {
       return handleErrorResponse(res, 'Unauthorized', 403);
     }
     
@@ -73,7 +76,8 @@ exports.getMyEvaluation = async (req, res) => {
 exports.getEventEvaluations = async (req, res) => {
   try {
     const user = req.user;
-    if (!user || (user.role !== 'organization' && user.role !== 'admin')) {
+    const userRoles = Array.isArray(user.roles) ? user.roles : [];
+    if (!user || (!userRoles.includes('orgofficer') && !userRoles.includes('oswsadmin'))) {
       return handleErrorResponse(res, 'Forbidden', 403);
     }
     

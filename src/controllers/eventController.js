@@ -211,9 +211,9 @@ exports.getAttendedEventsByStudent = async (req, res) => {
         if (!student_id) return handleErrorResponse(res, 'student_id is required', 400);
         
         const roles = user?.roles || [];
-        const isStudent = roles.includes('Student');
-        const isOrgOfficer = roles.includes('OrgOfficer');
-        const isAdmin = roles.includes('OSWSAdmin');
+        const isStudent = roles.includes('student');
+        const isOrgOfficer = roles.includes('orgofficer');
+        const isAdmin = roles.includes('oswsadmin');
         
         // Students without officer/admin role can only fetch their own history
         if (isStudent && !isOrgOfficer && !isAdmin && String(user.studentId) !== String(student_id)) {
@@ -300,8 +300,8 @@ exports.updateEventStatus = async (req, res) => {
         if (!user) return handleErrorResponse(res, 'Unauthorized', 401);
         
         const roles = user.roles || [];
-        const isOrgOfficer = roles.includes('OrgOfficer');
-        const isAdmin = roles.includes('OSWSAdmin');
+        const isOrgOfficer = roles.includes('orgofficer');
+        const isAdmin = roles.includes('oswsadmin');
         const orgId = isOrgOfficer && user.organization ? user.organization.org_id : null;
         const adminId = isAdmin ? user.legacyId : null;
         
@@ -447,8 +447,8 @@ exports.markAttendance = async (req, res) => {
         }
 
         const roles = user.roles || [];
-        const isOrgOfficer = roles.includes('OrgOfficer');
-        const isAdmin = roles.includes('OSWSAdmin');
+        const isOrgOfficer = roles.includes('orgofficer');
+        const isAdmin = roles.includes('oswsadmin');
         
         // Only organization officers and OSWS admins are allowed to scan
         if (!isOrgOfficer && !isAdmin) {
@@ -690,9 +690,9 @@ exports.getAllAttendanceRecords = async (req, res) => {
         }
 
         const roles = user.roles || [];
-        const isOrgOfficer = roles.includes('OrgOfficer');
-        const isAdmin = roles.includes('OSWSAdmin');
-        const isStudent = roles.includes('Student');
+        const isOrgOfficer = roles.includes('orgofficer');
+        const isAdmin = roles.includes('oswsadmin');
+        const isStudent = roles.includes('student');
         
         let records;
         if (isOrgOfficer) {
@@ -730,17 +730,18 @@ exports.deleteEvent = async (req, res) => {
 
 exports.getTrashedEvents = async (req, res) => {
     try {
-        const user = req.user;
-        if (!user) return handleErrorResponse(res, 'Unauthorized', 401);
+            const user = req.user;
+            if (!user) return handleErrorResponse(res, 'Unauthorized', 401);
+            const userRoles = Array.isArray(user.roles) ? user.roles : [];
         let rows = [];
         
         // Check roles array instead of userType for RBAC compatibility
-        if (user.roles && user.roles.includes('OrgOfficer')) {
+        if (user.roles && user.roles.includes('orgofficer')) {
             // For OrgOfficers (including students with approved org officer role)
             // Use organization.org_id for students, or legacyId for legacy org accounts
             const orgId = user.organization?.org_id || user.legacyId;
             rows = await eventService.getTrashedOrgEvents(orgId);
-        } else if (user.roles && user.roles.includes('OSWSAdmin')) {
+        } else if (user.roles && user.roles.includes('oswsadmin')) {
             rows = await eventService.getTrashedOswsEvents(user.legacyId);
         } else {
             return handleErrorResponse(res, 'Forbidden', 403);
@@ -788,7 +789,7 @@ exports.getOrgDashboardStats = async (req, res) => {
         
         // RBAC: Check if user has OrgOfficer role
         const roles = user.roles || [];
-        if (!roles.includes('OrgOfficer')) {
+        if (!roles.includes('orgofficer')) {
             return handleErrorResponse(res, 'Forbidden', 403);
         }
 
@@ -811,7 +812,7 @@ exports.getOswsDashboardStats = async (req, res) => {
         
         // RBAC: Check if user has OSWSAdmin role
         const roles = user.roles || [];
-        if (!roles.includes('OSWSAdmin')) {
+        if (!roles.includes('oswsadmin')) {
             return handleErrorResponse(res, 'Forbidden', 403);
         }
 
@@ -826,6 +827,24 @@ exports.getCertificatesByStudent = async (req, res) => {
     try {
         const { student_id } = req.query;
         if (!student_id) return res.status(400).json({ success: false, message: 'student_id required' });
+
+        // Authorization: only the student themselves, an OrgOfficer for that student's org, or an OSWS admin may view certificates
+        const user = req.user;
+        if (!user) return handleErrorResponse(res, 'Authentication required', 401);
+        const userRoles = Array.isArray(user.roles) ? user.roles : [];
+        const isStudent = userRoles.includes('student');
+        const isOrgOfficer = userRoles.includes('orgofficer');
+        const isAdmin = userRoles.includes('oswsadmin');
+
+        if (isStudent) {
+            // students can only request their own certificates
+            const studentIdFromToken = user.studentId || user.id || user.legacyId || null;
+            if (String(studentIdFromToken) !== String(student_id)) {
+                return handleErrorResponse(res, 'Forbidden', 403);
+            }
+        } else if (!isOrgOfficer && !isAdmin) {
+            return handleErrorResponse(res, 'Forbidden', 403);
+        }
 
         // Get all attended events with evaluation status
         const [attendedEvents] = await db.query(
@@ -1056,8 +1075,8 @@ exports.approveRegistration = async (req, res) => {
     try {
         const user = req.user;
         const roles = user.roles || [];
-        const isOrgOfficer = roles.includes('OrgOfficer');
-        const isAdmin = roles.includes('OSWSAdmin');
+        const isOrgOfficer = roles.includes('orgofficer');
+        const isAdmin = roles.includes('oswsadmin');
         
         if (!user || (!isOrgOfficer && !isAdmin)) {
             return handleErrorResponse(res, 'Forbidden: Only organization officers and admins can approve registrations', 403);
@@ -1117,8 +1136,8 @@ exports.rejectRegistration = async (req, res) => {
     try {
         const user = req.user;
         const roles = user.roles || [];
-        const isOrgOfficer = roles.includes('OrgOfficer');
-        const isAdmin = roles.includes('OSWSAdmin');
+        const isOrgOfficer = roles.includes('orgofficer');
+        const isAdmin = roles.includes('oswsadmin');
         
         if (!user || (!isOrgOfficer && !isAdmin)) {
             return handleErrorResponse(res, 'Forbidden: Only organization officers and admins can reject registrations', 403);
@@ -1218,8 +1237,8 @@ exports.updateEvent = async (req, res) => {
             if (!user) return handleErrorResponse(res, 'Unauthorized', 401);
             
             const roles = user.roles || [];
-            const isOrgOfficer = roles.includes('OrgOfficer');
-            const isAdmin = roles.includes('OSWSAdmin');
+            const isOrgOfficer = roles.includes('orgofficer');
+            const isAdmin = roles.includes('oswsadmin');
             const orgId = isOrgOfficer && user.organization ? user.organization.org_id : null;
             const adminId = isAdmin ? user.legacyId : null;
             
@@ -1250,7 +1269,8 @@ exports.getEventById = async (req, res) => {
 exports.requestCertificate = async (req, res) => {
     try {
         const user = req.user;
-        if (!user || user.role !== 'student') {
+        const userRoles = user && Array.isArray(user.roles) ? user.roles : [];
+        if (!user || !userRoles.includes('student')) {
             return handleErrorResponse(res, 'Only students can request certificates.', 403);
         }
         const eventId = req.params.id;

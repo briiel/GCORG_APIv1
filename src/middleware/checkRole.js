@@ -29,18 +29,14 @@ const checkRole = (allowedRoles) => {
         });
       }
 
-      // Ensure user has roles
-      if (!req.user.roles || !Array.isArray(req.user.roles)) {
-        return res.status(403).json({
-          success: false,
-          message: 'Access denied. No roles assigned to user.'
-        });
-      }
+      // Ensure user has roles (role-based checks will also consider normalized userType)
+      const userRoles = Array.isArray(req.user.roles) ? req.user.roles.map(r => String(r).toLowerCase()) : [];
 
-      // Check if user has at least one of the allowed roles
-      const hasRequiredRole = req.user.roles.some(role => 
-        allowedRoles.includes(role)
-      );
+      // Normalize allowedRoles to lowercase for case-insensitive comparison
+      const allowedLower = Array.isArray(allowedRoles) ? allowedRoles.map(r => String(r).toLowerCase()) : [];
+
+      // Check if user has at least one of the allowed roles or matches the userType
+      const hasRequiredRole = userRoles.some(role => allowedLower.includes(role)) || (req.user.userType && allowedLower.includes(String(req.user.userType).toLowerCase()));
 
       if (!hasRequiredRole) {
         return res.status(403).json({

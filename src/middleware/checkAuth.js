@@ -46,19 +46,29 @@ const checkAuth = (req, res, next) => {
     // Verify token
     const decoded = jwt.verify(token, process.env.JWT_SECRET);
 
-    // Attach user info to request object
+    // Normalize and attach user info to request object
+    const rawRoles = Array.isArray(decoded.roles) ? decoded.roles : (decoded.roles ? [decoded.roles] : []);
+    const roles = rawRoles.map(r => String(r).toLowerCase());
+    const userTypeNorm = decoded.userType ? String(decoded.userType).toLowerCase() : (decoded.userType || '');
+
+    // Determine canonical id value from possible token fields
+    const canonicalId = decoded.id || decoded.legacyId || decoded.userId || decoded.studentId || null;
+
     req.user = {
-      userId: decoded.userId,
+      userId: decoded.userId || null,
       email: decoded.email,
-      roles: decoded.roles || [],
+      // canonical lowercase roles array (e.g. ['student','orgofficer'])
+      roles,
+      // original decoded roles preserved for compatibility
+      rawRoles,
       organization: decoded.organization || null,
-      // Add JWT fields for compatibility with controllers
-      userType: decoded.userType,
-      legacyId: decoded.legacyId,
+      // normalized user type (lowercase) and legacy fields
+      userType: userTypeNorm,
+      legacyId: decoded.legacyId || null,
       studentId: decoded.studentId || null,
-      // Backwards compatibility (used by eventController)
-      role: decoded.userType,
-      id: decoded.legacyId
+      // Backwards compatibility: set `role` to normalized userType and `id` to canonicalId
+      role: userTypeNorm,
+      id: canonicalId
     };
 
     // Continue to next middleware

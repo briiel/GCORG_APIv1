@@ -234,7 +234,6 @@ const approveRequest = async (req, res) => {
   }
 
   const connection = await db.getConnection();
-
   try {
     // Start transaction
     await connection.beginTransaction();
@@ -249,7 +248,6 @@ const approveRequest = async (req, res) => {
 
     if (requests.length === 0) {
       await connection.rollback();
-      connection.release();
       return res.status(404).json({
         success: false,
         message: 'Request not found.'
@@ -261,7 +259,6 @@ const approveRequest = async (req, res) => {
     // Check if already processed
     if (request.status !== 'pending') {
       await connection.rollback();
-      connection.release();
       return res.status(400).json({
         success: false,
         message: `Request has already been ${request.status}.`
@@ -289,7 +286,6 @@ const approveRequest = async (req, res) => {
 
     // Commit transaction
     await connection.commit();
-    connection.release();
 
     return res.status(200).json({
       success: true,
@@ -298,14 +294,15 @@ const approveRequest = async (req, res) => {
 
   } catch (error) {
     // Rollback on error
-    await connection.rollback();
-    connection.release();
-    
+    try { await connection.rollback(); } catch (_) {}
     console.error('Approve request error:', error);
     return res.status(500).json({
       success: false,
       message: 'An error occurred while approving the request.'
     });
+  } finally {
+    // Always release the connection
+    try { connection.release(); } catch (_) {}
   }
 };
 

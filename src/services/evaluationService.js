@@ -55,7 +55,7 @@ async function submitEvaluation({ event_id, student_id, responses }) {
   const [student] = await db.query(
     `SELECT CONCAT(first_name, ' ', last_name) as student_name 
      FROM students 
-     WHERE student_id = ? 
+     WHERE id = ? 
      LIMIT 1`,
     [student_id]
   );
@@ -186,13 +186,20 @@ async function getEventEvaluations(event_id, user) {
   
   const eventData = event[0];
   
-  // Check authorization
-  if (user.role === 'organization' && eventData.created_by_org_id !== user.id) {
-    throw new Error('You are not authorized to view evaluations for this event.');
+  // Check authorization: support normalized roles array (orgofficer, oswsadmin)
+  const userRoles = Array.isArray(user.roles) ? user.roles : [];
+  if (userRoles.includes('orgofficer')) {
+    const orgId = user.organization && user.organization.org_id ? user.organization.org_id : null;
+    if (orgId === null || eventData.created_by_org_id !== orgId) {
+      throw new Error('You are not authorized to view evaluations for this event.');
+    }
   }
-  
-  if (user.role === 'admin' && eventData.created_by_osws_id !== user.id) {
-    throw new Error('You are not authorized to view evaluations for this event.');
+
+  if (userRoles.includes('oswsadmin')) {
+    const adminId = user.legacyId || user.id || null;
+    if (adminId === null || eventData.created_by_osws_id !== adminId) {
+      throw new Error('You are not authorized to view evaluations for this event.');
+    }
   }
   
   const evaluations = await evaluationModel.getEvaluationsByEvent(event_id);

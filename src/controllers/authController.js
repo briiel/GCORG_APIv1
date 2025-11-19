@@ -84,10 +84,10 @@ const login = async (req, res) => {
     let roles = [];
     
     if (userType === 'admin') {
-      roles = ['OSWSAdmin'];
+      roles = ['oswsadmin'];
     } else if (userType === 'student') {
       // For students, start with Student role
-      roles = ['Student'];
+      roles = ['student'];
       
       // Check for OrgOfficer role if student has approved membership
       if (studentId) {
@@ -101,7 +101,7 @@ const login = async (req, res) => {
         );
 
         if (orgMemberships.length > 0) {
-          roles.push('OrgOfficer');
+          roles.push('orgofficer');
         }
       }
     }
@@ -109,7 +109,7 @@ const login = async (req, res) => {
     // Step 4: Fetch organization info if user is an OrgOfficer
     let organization = null;
 
-    if (roles.includes('OrgOfficer') && studentId) {
+    if (roles.includes('orgofficer') && studentId) {
       const [orgMemberships] = await db.query(
         `SELECT om.org_id, om.position, o.org_name
          FROM organizationmembers om
@@ -155,11 +155,16 @@ const login = async (req, res) => {
       token: token,
       user: {
         userId: userId,
+        id: user.id || null,
+        legacyId: user.id || null,
+        studentId: studentId || null,
         email: user.email,
         firstName: user.first_name,
         lastName: user.last_name || '',
         roles: roles,
-        organization: organization
+        role: (roles && roles.length > 0) ? String(roles[0]).toLowerCase() : (userType || null),
+        organization: organization,
+        userType: userType || null
       }
     });
 
