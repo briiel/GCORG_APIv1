@@ -51,28 +51,38 @@ const convertToWebpAndUpload = async (req, res, next) => {
 
         const filename = `${filenamePrefix}-${uniqueSuffix}`;
 
-        // Upload to Cloudinary
-        const uploadResult = await new Promise((resolve, reject) => {
-            cloudinary.uploader.upload_stream(
-                {
-                    resource_type: 'image',
-                    public_id: filename,
-                    folder: folder,
-                    format: 'webp',
-                    quality: 'auto',
-                    fetch_format: 'auto'
-                },
-                (error, result) => {
-                    if (error) reject(error);
-                    else resolve(result);
-                }
-            ).end(webpBuffer);
-        });
+        // If Cloudinary is not configured, fall back to a data URL so registration still works in dev
+        const cloudinaryConfigured = !!(process.env.CLOUDINARY_URL || process.env.CLOUDINARY_CLOUD_NAME);
+        if (cloudinaryConfigured) {
+            // Upload to Cloudinary
+            const uploadResult = await new Promise((resolve, reject) => {
+                cloudinary.uploader.upload_stream(
+                    {
+                        resource_type: 'image',
+                        public_id: filename,
+                        folder: folder,
+                        format: 'webp',
+                        quality: 'auto',
+                        fetch_format: 'auto'
+                    },
+                    (error, result) => {
+                        if (error) reject(error);
+                        else resolve(result);
+                    }
+                ).end(webpBuffer);
+            });
 
-        // Update req.file with Cloudinary information
-        req.file.cloudinaryUrl = uploadResult.secure_url;
-        req.file.cloudinaryPublicId = uploadResult.public_id;
-        req.file.path = uploadResult.secure_url; // Keep this for backward compatibility
+            // Update req.file with Cloudinary information
+            req.file.cloudinaryUrl = uploadResult.secure_url;
+            req.file.cloudinaryPublicId = uploadResult.public_id;
+            req.file.path = uploadResult.secure_url; // Keep this for backward compatibility
+        } else {
+            // Fallback: create a data URL from the webp buffer
+            const dataUrl = `data:image/webp;base64,${webpBuffer.toString('base64')}`;
+            req.file.cloudinaryUrl = dataUrl;
+            req.file.cloudinaryPublicId = null;
+            req.file.path = dataUrl;
+        }
 
         next();
     } catch (error) {

@@ -79,14 +79,27 @@ const registerParticipant = async ({
                         color: { dark: '#000000', light: '#FFFFFF' }
                     });
                     const qrFilename = `registration_${latest.id}`;
-                    const uploadResult2 = await new Promise((resolve, reject) => {
-                        cloudinary.uploader.upload_stream(
-                            { resource_type: 'image', public_id: qrFilename, folder: 'qr-codes', format: 'png', quality: 'auto' },
-                            (error, result) => error ? reject(error) : resolve(result)
-                        ).end(qrBuffer);
-                    });
-                    qrUrl = uploadResult2.secure_url;
-                    qrPublicId = uploadResult2.public_id;
+                    // Try to upload to Cloudinary; if not configured or upload fails, fall back to data URL
+                    try {
+                        const cloudinaryConfigured = !!(process.env.CLOUDINARY_URL || process.env.CLOUDINARY_CLOUD_NAME);
+                        if (cloudinaryConfigured) {
+                            const uploadResult2 = await new Promise((resolve, reject) => {
+                                cloudinary.uploader.upload_stream(
+                                    { resource_type: 'image', public_id: qrFilename, folder: 'qr-codes', format: 'png', quality: 'auto' },
+                                    (error, result) => error ? reject(error) : resolve(result)
+                                ).end(qrBuffer);
+                            });
+                            qrUrl = uploadResult2.secure_url;
+                            qrPublicId = uploadResult2.public_id;
+                        } else {
+                            qrUrl = `data:image/png;base64,${qrBuffer.toString('base64')}`;
+                            qrPublicId = null;
+                        }
+                    } catch (uerr) {
+                        // Fallback to base64 data URL when Cloudinary fails unexpectedly
+                        qrUrl = `data:image/png;base64,${qrBuffer.toString('base64')}`;
+                        qrPublicId = null;
+                    }
                     await conn.query(
                         `UPDATE event_registrations SET qr_code = ?, qr_code_public_id = ? WHERE id = ?`,
                         [qrUrl, qrPublicId, latest.id]
@@ -149,30 +162,48 @@ const registerParticipant = async ({
 
         // Upload QR code to Cloudinary
         const qrFilename = `registration_${registration_id}`;
-        const uploadResult = await new Promise((resolve, reject) => {
-            cloudinary.uploader.upload_stream(
-                {
-                    resource_type: 'image',
-                    public_id: qrFilename,
-                    folder: 'qr-codes', // Organize QR codes in a folder
-                    format: 'png',
-                    quality: 'auto'
-                },
-                (error, result) => {
-                    if (error) {
-                        console.error('Cloudinary upload error:', error);
-                        reject(error);
-                    } else {
-                        resolve(result);
-                    }
-                }
-            ).end(qrBuffer);
-        });
+        // Upload QR code to Cloudinary if configured; otherwise fall back to data URL
+        let uploadResult = null;
+        let finalQrUrl = null;
+        let finalQrPublicId = null;
+        try {
+            const cloudinaryConfigured = !!(process.env.CLOUDINARY_URL || process.env.CLOUDINARY_CLOUD_NAME);
+            if (cloudinaryConfigured) {
+                uploadResult = await new Promise((resolve, reject) => {
+                    cloudinary.uploader.upload_stream(
+                        {
+                            resource_type: 'image',
+                            public_id: qrFilename,
+                            folder: 'qr-codes', // Organize QR codes in a folder
+                            format: 'png',
+                            quality: 'auto'
+                        },
+                        (error, result) => {
+                            if (error) {
+                                console.error('Cloudinary upload error:', error);
+                                reject(error);
+                            } else {
+                                resolve(result);
+                            }
+                        }
+                    ).end(qrBuffer);
+                });
+                finalQrUrl = uploadResult.secure_url;
+                finalQrPublicId = uploadResult.public_id;
+            } else {
+                finalQrUrl = `data:image/png;base64,${qrBuffer.toString('base64')}`;
+                finalQrPublicId = null;
+            }
+        } catch (uerr) {
+            console.warn('QR upload failed, falling back to data URL:', uerr && uerr.message ? uerr.message : uerr);
+            finalQrUrl = `data:image/png;base64,${qrBuffer.toString('base64')}`;
+            finalQrPublicId = null;
+        }
 
-        // 5. Update event_registrations with Cloudinary URL and public_id
+        // 5. Update event_registrations with QR info (either Cloudinary URL or data URL)
         await conn.query(
             `UPDATE event_registrations SET qr_code = ?, qr_code_public_id = ? WHERE id = ?`,
-            [uploadResult.secure_url, uploadResult.public_id, registration_id]
+            [finalQrUrl, finalQrPublicId, registration_id]
         );
 
         // Fetch student info for notification
