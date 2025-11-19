@@ -142,8 +142,14 @@ exports.registerParticipant = [
         try {
             const {
                 event_id,
-                student_id
+                student_id: bodyStudentId
             } = req.body;
+
+            // Prefer explicit student_id from the request body, but fall back to authenticated user's student id
+            const student_id = bodyStudentId || req.user?.studentId || req.user?.student_id || req.user?.id || req.user?.userId;
+            if (!student_id) {
+                return handleErrorResponse(res, 'student_id is required', 400);
+            }
 
             // If event is marked as paid, require proof_of_payment
             try {
@@ -171,6 +177,15 @@ exports.registerParticipant = [
         } catch (error) {
             if (error.message === 'You have already registered for this event.') {
                 return res.status(409).json({ success: false, message: error.message });
+            }
+            // Provide detailed error info when debugging is enabled to help diagnose prod issues
+            if (process.env.SHOW_ERROR_DETAILS === 'true') {
+                console.error('Registration error (detailed):', error);
+                return res.status(error.statusCode || 500).json({
+                    success: false,
+                    message: error.message || 'Internal Server Error',
+                    error: error.stack || String(error)
+                });
             }
             return handleErrorResponse(res, error.message);
         }

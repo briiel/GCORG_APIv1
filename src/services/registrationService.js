@@ -134,12 +134,33 @@ const registerParticipant = async ({
         }
 
         // 3. Insert into event_registrations with proof of payment and initial status
-        const [regResult] = await conn.query(
-            `INSERT INTO event_registrations (event_id, student_id, proof_of_payment, proof_of_payment_public_id, qr_code, status)
-             VALUES (?, ?, ?, ?, ?, ?)`,
-            [event_id, student_id, proof_of_payment, proof_of_payment_public_id, null, initialStatus]
-        );
-        const registration_id = regResult.insertId;
+        let registration_id = null;
+        try {
+            const [regResult] = await conn.query(
+                `INSERT INTO event_registrations (event_id, student_id, proof_of_payment, proof_of_payment_public_id, qr_code, status)
+                 VALUES (?, ?, ?, ?, ?, ?)`,
+                [event_id, student_id, proof_of_payment, proof_of_payment_public_id, null, initialStatus]
+            );
+            registration_id = regResult.insertId;
+        } catch (insErr) {
+            console.error('Error inserting registration row:', insErr && insErr.message ? insErr.message : insErr);
+            // continue to fallback logic below to try and locate the inserted row
+        }
+
+        // Fallback for DBs/tables without AUTO_INCREMENT returning insertId
+        if (!registration_id) {
+            try {
+                const [rows] = await conn.query(
+                    `SELECT id FROM event_registrations WHERE event_id = ? AND student_id = ? ORDER BY id DESC LIMIT 1`,
+                    [event_id, student_id]
+                );
+                if (Array.isArray(rows) && rows.length > 0 && rows[0].id) {
+                    registration_id = rows[0].id;
+                }
+            } catch (selErr) {
+                console.error('Fallback select for registration id failed:', selErr && selErr.message ? selErr.message : selErr);
+            }
+        }
 
         if (!registration_id) {
             throw new Error('Failed to register for the event.');
@@ -237,8 +258,8 @@ const registerParticipant = async ({
         return {
             success: true,
             registration_id,
-            qr_code: uploadResult.secure_url,
-            qr_code_public_id: uploadResult.public_id,
+            qr_code: finalQrUrl,
+            qr_code_public_id: finalQrPublicId,
             proof_of_payment: proof_of_payment,
             proof_of_payment_public_id: proof_of_payment_public_id
         };
