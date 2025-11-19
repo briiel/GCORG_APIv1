@@ -141,6 +141,8 @@ const registerParticipant = async ({
                  VALUES (?, ?, ?, ?, ?, ?)`,
                 [event_id, student_id, proof_of_payment, proof_of_payment_public_id, null, initialStatus]
             );
+            // Log the raw insert result for debugging when insertId is missing
+            console.log('[registration] insert result:', regResult);
             registration_id = regResult.insertId;
         } catch (insErr) {
             console.error('Error inserting registration row:', insErr && insErr.message ? insErr.message : insErr);
@@ -154,6 +156,7 @@ const registerParticipant = async ({
                     `SELECT id FROM event_registrations WHERE event_id = ? AND student_id = ? ORDER BY id DESC LIMIT 1`,
                     [event_id, student_id]
                 );
+                console.log('[registration] fallback select rows count:', Array.isArray(rows) ? rows.length : 0, 'rows:', rows && rows.slice ? rows.slice(0,5) : rows);
                 if (Array.isArray(rows) && rows.length > 0 && rows[0].id) {
                     registration_id = rows[0].id;
                 }
@@ -163,6 +166,7 @@ const registerParticipant = async ({
         }
 
         if (!registration_id) {
+            console.error('[registration] Could not obtain registration_id. event_id:', event_id, 'student_id:', student_id, 'existingRowsCount:', existingRows && existingRows.length);
             throw new Error('Failed to register for the event.');
         }
 
