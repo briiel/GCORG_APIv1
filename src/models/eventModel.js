@@ -97,10 +97,10 @@ const createEvent = async (eventData) => {
     const startDateStr = normalizeDate(start_date);
     const endDateStr = normalizeDate(end_date);
     const query = `
-        INSERT INTO created_events
-        (title, description, location, start_date, start_time, end_date, end_time, event_poster, is_paid, registration_fee, created_by_org_id, created_by_osws_id, status)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-    `;
+            INSERT INTO created_events
+            (title, description, location, start_date, start_time, end_date, end_time, event_poster, is_paid, registration_fee, created_by_org_id, created_by_osws_id, created_by_student_id, status)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        `;
     try {
         const [result] = await db.query(query, [
             title,
@@ -115,6 +115,8 @@ const createEvent = async (eventData) => {
             normalizeIsPaid(is_paid) ? normalizeFee(registration_fee) : 0,
             created_by_org_id && created_by_org_id !== 'undefined' && created_by_org_id !== '' ? created_by_org_id : null,
             created_by_osws_id && created_by_osws_id !== 'undefined' && created_by_osws_id !== '' ? created_by_osws_id : null,
+            // created_by_student_id may be provided by controller to capture the officer/member who created the event
+            (eventData.created_by_student_id && eventData.created_by_student_id !== 'undefined' && eventData.created_by_student_id !== '') ? eventData.created_by_student_id : null,
             status || 'not yet started'
         ]);
         // If table isn't configured with AUTO_INCREMENT (older schema), result.insertId may be 0.
@@ -135,12 +137,14 @@ const createEvent = async (eventData) => {
 
 const getAllEvents = async () => {
     const query = `
-        SELECT ce.*, org.department, org.org_name, osws.name AS osws_name
-        FROM created_events ce
-        LEFT JOIN student_organizations org ON ce.created_by_org_id = org.id
-        LEFT JOIN osws_admins osws ON ce.created_by_osws_id = osws.id
-        WHERE ce.deleted_at IS NULL
-    `;
+            SELECT ce.*, org.department, org.org_name, osws.name AS osws_name,
+                   CONCAT(s_creator.first_name, ' ', IFNULL(s_creator.last_name, '')) AS created_by_name
+            FROM created_events ce
+            LEFT JOIN student_organizations org ON ce.created_by_org_id = org.id
+            LEFT JOIN osws_admins osws ON ce.created_by_osws_id = osws.id
+            LEFT JOIN students s_creator ON ce.created_by_student_id = s_creator.id
+            WHERE ce.deleted_at IS NULL
+        `;
     try {
         const [rows] = await db.query(query);
         return rows;
@@ -154,11 +158,13 @@ const getEventsByParticipant = async (student_id) => {
     const query = `
         SELECT ce.*, er.qr_code, er.status AS registration_status,
                org.department, org.org_name,
-               osws.name AS osws_name
+               osws.name AS osws_name,
+               CONCAT(s_creator.first_name, ' ', IFNULL(s_creator.last_name, '')) AS created_by_name
         FROM created_events ce
         JOIN event_registrations er ON ce.event_id = er.event_id
         LEFT JOIN student_organizations org ON ce.created_by_org_id = org.id
         LEFT JOIN osws_admins osws ON ce.created_by_osws_id = osws.id
+        LEFT JOIN students s_creator ON ce.created_by_student_id = s_creator.id
         WHERE er.student_id = ? AND ce.deleted_at IS NULL
     `;
     try {
@@ -172,9 +178,11 @@ const getEventsByParticipant = async (student_id) => {
 
 const getEventsByCreator = async (creator_id) => {
     const query = `
-        SELECT ce.*, org.department, org.org_name
+        SELECT ce.*, org.department, org.org_name,
+               CONCAT(s_creator.first_name, ' ', IFNULL(s_creator.last_name, '')) AS created_by_name
         FROM created_events ce
         JOIN student_organizations org ON ce.created_by_org_id = org.id
+        LEFT JOIN students s_creator ON ce.created_by_student_id = s_creator.id
         WHERE ce.created_by_org_id = ? AND ce.deleted_at IS NULL
     `;
     try {

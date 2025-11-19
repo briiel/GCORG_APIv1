@@ -69,6 +69,15 @@ exports.createEvent = async (req, res) => {
         }
         eventData.status = eventData.status || 'not yet started';
 
+        // Record which student/officer created the event (if authenticated user present)
+        try {
+            const user = req.user;
+            if (user) {
+                // Prefer studentId/legacyId/id for the canonical student identifier
+                eventData.created_by_student_id = user.studentId || user.legacyId || user.id || null;
+            }
+        } catch (ignore) {}
+
         // Normalize is_paid from frontend ("paid"/"free" or boolean)
         if (eventData.is_paid !== undefined) {
             const v = eventData.is_paid;
