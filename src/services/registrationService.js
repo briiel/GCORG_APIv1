@@ -2,6 +2,7 @@ const db = require('../config/db');
 const QRCode = require('qrcode');
 const { v2: cloudinary } = require('cloudinary');
 const notificationService = require('./notificationService');
+const crypto = require('crypto');
 
 // Configure Cloudinary (it will automatically use CLOUDINARY_URL from env)
 cloudinary.config({
@@ -135,14 +136,14 @@ const registerParticipant = async ({
 
         // 3. Insert into event_registrations with proof of payment and initial status
         let registration_id = null;
+        // Generate a temporary public id tag so we can reliably locate the inserted row
+        const tempPublicTag = `tmp_${Date.now()}_${crypto.randomBytes(6).toString('hex')}`;
         try {
             const [regResult] = await conn.query(
-                `INSERT INTO event_registrations (event_id, student_id, proof_of_payment, proof_of_payment_public_id, qr_code, status)
-                 VALUES (?, ?, ?, ?, ?, ?)`,
-                [event_id, student_id, proof_of_payment, proof_of_payment_public_id, null, initialStatus]
+                `INSERT INTO event_registrations (event_id, student_id, proof_of_payment, proof_of_payment_public_id, qr_code, qr_code_public_id, status)
+                 VALUES (?, ?, ?, ?, ?, ?, ?)`,
+                [event_id, student_id, proof_of_payment, proof_of_payment_public_id, null, tempPublicTag, initialStatus]
             );
-            // Log the raw insert result for debugging when insertId is missing
-            console.log('[registration] insert result:', regResult);
             registration_id = regResult.insertId;
         } catch (insErr) {
             console.error('Error inserting registration row:', insErr && insErr.message ? insErr.message : insErr);
@@ -152,13 +153,24 @@ const registerParticipant = async ({
         // Fallback for DBs/tables without AUTO_INCREMENT returning insertId
         if (!registration_id) {
             try {
-                const [rows] = await conn.query(
-                    `SELECT id FROM event_registrations WHERE event_id = ? AND student_id = ? ORDER BY id DESC LIMIT 1`,
-                    [event_id, student_id]
+                // First try to locate inserted row by our temporary public tag
+                const [rowsByTag] = await conn.query(
+                    `SELECT id FROM event_registrations WHERE qr_code_public_id = ? ORDER BY id DESC LIMIT 1`,
+                    [tempPublicTag]
                 );
-                console.log('[registration] fallback select rows count:', Array.isArray(rows) ? rows.length : 0, 'rows:', rows && rows.slice ? rows.slice(0,5) : rows);
-                if (Array.isArray(rows) && rows.length > 0 && rows[0].id) {
-                    registration_id = rows[0].id;
+                if (Array.isArray(rowsByTag) && rowsByTag.length > 0 && rowsByTag[0].id) {
+                    registration_id = rowsByTag[0].id;
+                }
+
+                // If still not found, fall back to previous heuristic
+                if (!registration_id) {
+                    const [rows] = await conn.query(
+                        `SELECT id FROM event_registrations WHERE event_id = ? AND student_id = ? ORDER BY id DESC LIMIT 1`,
+                        [event_id, student_id]
+                    );
+                    if (Array.isArray(rows) && rows.length > 0 && rows[0].id) {
+                        registration_id = rows[0].id;
+                    }
                 }
             } catch (selErr) {
                 console.error('Fallback select for registration id failed:', selErr && selErr.message ? selErr.message : selErr);
@@ -166,7 +178,7 @@ const registerParticipant = async ({
         }
 
         if (!registration_id) {
-            console.error('[registration] Could not obtain registration_id. event_id:', event_id, 'student_id:', student_id, 'existingRowsCount:', existingRows && existingRows.length);
+            console.error('Failed to obtain registration_id for event_id:', event_id, 'student_id:', student_id);
             throw new Error('Failed to register for the event.');
         }
 

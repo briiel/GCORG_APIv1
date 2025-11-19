@@ -178,15 +178,8 @@ exports.registerParticipant = [
             if (error.message === 'You have already registered for this event.') {
                 return res.status(409).json({ success: false, message: error.message });
             }
-            // Provide detailed error info when debugging is enabled to help diagnose prod issues
-            if (process.env.SHOW_ERROR_DETAILS === 'true') {
-                console.error('Registration error (detailed):', error);
-                return res.status(error.statusCode || 500).json({
-                    success: false,
-                    message: error.message || 'Internal Server Error',
-                    error: error.stack || String(error)
-                });
-            }
+            // Log the error concisely and return a generic error response
+            console.error('Registration error:', error && error.message ? error.message : error);
             return handleErrorResponse(res, error.message);
         }
     }
