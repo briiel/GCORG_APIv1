@@ -449,10 +449,52 @@ exports.updateEventStatus = async (req, res) => {
 exports.markAttendance = async (req, res) => {
     try {
     let { registration_id, event_id, student_id, mode } = req.body;
+        // Location fields expected from frontend for server-side enforcement
+        const user_lat = req.body.user_lat !== undefined ? parseFloat(req.body.user_lat) : null;
+        const user_lon = req.body.user_lon !== undefined ? parseFloat(req.body.user_lon) : null;
+        const user_accuracy = req.body.user_accuracy !== undefined ? parseFloat(req.body.user_accuracy) : null;
+        const location_consent = req.body.location_consent === true || req.body.location_consent === 'true' || req.body.location_consent === 1 || req.body.location_consent === '1';
+
+        // Server-side geofence configuration for Gordon College (single campus)
+        const GORDON_COLLEGE = { lat: 14.84, lon: 120.282 }; // approximate; update with verified coords if available
+        const GEOFENCE_METERS = process.env.GEOFENCE_METERS ? Number(process.env.GEOFENCE_METERS) : 200; // default 200m
+        const ACCURACY_THRESHOLD_METERS = process.env.ACCURACY_THRESHOLD_METERS ? Number(process.env.ACCURACY_THRESHOLD_METERS) : 100; // reject coarse fixes
         const user = req.user;
 
         if (!student_id || !user) {
             return handleErrorResponse(res, 'Missing required fields', 400);
+        }
+
+        // Enforce location consent and presence of coordinates
+        if (!location_consent) {
+            return handleErrorResponse(res, 'Location consent required to record attendance.', 400);
+        }
+        if (user_lat === null || user_lon === null || Number.isNaN(user_lat) || Number.isNaN(user_lon)) {
+            return handleErrorResponse(res, 'Location coordinates required', 400);
+        }
+        // Enforce accuracy threshold
+        if (user_accuracy !== null && !Number.isNaN(user_accuracy) && user_accuracy > ACCURACY_THRESHOLD_METERS) {
+            return handleErrorResponse(res, `Location accuracy too low (${Math.round(user_accuracy)} m). Use a GPS-capable device.`, 400);
+        }
+
+        // Haversine distance
+        const toRad = v => (v * Math.PI) / 180;
+        const haversineMeters = (aLat, aLon, bLat, bLon) => {
+            const R = 6371000;
+            const dLat = toRad(bLat - aLat);
+            const dLon = toRad(bLon - aLon);
+            const lat1 = toRad(aLat);
+            const lat2 = toRad(bLat);
+            const sinDlat = Math.sin(dLat / 2);
+            const sinDlon = Math.sin(dLon / 2);
+            const aa = sinDlat * sinDlat + Math.cos(lat1) * Math.cos(lat2) * sinDlon * sinDlon;
+            const c = 2 * Math.atan2(Math.sqrt(aa), Math.sqrt(1 - aa));
+            return R * c;
+        };
+
+        const dist = haversineMeters(user_lat, user_lon, GORDON_COLLEGE.lat, GORDON_COLLEGE.lon);
+        if (dist > GEOFENCE_METERS) {
+            return handleErrorResponse(res, `User is outside allowed area (${Math.round(dist)} m).`, 403);
         }
 
         const roles = user.roles || [];
@@ -615,9 +657,9 @@ exports.markAttendance = async (req, res) => {
         // Helper writers
         const doTimeInInsert = async () => {
             await db.query(
-                `INSERT INTO attendance_records (event_id, student_id, attended_at, time_in, scanned_by_org_id, scanned_by_osws_id, scanned_by_student_id)
-                 VALUES (?, ?, NOW(), NOW(), ?, ?, ?)`,
-                [event_id, student_id, scannedByOrgId, scannedByOswsId, scannedByStudentId]
+                `INSERT INTO attendance_records (event_id, student_id, attended_at, time_in, scanned_by_org_id, scanned_by_osws_id, scanned_by_student_id, reported_lat, reported_lon, reported_accuracy, location_consent, reported_at)
+                 VALUES (?, ?, NOW(), NOW(), ?, ?, ?, ?, ?, ?, ?, NOW())`,
+                [event_id, student_id, scannedByOrgId, scannedByOswsId, scannedByStudentId, user_lat, user_lon, user_accuracy, location_consent ? 1 : 0]
             );
         };
         const doTimeInUpdate = async (id) => {
@@ -626,9 +668,10 @@ exports.markAttendance = async (req, res) => {
                  SET time_in = COALESCE(time_in, NOW()), attended_at = COALESCE(attended_at, NOW()),
                      scanned_by_org_id = COALESCE(scanned_by_org_id, ?),
                      scanned_by_osws_id = COALESCE(scanned_by_osws_id, ?),
-                     scanned_by_student_id = COALESCE(scanned_by_student_id, ?)
+                     scanned_by_student_id = COALESCE(scanned_by_student_id, ?),
+                     reported_lat = ?, reported_lon = ?, reported_accuracy = ?, location_consent = ?, reported_at = NOW()
                  WHERE id = ?`,
-                [scannedByOrgId, scannedByOswsId, scannedByStudentId, id]
+                [scannedByOrgId, scannedByOswsId, scannedByStudentId, user_lat, user_lon, user_accuracy, location_consent ? 1 : 0, id]
             );
         };
         const doTimeOutUpdate = async (id) => {
@@ -637,9 +680,10 @@ exports.markAttendance = async (req, res) => {
                  SET time_out = NOW(),
                      scanned_by_org_id = COALESCE(scanned_by_org_id, ?),
                      scanned_by_osws_id = COALESCE(scanned_by_osws_id, ?),
-                     scanned_by_student_id = COALESCE(scanned_by_student_id, ?)
+                     scanned_by_student_id = COALESCE(scanned_by_student_id, ?),
+                     reported_lat = ?, reported_lon = ?, reported_accuracy = ?, location_consent = ?, reported_at = NOW()
                  WHERE id = ?`,
-                [scannedByOrgId, scannedByOswsId, scannedByStudentId, id]
+                [scannedByOrgId, scannedByOswsId, scannedByStudentId, user_lat, user_lon, user_accuracy, location_consent ? 1 : 0, id]
             );
         };
 

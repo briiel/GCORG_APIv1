@@ -4,6 +4,7 @@ const eventController = require('../controllers/eventController');
 const authenticateToken = require('../middleware/authMiddleware'); // Protect routes
 const { checkRole } = require('../middleware/checkRole');
 const { upload, convertToWebpAndUpload } = require('../middleware/uploadMiddleware');
+const rateLimit = require('../middleware/rateLimit');
 
 router.post(
     '/events',
@@ -18,7 +19,7 @@ router.get('/participants/:student_id/events', authenticateToken, eventControlle
 router.get('/students/:student_id/attended', authenticateToken, eventController.getAttendedEventsByStudent); // Get events a student attended (history)
 router.get('/events/creator/:creator_id', authenticateToken, eventController.getEventsByCreator); // Get events by creator/org
 router.patch('/events/:id/status', authenticateToken, eventController.updateEventStatus); // Update event status
-router.post('/events/attendance', authenticateToken, eventController.markAttendance); // Mark attendance for an event
+router.post('/events/attendance', authenticateToken, rateLimit({ windowMs: 60 * 1000, max: 30 }), eventController.markAttendance); // Mark attendance for an event
 router.get('/attendance-records', authenticateToken, eventController.getAllAttendanceRecords); // Get all attendance records
 router.get('/attendance-records/event/:eventId', authenticateToken, eventController.getAttendanceRecordsByEvent); // Get attendance records for a specific event
 router.delete('/events/:id', authenticateToken, eventController.deleteEvent); // Soft-delete an event
