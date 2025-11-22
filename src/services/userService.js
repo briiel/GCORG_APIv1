@@ -23,4 +23,23 @@ const fetchUserById = async(id) => {
     }
 }
 
-module.exports = { fetchAllusers, fetchUserById };
+const fetchOrganizationMembers = async(orgId) => {
+    try {
+        const members = await userModel.getOrganizationMembers(orgId);
+        return members;
+    } catch (error) {
+        console.error('Error fetching organization members:', error);
+        throw error;
+    }
+}
+
+const removeOrganizationMember = async(orgId, memberId) => {
+    try {
+        await userModel.removeOrganizationMember(orgId, memberId);
+    } catch (error) {
+        console.error('Error removing organization member:', error);
+        throw error;
+    }
+}
+
+module.exports = { fetchAllusers, fetchUserById, fetchOrganizationMembers, removeOrganizationMember };

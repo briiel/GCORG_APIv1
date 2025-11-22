@@ -31,6 +31,7 @@ exports.getAttendanceRecordsByEvent = async (req, res) => {
 };
 const eventService = require('../services/eventService');
 const { registerParticipant } = require('../services/registrationService');
+const certificateRequestService = require('../services/certificateRequestService');
 const { handleErrorResponse, handleSuccessResponse } = require('../utils/errorHandler');
 const db = require('../config/db');
 const { generateCertificate, generateCertificatePreview } = require('../utils/certificateGenerator');
@@ -1175,7 +1176,7 @@ exports.approveRegistration = async (req, res) => {
             await notificationService.createNotification({
                 user_id: String(rec.student_id),
                 event_id: rec.event_id,
-                message: `Your registration for "${rec.title}" has been approved.`
+                message: `✅ Great news! Your registration for "${rec.title}" has been approved. You can now access your QR code for check-in.`
             });
         } catch (_) {}
         return handleSuccessResponse(res, { message: 'Registration approved' });
@@ -1225,7 +1226,7 @@ exports.rejectRegistration = async (req, res) => {
             await notificationService.createNotification({
                 user_id: String(rec.student_id),
                 event_id: rec.event_id,
-                message: `Your registration for "${rec.title}" has been rejected.`
+                message: `❌ Your registration for "${rec.title}" was not approved. Please contact the organizer if you have questions.`
             });
         } catch (_) {}
         return handleSuccessResponse(res, { message: 'Registration rejected' });
@@ -1318,7 +1319,7 @@ exports.getEventById = async (req, res) => {
 };
 
 // POST /api/event/events/:id/request-certificate
-// Creates a notification to the event organizer (org or OSWS) from the authenticated student requesting an e‑certificate
+// Creates a certificate request record and sends notification to organization
 exports.requestCertificate = async (req, res) => {
     try {
         const user = req.user;
@@ -1358,11 +1359,17 @@ exports.requestCertificate = async (req, res) => {
             return handleErrorResponse(res, 'Please complete the evaluation form before requesting a certificate.', 400);
         }
         
-    const toOrgId = ev.created_by_org_id ? String(ev.created_by_org_id) : null;
-    const toOswsId = ev.created_by_osws_id ? String(ev.created_by_osws_id) : null;
-    if (!toOrgId && !toOswsId) return handleErrorResponse(res, 'Organizer account not available for this event.', 400);
+        const toOrgId = ev.created_by_org_id ? String(ev.created_by_org_id) : null;
+        const toOswsId = ev.created_by_osws_id ? String(ev.created_by_osws_id) : null;
+        if (!toOrgId && !toOswsId) return handleErrorResponse(res, 'Organizer account not available for this event.', 400);
 
-        // Ensure log table exists (idempotent)
+        // Check if student already has a pending or approved request
+        const hasPendingRequest = await certificateRequestService.hasPendingOrApprovedRequest(eventId, user.id);
+        if (hasPendingRequest) {
+            return handleErrorResponse(res, 'You already have a pending or approved certificate request for this event.', 400);
+        }
+
+        // Ensure log table exists (idempotent) - for rate limiting
         await db.query(`
             CREATE TABLE IF NOT EXISTS certificate_request_logs (
                 id INT NOT NULL AUTO_INCREMENT PRIMARY KEY,
@@ -1413,74 +1420,30 @@ exports.requestCertificate = async (req, res) => {
         const studentName = [st.first_name, st.middle_initial ? `${st.middle_initial}.` : '', st.last_name, st.suffix || '']
             .filter(Boolean).join(' ').replace(/\s+/g, ' ');
 
-    const subject = `E-Certificate Request: ${ev.title}`;
+        // Create certificate request record
+        await certificateRequestService.createCertificateRequest({
+            event_id: eventId,
+            student_id: user.id
+        });
 
-        // Format dates without timezone or time
-        const monthNames = ['January','February','March','April','May','June','July','August','September','October','November','December'];
-        const normalizeDate = (value) => {
-            if (!value) return null;
-            if (value instanceof Date) return isNaN(value.getTime()) ? null : value;
-            if (typeof value === 'string') {
-                const v = value.trim();
-                // YYYY-MM-DD
-                const m = v.match(/^(\d{4})-(\d{1,2})-(\d{1,2})$/);
-                if (m) {
-                    const y = parseInt(m[1], 10);
-                    const mo = parseInt(m[2], 10) - 1;
-                    const d = parseInt(m[3], 10);
-                    const dt = new Date(y, mo, d);
-                    return isNaN(dt.getTime()) ? null : dt;
-                }
-                // Fallback: Date parse
-                const d = new Date(v);
-                return isNaN(d.getTime()) ? null : d;
-            }
-            if (typeof value === 'number') {
-                const d = new Date(value);
-                return isNaN(d.getTime()) ? null : d;
-            }
-            return null;
-        };
-        const formatDateHuman = (value) => {
-            const d = normalizeDate(value);
-            if (!d) return '';
-            return `${monthNames[d.getMonth()]} ${d.getDate()}, ${d.getFullYear()}`;
-        };
-        const startPretty = formatDateHuman(ev.start_date);
-        const endPretty = formatDateHuman(ev.end_date || ev.start_date);
-        const eventDatesLine = startPretty
-            ? `Event ${startPretty === endPretty ? 'Date' : 'Dates'}: ${startPretty}${startPretty !== endPretty ? ` to ${endPretty}` : ''}`
-            : undefined;
-
-        const lines = [
-            `Hello ${ev.org_name || ev.osws_name || 'Organizer'},`,
-            '',
-            `I attended the event "${ev.title}" and would like to request my e-certificate.`,
-            `Student: ${studentName} (ID: ${st.id})`,
-            `Email: ${st.email}`,
-            eventDatesLine,
-            ev.location ? `Location: ${ev.location}` : undefined,
-            '',
-            'Thank you.'
-        ].filter(Boolean);
-        const text = lines.join('\n');
-
-        // Create notification to organizer account; OSWS-admin events already blocked earlier
+        // Create notification to organizer account
         try {
             await notificationService.createNotification({
                 user_id: toOrgId || toOswsId,
                 event_id: ev.event_id,
-                message: `[${subject}]\n${text}`.slice(0, 480) // keep within 500 chars
+                message: `📜 New certificate request from ${studentName} for "${ev.title}"`
             });
         } catch (nerr) {
             console.warn('Notification create failed (requestCertificate):', nerr?.message || nerr);
         }
+        
         // Log successful request
         await db.query(
             'INSERT INTO certificate_request_logs (event_id, student_id) VALUES (?, ?)',
             [eventId, studentIdStr]
         );
-        return handleSuccessResponse(res, { message: 'Certificate request submitted.' });
+        
+        return handleSuccessResponse(res, { message: 'Certificate request submitted successfully.' });
     } catch (error) {
         console.error('requestCertificate error:', error);
         return handleErrorResponse(res, error.message);

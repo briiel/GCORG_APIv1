@@ -11,6 +11,7 @@ const metricsRoutes = require('./routes/metricsRoutes');
 const notificationRoutes = require('./routes/notificationRoutes');
 const evaluationRoutes = require('./routes/evaluationRoutes');
 const roleRequestRoutes = require('./routes/roleRequestRoutes');
+const certificateRequestRoutes = require('./routes/certificateRequestRoutes');
 const path = require('path');
 
 const eventService = require('./services/eventService');
@@ -87,6 +88,7 @@ app.use('/api', metricsRoutes);
 app.use('/api/notifications', notificationRoutes);
 app.use('/api', evaluationRoutes);
 app.use('/api', roleRequestRoutes);
+app.use('/api/certificates', certificateRequestRoutes);
 
 app.use('/uploads', express.static(path.join(__dirname, '../uploads')));
 
@@ -132,8 +134,8 @@ app.use((err, req, res, next) => {
 });
 
 const PORT = process.env.PORT || 5000;
-app.listen(PORT, async () => {
-    
+
+const server = app.listen(PORT, async () => {
     // Ensure DB has latest columns
     try {
         const eventModel = require('./models/eventModel');
@@ -152,50 +154,52 @@ app.listen(PORT, async () => {
     } catch (e) {
         console.warn('Schema ensure failed:', e.message);
     }
+
     // Optional font warm-up: pre-register Google Fonts and resolve via a tiny render
     try {
         process.env.USE_REMOTE_FONTS = process.env.USE_REMOTE_FONTS ?? 'true';
         const { createCanvas } = require('canvas');
         const { generateCertificate } = require('./utils/certificateGenerator');
-        // Trigger font registration
         const canvas = createCanvas(10, 10);
         const ctx = canvas.getContext('2d');
         ctx.font = "10px Lora";
         ctx.fillText('.', 1, 9);
         ctx.font = "10px 'Great Vibes'";
         ctx.fillText('.', 1, 9);
-        // No file output; just ensure fonts are loaded. If needed, catch will log.
     } catch (e) {
         console.warn('Font warm-up skipped or failed:', e.message);
     }
-    
+
     // Background task: auto-update event statuses based on schedule
-    // Only runs in development; production uses external cron job
     if (process.env.NODE_ENV !== 'production') {
         try {
-            
-            
             const runAutoStatus = async () => {
                 try {
                     const res = await eventService.autoUpdateEventStatuses();
                     const total = (res.toOngoing || 0) + (res.toConcluded || 0) + (res.toNotYetStarted || 0);
                     if (total > 0) {
-                        
-                    } else {
-                        
+                        // logged inside service
                     }
                 } catch (err) {
                     console.error('[AutoStatus] Error:', err.message || err);
                 }
             };
 
-            // Run at startup and then every 60 seconds
             runAutoStatus();
             setInterval(runAutoStatus, 60 * 1000);
         } catch (e) {
             console.warn('Auto-status scheduler not started:', e.message);
         }
-    } else {
-        
     }
+
+    console.log(`Server listening on port ${PORT}`);
+});
+
+server.on('error', (err) => {
+    if (err && err.code === 'EADDRINUSE') {
+        console.error(`Port ${PORT} already in use. Please free the port or set PORT env var.`);
+        process.exit(1);
+    }
+    console.error('Server error:', err);
+    process.exit(1);
 });

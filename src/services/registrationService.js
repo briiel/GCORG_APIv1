@@ -116,8 +116,8 @@ const registerParticipant = async ({
                     const eventTitle2 = eventRows?.[0]?.title;
                     if (eventTitle2) {
                         const msg2 = initialStatus === 'approved'
-                            ? `You have successfully re-registered for "${eventTitle2}". Your QR code is ready.`
-                            : `Your registration for "${eventTitle2}" has been resubmitted and is pending organizer approval.`;
+                            ? `✅ Registration confirmed! You're all set for "${eventTitle2}". Your QR code is ready for check-in.`
+                            : `⏳ Registration submitted! Your request for "${eventTitle2}" is pending approval. You'll be notified once it's processed.`;
                         await notificationService.createNotification({ user_id: String(student_id), event_id, message: msg2 });
                     }
                 } catch (_) {}
@@ -262,8 +262,8 @@ const registerParticipant = async ({
         if (studentIdStr && eventTitle) {
             try {
                 const msg = initialStatus === 'approved'
-                    ? `You have successfully registered for "${eventTitle}". Your QR code is ready.`
-                    : `Your registration for "${eventTitle}" has been submitted and is pending organizer approval.`;
+                    ? `✅ Registration successful! You're registered for "${eventTitle}". Your QR code is ready for check-in.`
+                    : `⏳ Registration received! Your request for "${eventTitle}" is being reviewed. We'll notify you once approved.`;
                 await notificationService.createNotification({ user_id: studentIdStr, event_id, message: msg });
             } catch (nerr) {
                 console.warn('Notification create failed (registration):', nerr?.message || nerr);

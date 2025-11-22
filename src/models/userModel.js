@@ -16,4 +16,39 @@ const getUserById = async (id) => {
     return null;
 };
 
-module.exports = { getAllUsers, getUserById };
+// Fetch organization members
+const getOrganizationMembers = async (orgId) => {
+    const [members] = await db.query(
+        `SELECT 
+            om.member_id,
+            om.student_id,
+            om.position,
+            om.joined_at,
+            om.is_active,
+            s.first_name,
+            s.last_name,
+            s.middle_initial,
+            s.suffix,
+            s.email,
+            s.department,
+            s.program
+        FROM organizationmembers om
+        JOIN students s ON om.student_id = s.id
+        WHERE om.org_id = ? AND om.is_active = TRUE
+        ORDER BY om.joined_at DESC`,
+        [orgId]
+    );
+    return members;
+};
+
+// Remove organization member (soft delete)
+const removeOrganizationMember = async (orgId, memberId) => {
+    await db.query(
+        `UPDATE organizationmembers 
+         SET is_active = FALSE 
+         WHERE member_id = ? AND org_id = ?`,
+        [memberId, orgId]
+    );
+};
+
+module.exports = { getAllUsers, getUserById, getOrganizationMembers, removeOrganizationMember };

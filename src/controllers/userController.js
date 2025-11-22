@@ -21,4 +21,25 @@ exports.getUserById = async (req, res) => {
         } catch (error) {
         return handleErrorResponse(res, error.message);
     }
+};
+
+exports.getOrganizationMembers = async (req, res) => {
+    try {
+        const orgId = parseInt(req.params.orgId);
+        const members = await userService.fetchOrganizationMembers(orgId);
+        return handleSuccessResponse(res, members);
+    } catch (error) {
+        return handleErrorResponse(res, error.message);
+    }
+};
+
+exports.removeOrganizationMember = async (req, res) => {
+    try {
+        const orgId = parseInt(req.params.orgId);
+        const memberId = parseInt(req.params.memberId);
+        await userService.removeOrganizationMember(orgId, memberId);
+        return handleSuccessResponse(res, { message: 'Member removed successfully' });
+    } catch (error) {
+        return handleErrorResponse(res, error.message);
+    }
 }
