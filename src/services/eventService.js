@@ -190,10 +190,13 @@ module.exports = {
         if (!ev.deleted_at) return { deleted: false, code: 400, message: 'Event is not in trash' };
         // Allow org officers (orgofficer) and OSWS admins (oswsadmin) to manage their own events
         const userRoles = Array.isArray(user.roles) ? user.roles : [];
-        if (userRoles.includes('orgofficer') && ev.created_by_org_id !== user.id) {
+        const orgId = user.organization ? user.organization.org_id : null;
+        const adminId = user.legacyId || null;
+        
+        if (userRoles.includes('orgofficer') && ev.created_by_org_id !== orgId) {
             return { deleted: false, code: 403, message: 'Forbidden' };
         }
-        if (userRoles.includes('oswsadmin') && ev.created_by_osws_id !== user.id) {
+        if (userRoles.includes('oswsadmin') && ev.created_by_osws_id !== adminId) {
             return { deleted: false, code: 403, message: 'Forbidden' };
         }
         const ok = await eventModel.hardDeleteEvent(eventId);

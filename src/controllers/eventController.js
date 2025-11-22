@@ -1347,6 +1347,17 @@ exports.requestCertificate = async (req, res) => {
         if (ev.created_by_osws_id) {
             return handleErrorResponse(res, 'Certificates are auto-generated for OSWS events.', 400);
         }
+        
+        // NEW: Require evaluation before certificate request for organization events
+        const [evalCheck] = await db.query(
+            `SELECT evaluation_submitted FROM attendance_records 
+             WHERE event_id = ? AND student_id = ? LIMIT 1`,
+            [eventId, user.id]
+        );
+        if (!evalCheck.length || evalCheck[0].evaluation_submitted !== 1) {
+            return handleErrorResponse(res, 'Please complete the evaluation form before requesting a certificate.', 400);
+        }
+        
     const toOrgId = ev.created_by_org_id ? String(ev.created_by_org_id) : null;
     const toOswsId = ev.created_by_osws_id ? String(ev.created_by_osws_id) : null;
     if (!toOrgId && !toOswsId) return handleErrorResponse(res, 'Organizer account not available for this event.', 400);

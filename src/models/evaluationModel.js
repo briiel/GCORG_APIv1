@@ -62,20 +62,29 @@ async function hasSubmittedEvaluation(event_id, student_id) {
 
 // Get all evaluations for an event (for organizers/admins)
 async function getEvaluationsByEvent(event_id) {
+  // Use LEFT JOIN so evaluations are returned even if the student record is missing
+  // (avoids losing rows when student data is absent). Fallback student fields
+  // to empty strings to keep the UI rendering predictable.
   const [rows] = await db.query(
     `SELECT e.id, e.event_id, e.student_id, e.responses, e.submitted_at,
-            s.first_name, s.last_name, s.middle_initial, s.suffix, s.department, s.program
+            IFNULL(s.first_name, '') AS first_name,
+            IFNULL(s.last_name, '') AS last_name,
+            IFNULL(s.middle_initial, '') AS middle_initial,
+            IFNULL(s.suffix, '') AS suffix,
+            IFNULL(s.department, '') AS department,
+            IFNULL(s.program, '') AS program
      FROM evaluations e
-     JOIN students s ON e.student_id = s.id
+     LEFT JOIN students s ON e.student_id = s.id
      WHERE e.event_id = ?
      ORDER BY e.submitted_at DESC`,
     [event_id]
   );
-  
+
   return rows.map(row => ({
     ...row,
-    responses: typeof row.responses === 'string' 
-      ? JSON.parse(row.responses) 
+    // keep responses as object when possible
+    responses: typeof row.responses === 'string'
+      ? JSON.parse(row.responses)
       : row.responses
   }));
 }
@@ -94,10 +103,27 @@ async function getEvaluationStats(event_id) {
   return stats[0];
 }
 
+// Return raw evaluation rows (no joins) — helpful for debugging or admin views
+async function getRawEvaluationsByEvent(event_id) {
+  const [rows] = await db.query(
+    `SELECT id, event_id, student_id, responses, submitted_at
+     FROM evaluations
+     WHERE event_id = ?
+     ORDER BY submitted_at DESC`,
+    [event_id]
+  );
+
+  return rows.map(row => ({
+    ...row,
+    responses: typeof row.responses === 'string' ? JSON.parse(row.responses) : row.responses
+  }));
+}
+
 module.exports = {
   createEvaluation,
   getEvaluationByStudentAndEvent,
   hasSubmittedEvaluation,
   getEvaluationsByEvent,
   getEvaluationStats
+  , getRawEvaluationsByEvent
 };

@@ -20,4 +20,7 @@ router.get('/events/:event_id/evaluations/me', authenticateToken, evaluationCont
 // Get all evaluations for an event (organizers/admins only)
 router.get('/events/:event_id/evaluations', authenticateToken, evaluationController.getEventEvaluations);
 
+// Debug route: raw evaluation rows (admin/orgofficer only)
+router.get('/events/:event_id/evaluations/raw', authenticateToken, evaluationController.getRawEvaluations);
+
 module.exports = router;

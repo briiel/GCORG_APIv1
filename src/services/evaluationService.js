@@ -25,7 +25,7 @@ async function submitEvaluation({ event_id, student_id, responses }) {
      LIMIT 1`,
     [event_id, student_id]
   );
-  
+
   if (attendance.length === 0) {
     throw new Error('You must attend the event before submitting an evaluation.');
   }
@@ -36,9 +36,10 @@ async function submitEvaluation({ event_id, student_id, responses }) {
     throw new Error('You have already submitted an evaluation for this event.');
   }
   
-  // Validate event exists and get event details
+  // Validate event exists and get event details (including creator info)
   const [event] = await db.query(
-    `SELECT event_id, title as event_title, location as event_location, start_date, end_date 
+    `SELECT event_id, title as event_title, location as event_location, start_date, end_date,
+            created_by_osws_id, created_by_org_id
      FROM created_events 
      WHERE event_id = ? AND deleted_at IS NULL 
      LIMIT 1`,
@@ -50,6 +51,7 @@ async function submitEvaluation({ event_id, student_id, responses }) {
   }
   
   const eventData = event[0];
+  const isOswsEvent = !!eventData.created_by_osws_id;
   
   // Get student name
   const [student] = await db.query(
@@ -73,13 +75,16 @@ async function submitEvaluation({ event_id, student_id, responses }) {
     responses
   });
   
-  // Generate certificate immediately after evaluation submission
+  // Generate certificate immediately ONLY for OSWS events
+  // Organization events require manual certificate generation/request after evaluation
   let certificateUrl = null;
-  try {
-    // Create temporary file
-    const tempDir = os.tmpdir();
-    const certFilename = `certificate_${event_id}_${student_id}.png`;
-    const tempCertPath = path.join(tempDir, certFilename);
+  
+  if (isOswsEvent) {
+    try {
+      // Create temporary file
+      const tempDir = os.tmpdir();
+      const certFilename = `certificate_${event_id}_${student_id}.png`;
+      const tempCertPath = path.join(tempDir, certFilename);
     
     // Generate certificate
     await generateCertificate({
@@ -113,26 +118,33 @@ async function submitEvaluation({ event_id, student_id, responses }) {
       [student_id, event_id, uploadResult.secure_url, uploadResult.public_id]
     );
     
-    // Clean up temporary file
-    try {
-      if (fs.existsSync(tempCertPath)) {
-        fs.unlinkSync(tempCertPath);
+      // Clean up temporary file
+      try {
+        if (fs.existsSync(tempCertPath)) {
+          fs.unlinkSync(tempCertPath);
+        }
+      } catch (cleanupError) {
+        console.warn(`Failed to cleanup temp file: ${tempCertPath}`, cleanupError);
       }
-    } catch (cleanupError) {
-      console.warn(`Failed to cleanup temp file: ${tempCertPath}`, cleanupError);
+    } catch (certError) {
+      console.error('Failed to generate certificate:', certError);
+      console.error('Certificate error stack:', certError.stack);
+      // Throw error so the user knows certificate generation failed
+      throw new Error(`Evaluation submitted but certificate generation failed: ${certError.message}`);
     }
-  } catch (certError) {
-    console.error('Failed to generate certificate:', certError);
-    console.error('Certificate error stack:', certError.stack);
-    // Throw error so the user knows certificate generation failed
-    throw new Error(`Evaluation submitted but certificate generation failed: ${certError.message}`);
   }
+  
+  // Return appropriate message based on event type
+  const message = isOswsEvent 
+    ? 'Evaluation submitted successfully. Your certificate is ready for download!'
+    : 'Evaluation submitted successfully. You can now request your certificate from the organizer.';
   
   return {
     success: true,
     evaluation_id: evaluationId,
     certificate_url: certificateUrl,
-    message: 'Evaluation submitted successfully. Your certificate is ready for download!'
+    message: message,
+    is_osws_event: isOswsEvent
   };
 }
 
@@ -188,18 +200,25 @@ async function getEventEvaluations(event_id, user) {
   
   // Check authorization: support normalized roles array (orgofficer, oswsadmin)
   const userRoles = Array.isArray(user.roles) ? user.roles : [];
+  let isAuthorized = false;
+
   if (userRoles.includes('orgofficer')) {
     const orgId = user.organization && user.organization.org_id ? user.organization.org_id : null;
-    if (orgId === null || eventData.created_by_org_id !== orgId) {
-      throw new Error('You are not authorized to view evaluations for this event.');
+    // Compare as strings to avoid type-mismatch (token may store strings)
+    if (orgId !== null && String(eventData.created_by_org_id) === String(orgId)) {
+      isAuthorized = true;
     }
   }
 
   if (userRoles.includes('oswsadmin')) {
     const adminId = user.legacyId || user.id || null;
-    if (adminId === null || eventData.created_by_osws_id !== adminId) {
-      throw new Error('You are not authorized to view evaluations for this event.');
+    if (adminId !== null && String(eventData.created_by_osws_id) === String(adminId)) {
+      isAuthorized = true;
     }
+  }
+
+  if (!isAuthorized) {
+    throw new Error('You are not authorized to view evaluations for this event.');
   }
   
   const evaluations = await evaluationModel.getEvaluationsByEvent(event_id);
@@ -216,4 +235,9 @@ module.exports = {
   getEvaluationStatus,
   getStudentEvaluation,
   getEventEvaluations
+};
+
+// Expose raw evaluations helper for debug endpoint
+module.exports.getRawEvaluations = async (event_id) => {
+  return await evaluationModel.getRawEvaluationsByEvent(event_id);
 };
