@@ -494,6 +494,8 @@ exports.markAttendance = async (req, res) => {
         };
 
         const dist = haversineMeters(user_lat, user_lon, GORDON_COLLEGE.lat, GORDON_COLLEGE.lon);
+
+        // Always enforce geofence distance checks (bypass removed).
         if (dist > GEOFENCE_METERS) {
             return handleErrorResponse(res, `User is outside allowed area (${Math.round(dist)} m).`, 403);
         }
