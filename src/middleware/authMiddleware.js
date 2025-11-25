@@ -11,11 +11,11 @@ const authenticateToken = (req, res, next) => {
 
             jwt.verify(token, process.env.JWT_SECRET, (err, decoded) => {
                 if (err) {
-                    if (err.name === 'TokenExpiredError') {
-                        return res.status(401).json({ message: 'Token expired' });
+                        if (err.name === 'TokenExpiredError') {
+                            return res.status(401).json({ success: false, message: 'Token expired' });
+                        }
+                        return res.status(401).json({ success: false, message: 'Invalid token' });
                     }
-                    return res.status(401).json({ message: 'Invalid token' });
-                }
                 
                 // Attach the decoded user info to the request object
                 req.user = decoded;

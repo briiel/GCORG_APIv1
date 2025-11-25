@@ -376,7 +376,7 @@ exports.updateEventStatus = async (req, res) => {
                         ) AS student_name,
                         s.email,
                         ce.title AS event_title,
-                       ce.location AS event_location,
+                       COALESCE(ce.room, ce.location) AS event_location,
                        ce.start_date,
                        ce.end_date
                  FROM attendance_records ar
@@ -456,12 +456,8 @@ exports.markAttendance = async (req, res) => {
         const user_accuracy = req.body.user_accuracy !== undefined ? parseFloat(req.body.user_accuracy) : null;
         const location_consent = req.body.location_consent === true || req.body.location_consent === 'true' || req.body.location_consent === 1 || req.body.location_consent === '1';
 
-        // Server-side geofence configuration for Gordon College (single campus)
-        // Updated center from Nominatim: lat 14.832926, lon 120.2821543
-        const GORDON_COLLEGE = { lat: 14.832926, lon: 120.2821543 }; // precise campus center
-        // Default geofence: increased to 1000m to cover the campus perimeter.
-        // Can still be overridden by setting the environment variable `GEOFENCE_METERS`.
-        const GEOFENCE_METERS = process.env.GEOFENCE_METERS ? Number(process.env.GEOFENCE_METERS) : 1000; // default 1000m
+        // Default geofence: set to 200m (can be overridden by env `GEOFENCE_METERS`).
+        const GEOFENCE_METERS = process.env.GEOFENCE_METERS ? Number(process.env.GEOFENCE_METERS) : 200; // default 200m
         const ACCURACY_THRESHOLD_METERS = process.env.ACCURACY_THRESHOLD_METERS ? Number(process.env.ACCURACY_THRESHOLD_METERS) : 100; // reject coarse fixes
         const user = req.user;
 
@@ -495,13 +491,7 @@ exports.markAttendance = async (req, res) => {
             const c = 2 * Math.atan2(Math.sqrt(aa), Math.sqrt(1 - aa));
             return R * c;
         };
-
-        const dist = haversineMeters(user_lat, user_lon, GORDON_COLLEGE.lat, GORDON_COLLEGE.lon);
-
-        // Always enforce geofence distance checks (bypass removed).
-        if (dist > GEOFENCE_METERS) {
-            return handleErrorResponse(res, `User is outside allowed area (${Math.round(dist)} m).`, 403);
-        }
+        // Note: geofence check deferred until event_id is resolved and event coordinates fetched
 
         const roles = user.roles || [];
         const isOrgOfficer = roles.includes('orgofficer');
@@ -595,21 +585,22 @@ exports.markAttendance = async (req, res) => {
         }
 
         // Scope check: ensure the specified/derived event belongs to the scanner, and is currently ongoing
-        const [evRows] = await db.query(
-            `SELECT 
-                created_by_org_id, 
-                created_by_osws_id,
-                status,
-                deleted_at,
-                (
-                  (
-                    (start_date < CURDATE() OR (start_date = CURDATE() AND start_time <= CURTIME()))
-                    AND (end_date > CURDATE() OR (end_date = CURDATE() AND end_time >= CURTIME()))
-                  )
-                ) AS is_ongoing
-             FROM created_events WHERE event_id = ? LIMIT 1`,
-            [event_id]
-        );
+                const [evRows] = await db.query(
+                        `SELECT 
+                                created_by_org_id, 
+                                created_by_osws_id,
+                                status,
+                                deleted_at,
+                                event_latitude, event_longitude,
+                                (
+                                    (
+                                        (start_date < CURDATE() OR (start_date = CURDATE() AND start_time <= CURTIME()))
+                                        AND (end_date > CURDATE() OR (end_date = CURDATE() AND end_time >= CURTIME()))
+                                    )
+                                ) AS is_ongoing
+                         FROM created_events WHERE event_id = ? LIMIT 1`,
+                        [event_id]
+                );
         if (!evRows.length) {
             return handleErrorResponse(res, 'Event not found', 404);
         }
@@ -627,6 +618,40 @@ exports.markAttendance = async (req, res) => {
         const statusStr = (ev.status || '').toString().toLowerCase();
         if (statusStr !== 'ongoing') {
             return handleErrorResponse(res, 'Attendance can only be recorded while the event is ongoing.', 400);
+        }
+
+        // Determine target coordinates for geofence enforcement
+        let targetLat = null;
+        let targetLon = null;
+        try {
+            if (ev.event_latitude !== undefined && ev.event_latitude !== null && ev.event_longitude !== undefined && ev.event_longitude !== null) {
+                targetLat = Number(ev.event_latitude);
+                targetLon = Number(ev.event_longitude);
+            }
+        } catch (e) {
+            targetLat = null; targetLon = null;
+        }
+
+        // Optional environment-configured fallback center (leave unset to disallow fallback)
+        const envLat = process.env.DEFAULT_GEOCENTER_LAT !== undefined ? Number(process.env.DEFAULT_GEOCENTER_LAT) : null;
+        const envLon = process.env.DEFAULT_GEOCENTER_LON !== undefined ? Number(process.env.DEFAULT_GEOCENTER_LON) : null;
+
+        if ((targetLat === null || targetLon === null) && (envLat !== null && envLon !== null && !Number.isNaN(envLat) && !Number.isNaN(envLon))) {
+            targetLat = envLat;
+            targetLon = envLon;
+            console.info('[geofence] using env fallback geocenter');
+        }
+
+        if (targetLat === null || targetLon === null) {
+            // No coordinates to validate against. Fail explicitly so callers know to provide event coords.
+            return handleErrorResponse(res, 'Event location coordinates not available for geofence validation. Please provide event_latitude/event_longitude.', 400);
+        }
+
+        const dist = haversineMeters(user_lat, user_lon, targetLat, targetLon);
+        // Debug log to help confirm which coordinates are used for geofence
+        try { console.info('[geofence] user:', { user_lat, user_lon, user_accuracy }, 'target:', { targetLat, targetLon }, 'dist_m:', Math.round(dist), 'radius_m:', GEOFENCE_METERS); } catch (e) {}
+        if (dist > GEOFENCE_METERS) {
+            return handleErrorResponse(res, `User is outside allowed area (${Math.round(dist)} m).`, 403);
         }
 
     // Verify registration exists and belongs to provided values
@@ -1331,7 +1356,7 @@ exports.requestCertificate = async (req, res) => {
 
         // Fetch event and organizer contact
         const [rows] = await db.query(
-            `SELECT ce.event_id, ce.title, ce.location, ce.start_date, ce.end_date,
+            `SELECT ce.event_id, ce.title, COALESCE(ce.room, ce.location) AS location, ce.start_date, ce.end_date,
                     ce.created_by_org_id, ce.created_by_osws_id,
                     org.org_name, org.email AS org_email,
                     osws.name AS osws_name, osws.email AS osws_email

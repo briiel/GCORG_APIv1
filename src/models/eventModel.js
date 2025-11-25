@@ -42,10 +42,12 @@ const getAttendanceRecordsByEvent = async (eventId) => {
 const createEvent = async (eventData) => {
     const {
         title, description, location,
+        room,
         start_date, start_time, end_date, end_time,
         event_poster, created_by_org_id, created_by_osws_id, status,
         is_paid,
-        registration_fee
+        registration_fee,
+        event_latitude, event_longitude
     } = eventData;
     const normalizeIsPaid = (v) => {
         if (v === undefined || v === null || v === '') return 0;
@@ -98,14 +100,18 @@ const createEvent = async (eventData) => {
     const endDateStr = normalizeDate(end_date);
     const query = `
             INSERT INTO created_events
-            (title, description, location, start_date, start_time, end_date, end_time, event_poster, is_paid, registration_fee, created_by_org_id, created_by_osws_id, created_by_student_id, status)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            (title, description, location, room, event_latitude, event_longitude, start_date, start_time, end_date, end_time, event_poster, is_paid, registration_fee, created_by_org_id, created_by_osws_id, created_by_student_id, status)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         `;
     try {
         const [result] = await db.query(query, [
             title,
             description,
             location,
+            room || null,
+            // latitude/longitude nullable
+            (event_latitude !== undefined && event_latitude !== null && event_latitude !== '') ? Number(event_latitude) : null,
+            (event_longitude !== undefined && event_longitude !== null && event_longitude !== '') ? Number(event_longitude) : null,
             startDateStr,
             start_time,
             endDateStr,
@@ -166,6 +172,7 @@ const getEventsByParticipant = async (student_id) => {
         LEFT JOIN osws_admins osws ON ce.created_by_osws_id = osws.id
         LEFT JOIN students s_creator ON ce.created_by_student_id = s_creator.id
         WHERE er.student_id = ? AND ce.deleted_at IS NULL
+        ORDER BY er.id DESC
     `;
     try {
         const [rows] = await db.query(query, [student_id]);
@@ -329,7 +336,7 @@ const getAttendanceRecordsByStudent = async (studentId) => {
             ce.end_date,
             ce.start_time,
             ce.end_time,
-            ce.location,
+            COALESCE(ce.room, ce.location) AS location,
             ce.status,
             ce.event_poster,
             ce.created_by_org_id,
@@ -435,7 +442,9 @@ const updateEvent = async (eventId, eventData) => {
         event_poster, // Optional: only update if provided
     status,
     is_paid,
-    registration_fee
+    registration_fee,
+    event_latitude,
+    event_longitude
     } = eventData;
 
     // Ensure dates are yyyy-MM-dd strings only when provided
@@ -486,6 +495,7 @@ const updateEvent = async (eventId, eventData) => {
             title = COALESCE(?, title),
             description = COALESCE(?, description),
             location = COALESCE(?, location),
+            room = COALESCE(?, room),
             start_date = COALESCE(?, start_date),
             start_time = COALESCE(?, start_time),
             end_date = COALESCE(?, end_date),
@@ -497,6 +507,7 @@ const updateEvent = async (eventId, eventData) => {
         title ?? null,
         description ?? null,
         location ?? null,
+        room ?? null,
         startDateVal,
         start_time ?? null,
         endDateVal,
@@ -536,6 +547,14 @@ const updateEvent = async (eventId, eventData) => {
         };
         query += `, registration_fee = COALESCE(?, registration_fee)`;
         params.push(normalizeFee(registration_fee));
+    }
+
+    // Optional update for event coordinates
+    if (event_latitude !== undefined || event_longitude !== undefined) {
+        // Use COALESCE so null can clear existing values
+        query += `, event_latitude = COALESCE(?, event_latitude), event_longitude = COALESCE(?, event_longitude)`;
+        params.push(event_latitude !== undefined && event_latitude !== '' ? Number(event_latitude) : null);
+        params.push(event_longitude !== undefined && event_longitude !== '' ? Number(event_longitude) : null);
     }
 
     query += ` WHERE event_id = ?`;

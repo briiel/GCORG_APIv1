@@ -23,6 +23,23 @@ const poolConfig = {
 
 const pool = mysql.createPool(poolConfig);
 
+// Ensure new connections use an explicit session timezone when provided.
+// This ensures that server-side functions like NOW() return values in the
+// expected timezone (avoids relying on the DB server global timezone).
+// Set `DB_TIME_ZONE` in environment (e.g. '+08:00') to apply.
+const dbTimeZone = process.env.DB_TIME_ZONE || process.env.DB_TIMEZONE || null;
+if (dbTimeZone) {
+    pool.on('connection', (conn) => {
+        try {
+            // Use mysql.escape to safely quote the value (preserves sign and format)
+            conn.query(`SET time_zone = ${mysql.escape(dbTimeZone)}`, (err) => {
+                if (err) console.warn('Failed to set session time_zone:', err && err.message ? err.message : err);
+            });
+        } catch (e) {
+            console.warn('Failed to apply session time_zone on new connection:', e && e.message ? e.message : e);
+        }
+    });
+}
 // Handle connection errors
 pool.on('error', (err) => {
     console.error('Database pool error:', err.code, err.message);

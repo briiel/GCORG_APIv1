@@ -115,7 +115,7 @@ exports.approveCertificateRequest = async (req, res) => {
 			eventTitle: event.title,
 			eventStartDate: event.start_date,
 			eventEndDate: event.end_date,
-			eventLocation: event.location,
+			eventLocation: event.room || event.location,
 			certificatePath: tempCertPath
 		});
 		
