@@ -19,7 +19,7 @@
  */
 const checkRole = (allowedRoles) => {
   // Return middleware function
-  return (req, res, next) => {
+  return async (req, res, next) => {
     try {
       // Ensure user is authenticated (checkAuth should run first)
       if (!req.user) {
@@ -36,9 +36,50 @@ const checkRole = (allowedRoles) => {
       const allowedLower = Array.isArray(allowedRoles) ? allowedRoles.map(r => String(r).toLowerCase()) : [];
 
       // Check if user has at least one of the allowed roles or matches the userType
-      const hasRequiredRole = userRoles.some(role => allowedLower.includes(role)) || (req.user.userType && allowedLower.includes(String(req.user.userType).toLowerCase()));
+      const hasRequiredRoleToken = userRoles.some(role => allowedLower.includes(role)) || (req.user.userType && allowedLower.includes(String(req.user.userType).toLowerCase()));
 
-      if (!hasRequiredRole) {
+      // If OrgOfficer access is required, verify current membership in DB to avoid stale JWTs granting access after removal.
+      const needsOrgOfficerCheck = allowedLower.includes('orgofficer');
+
+      if (needsOrgOfficerCheck) {
+        // Lazy-require DB to avoid circular dependency issues
+        const db = require('../config/db');
+
+        const studentId = req.user.studentId;
+        if (!studentId) {
+          return res.status(403).json({
+            success: false,
+            message: `Access denied. Required role(s): ${allowedRoles.join(', ')}`,
+            userRoles: req.user.roles
+          });
+        }
+
+        try {
+          // Check if student currently has any active organization membership
+          const [rows] = await db.query(
+            `SELECT 1 FROM organizationmembers WHERE student_id = ? AND is_active = TRUE LIMIT 1`,
+            [studentId]
+          );
+
+          const hasActiveMembership = Array.isArray(rows) ? rows.length > 0 : false;
+
+          if (!hasActiveMembership) {
+            return res.status(403).json({
+              success: false,
+              message: `Access denied. Required role(s): ${allowedRoles.join(', ')}`,
+              userRoles: req.user.roles
+            });
+          }
+
+          // Membership present; allow access
+          return next();
+        } catch (dbErr) {
+          console.error('Error verifying OrgOfficer membership:', dbErr);
+          return res.status(500).json({ success: false, message: 'Authorization check failed.' });
+        }
+      }
+
+      if (!hasRequiredRoleToken) {
         return res.status(403).json({
           success: false,
           message: `Access denied. Required role(s): ${allowedRoles.join(', ')}`,
@@ -46,7 +87,7 @@ const checkRole = (allowedRoles) => {
         });
       }
 
-      // User has required role, proceed
+      // User has required role (by token), proceed
       next();
 
     } catch (error) {

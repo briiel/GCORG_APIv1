@@ -672,15 +672,20 @@ module.exports = {
             `);
             
             
-            // Detect if we need timezone conversion
-            // Production (UTC): subtract 8 hours from stored PHT times
-            // Development (PHT): use times as-is
-            const isProduction = process.env.NODE_ENV === 'production';
-            const timeOffset = isProduction ? " - INTERVAL 8 HOUR" : "";
-            
-            const startTimeExpr = `TIMESTAMP(start_date, start_time)${timeOffset}`;
-            const endTimeExpr = `TIMESTAMP(end_date, end_time)${timeOffset}`;
-            const nowExpr = "NOW()";
+            // Timezone handling:
+            // - Stored event date/time values are assumed to be in the organization's local timezone
+            //   (default is Philippines Time, +08:00). The DB server's NOW() may be in UTC or
+            //   another timezone in production which caused incorrect comparisons.
+            // - Use CONVERT_TZ to convert the stored timestamp from the event timezone to UTC
+            //   and compare against `UTC_TIMESTAMP()` which is timezone-independent.
+            // - Allow overriding the event timezone offset via `EVENT_TZ_OFFSET` env var,
+            //   e.g. '+08:00' or '-05:00'. Named timezones require MySQL tz tables to be loaded
+            //   and are therefore not used by default.
+            const eventTzOffset = process.env.EVENT_TZ_OFFSET || '+08:00';
+
+            const startTimeExpr = `CONVERT_TZ(TIMESTAMP(start_date, start_time), '${eventTzOffset}', '+00:00')`;
+            const endTimeExpr = `CONVERT_TZ(TIMESTAMP(end_date, end_time), '${eventTzOffset}', '+00:00')`;
+            const nowExpr = 'UTC_TIMESTAMP()';
             
             
             
@@ -708,32 +713,32 @@ module.exports = {
             }
             
             // 1) Set to 'ongoing' when now between start and end, not cancelled/trashed
-            const [ongoingRes] = await db.query(
-                `UPDATE created_events
-                 SET status = 'ongoing'
-                 WHERE deleted_at IS NULL
-                   AND ${startTimeExpr} <= ${nowExpr}
-                   AND ${endTimeExpr} >= ${nowExpr}
-                   AND LOWER(COALESCE(status, '')) NOT IN ('cancelled','ongoing')`
-            );
+                        const [ongoingRes] = await db.query(
+                                `UPDATE created_events
+                                 SET status = 'ongoing'
+                                 WHERE deleted_at IS NULL
+                                     AND ${startTimeExpr} <= ${nowExpr}
+                                     AND ${endTimeExpr} >= ${nowExpr}
+                                     AND LOWER(COALESCE(status, '')) NOT IN ('cancelled','ongoing')`
+                        );
             
             // 2) Set to 'concluded' when past end, not cancelled/trashed/already concluded
-            const [concludedRes] = await db.query(
-                `UPDATE created_events
-                 SET status = 'concluded'
-                 WHERE deleted_at IS NULL
-                   AND ${endTimeExpr} < ${nowExpr}
-                   AND LOWER(COALESCE(status, '')) NOT IN ('cancelled','concluded')`
-            );
+                        const [concludedRes] = await db.query(
+                                `UPDATE created_events
+                                 SET status = 'concluded'
+                                 WHERE deleted_at IS NULL
+                                     AND ${endTimeExpr} < ${nowExpr}
+                                     AND LOWER(COALESCE(status, '')) NOT IN ('cancelled','concluded')`
+                        );
             
             // 3) Normalize future events to 'not yet started' (unless cancelled)
-            const [notYetRes] = await db.query(
-                `UPDATE created_events
-                 SET status = 'not yet started'
-                 WHERE deleted_at IS NULL
-                   AND ${startTimeExpr} > ${nowExpr}
-                   AND LOWER(COALESCE(status, '')) NOT IN ('cancelled','not yet started')`
-            );
+                        const [notYetRes] = await db.query(
+                                `UPDATE created_events
+                                 SET status = 'not yet started'
+                                 WHERE deleted_at IS NULL
+                                     AND ${startTimeExpr} > ${nowExpr}
+                                     AND LOWER(COALESCE(status, '')) NOT IN ('cancelled','not yet started')`
+                        );
             
             await db.query('COMMIT');
             
@@ -825,12 +830,12 @@ module.exports = {
     },
     // Stats: upcoming/ongoing/cancelled exclude trashed, concluded includes trashed
     getOrgDashboardStats: async (orgId) => {
-        const nowQuery = 'NOW()';
+        const nowQuery = 'UTC_TIMESTAMP()';
         // Upcoming: start after now, not trashed
                 const [up] = await db.query(
                         `SELECT COUNT(*) AS cnt FROM created_events
                          WHERE created_by_org_id = ? AND deleted_at IS NULL
-                             AND TIMESTAMP(start_date, start_time) > ${nowQuery}
+                    AND CONVERT_TZ(TIMESTAMP(start_date, start_time), '${process.env.EVENT_TZ_OFFSET || '+08:00'}', '+00:00') > ${nowQuery}
                              AND LOWER(COALESCE(status, '')) NOT IN ('cancelled', 'concluded')`,
                         [orgId]
                 );
@@ -838,8 +843,8 @@ module.exports = {
                 const [og] = await db.query(
                         `SELECT COUNT(*) AS cnt FROM created_events
                          WHERE created_by_org_id = ? AND deleted_at IS NULL
-                             AND TIMESTAMP(start_date, start_time) <= ${nowQuery}
-                             AND TIMESTAMP(end_date, end_time) >= ${nowQuery}
+                    AND CONVERT_TZ(TIMESTAMP(start_date, start_time), '${process.env.EVENT_TZ_OFFSET || '+08:00'}', '+00:00') <= ${nowQuery}
+                    AND CONVERT_TZ(TIMESTAMP(end_date, end_time), '${process.env.EVENT_TZ_OFFSET || '+08:00'}', '+00:00') >= ${nowQuery}
                              AND LOWER(COALESCE(status, '')) NOT IN ('cancelled', 'concluded')`,
                         [orgId]
                 );
@@ -856,7 +861,7 @@ module.exports = {
              WHERE created_by_org_id = ? AND deleted_at IS NULL
                AND (
                    LOWER(COALESCE(status, '')) = 'concluded'
-                   OR TIMESTAMP(end_date, end_time) < ${nowQuery}
+                   OR CONVERT_TZ(TIMESTAMP(end_date, end_time), '${process.env.EVENT_TZ_OFFSET || '+08:00'}', '+00:00') < ${nowQuery}
                )`,
             [orgId]
         );
@@ -868,20 +873,20 @@ module.exports = {
         };
     },
         getOswsDashboardStats: async () => {
-        const nowQuery = 'NOW()';
-                const [up] = await db.query(
-                        `SELECT COUNT(*) AS cnt FROM created_events
-                         WHERE created_by_osws_id IS NOT NULL AND deleted_at IS NULL
-                             AND TIMESTAMP(start_date, start_time) > ${nowQuery}
-                             AND LOWER(COALESCE(status, '')) NOT IN ('cancelled', 'concluded')`
-                );
-                const [og] = await db.query(
-                        `SELECT COUNT(*) AS cnt FROM created_events
-                         WHERE created_by_osws_id IS NOT NULL AND deleted_at IS NULL
-                             AND TIMESTAMP(start_date, start_time) <= ${nowQuery}
-                             AND TIMESTAMP(end_date, end_time) >= ${nowQuery}
-                             AND LOWER(COALESCE(status, '')) NOT IN ('cancelled', 'concluded')`
-                );
+        const nowQuery = 'UTC_TIMESTAMP()';
+            const [up] = await db.query(
+                `SELECT COUNT(*) AS cnt FROM created_events
+                 WHERE created_by_osws_id IS NOT NULL AND deleted_at IS NULL
+                     AND CONVERT_TZ(TIMESTAMP(start_date, start_time), '${process.env.EVENT_TZ_OFFSET || '+08:00'}', '+00:00') > ${nowQuery}
+                     AND LOWER(COALESCE(status, '')) NOT IN ('cancelled', 'concluded')`
+            );
+            const [og] = await db.query(
+                `SELECT COUNT(*) AS CNT FROM created_events
+                 WHERE created_by_osws_id IS NOT NULL AND deleted_at IS NULL
+                     AND CONVERT_TZ(TIMESTAMP(start_date, start_time), '${process.env.EVENT_TZ_OFFSET || '+08:00'}', '+00:00') <= ${nowQuery}
+                     AND CONVERT_TZ(TIMESTAMP(end_date, end_time), '${process.env.EVENT_TZ_OFFSET || '+08:00'}', '+00:00') >= ${nowQuery}
+                     AND LOWER(COALESCE(status, '')) NOT IN ('cancelled', 'concluded')`
+            );
         const [cc] = await db.query(
             `SELECT COUNT(*) AS cnt FROM created_events
              WHERE created_by_osws_id IS NOT NULL AND deleted_at IS NULL
@@ -892,7 +897,7 @@ module.exports = {
              WHERE created_by_osws_id IS NOT NULL AND deleted_at IS NULL
                AND (
                    LOWER(COALESCE(status, '')) = 'concluded'
-                   OR TIMESTAMP(end_date, end_time) < ${nowQuery}
+                   OR CONVERT_TZ(TIMESTAMP(end_date, end_time), '${process.env.EVENT_TZ_OFFSET || '+08:00'}', '+00:00') < ${nowQuery}
                )`
         );
         return {

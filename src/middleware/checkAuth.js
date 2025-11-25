@@ -4,6 +4,7 @@
  */
 
 const jwt = require('jsonwebtoken');
+const db = require('../config/db');
 
 /**
  * Middleware to verify JWT token from Authorization header
@@ -13,7 +14,7 @@ const jwt = require('jsonwebtoken');
  * @param {Object} res - Express response object
  * @param {Function} next - Express next middleware function
  */
-const checkAuth = (req, res, next) => {
+const checkAuth = async (req, res, next) => {
   try {
     // Get token from Authorization header
     const authHeader = req.headers.authorization;
@@ -46,9 +47,9 @@ const checkAuth = (req, res, next) => {
     // Verify token
     const decoded = jwt.verify(token, process.env.JWT_SECRET);
 
-    // Normalize and attach user info to request object
+    // Normalize roles from token
     const rawRoles = Array.isArray(decoded.roles) ? decoded.roles : (decoded.roles ? [decoded.roles] : []);
-    const roles = rawRoles.map(r => String(r).toLowerCase());
+    let roles = rawRoles.map(r => String(r).toLowerCase());
     const userTypeNorm = decoded.userType ? String(decoded.userType).toLowerCase() : (decoded.userType || '');
 
     // Determine canonical id value from possible token fields
@@ -70,6 +71,33 @@ const checkAuth = (req, res, next) => {
       role: userTypeNorm,
       id: canonicalId
     };
+
+    // If this is a student, refresh OrgOfficer membership from DB to avoid stale token roles
+    try {
+      const studentId = decoded.studentId || null;
+      if (studentId) {
+        const [rows] = await db.query(
+          `SELECT 1 FROM organizationmembers WHERE student_id = ? AND is_active = TRUE LIMIT 1`,
+          [studentId]
+        );
+        const hasActiveMembership = Array.isArray(rows) && rows.length > 0;
+
+        // Ensure roles accurately reflect current membership
+        const hasOrgRoleInToken = roles.includes('orgofficer');
+        if (hasActiveMembership && !hasOrgRoleInToken) {
+          roles.push('orgofficer');
+        }
+        if (!hasActiveMembership && hasOrgRoleInToken) {
+          roles = roles.filter(r => r !== 'orgofficer');
+        }
+
+        // Update req.user.roles to the refreshed value
+        req.user.roles = roles;
+      }
+    } catch (refreshErr) {
+      // Non-fatal: log and continue with token roles
+      console.warn('Failed to refresh user roles from DB:', refreshErr?.message || refreshErr);
+    }
 
     // Continue to next middleware
     next();
