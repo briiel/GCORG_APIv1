@@ -930,20 +930,50 @@ exports.getCertificatesByStudent = async (req, res) => {
             return handleErrorResponse(res, 'Forbidden', 403);
         }
 
-        // Get all attended events with evaluation status
+        // Get all attended events with evaluation status and include latest certificate request info
         const [attendedEvents] = await db.query(
-            `SELECT ar.event_id, ce.title AS event_title, ce.start_date, ce.end_date, ce.start_time, ce.end_time,
+            `SELECT ar.event_id,
+                    ce.title AS event_title,
+                    ce.start_date,
+                    ce.end_date,
+                    ce.start_time,
+                    ce.end_time,
                     ce.created_by_osws_id,
-                    ar.evaluation_submitted, ar.evaluation_submitted_at,
-                    c.id as cert_id, c.certificate_url, c.certificate_public_id, c.generated_at,
-                    s.first_name, s.last_name, s.middle_initial, s.suffix, s.department, s.program
+                    ar.evaluation_submitted,
+                    ar.evaluation_submitted_at,
+                    c.id as cert_id,
+                    c.certificate_url,
+                    c.certificate_public_id,
+                    c.generated_at,
+                    -- Latest certificate request fields (if any)
+                    cr.status AS request_status,
+                    cr.requested_at AS request_requested_at,
+                    cr.processed_at AS request_processed_at,
+                    cr.rejection_reason AS request_rejection_reason,
+                    cr.certificate_url AS request_certificate_url,
+                    s.first_name,
+                    s.last_name,
+                    s.middle_initial,
+                    s.suffix,
+                    s.department,
+                    s.program
              FROM attendance_records ar
              JOIN created_events ce ON ar.event_id = ce.event_id
              JOIN students s ON ar.student_id = s.id
              LEFT JOIN certificates c ON c.event_id = ar.event_id AND c.student_id = ar.student_id
+             -- Left join the most recent certificate_request for this student+event (if exists)
+             LEFT JOIN (
+                 SELECT cr_inner.* FROM certificate_requests cr_inner
+                 JOIN (
+                     SELECT event_id, student_id, MAX(requested_at) AS max_req_at
+                     FROM certificate_requests
+                     WHERE student_id = ?
+                     GROUP BY event_id, student_id
+                 ) latest ON latest.event_id = cr_inner.event_id AND latest.student_id = cr_inner.student_id AND latest.max_req_at = cr_inner.requested_at
+             ) cr ON cr.event_id = ar.event_id AND cr.student_id = ar.student_id
              WHERE ar.student_id = ? AND ar.deleted_at IS NULL AND ce.deleted_at IS NULL
              ORDER BY ce.end_date DESC, ce.start_date DESC`,
-            [student_id]
+            [student_id, student_id]
         );
 
         // Build response with evaluation gate logic
@@ -951,7 +981,7 @@ exports.getCertificatesByStudent = async (req, res) => {
             const isOswsEvent = !!event.created_by_osws_id;
             const hasEvaluated = event.evaluation_submitted === 1;
             const hasCertificate = !!event.certificate_url;
-            
+
             return {
                 event_id: event.event_id,
                 event_title: event.event_title,
@@ -970,6 +1000,12 @@ exports.getCertificatesByStudent = async (req, res) => {
                 certificate_url: event.certificate_url,
                 certificate_public_id: event.certificate_public_id,
                 generated_at: event.generated_at,
+                // Latest certificate request info (may be null)
+                request_status: event.request_status || null,
+                request_requested_at: event.request_requested_at || null,
+                request_processed_at: event.request_processed_at || null,
+                request_rejection_reason: event.request_rejection_reason || null,
+                request_certificate_url: event.request_certificate_url || null,
                 // Evaluation gate
                 evaluation_required: true, // All events now require evaluation
                 evaluation_submitted: hasEvaluated,

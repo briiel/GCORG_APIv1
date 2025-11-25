@@ -19,6 +19,15 @@ async function ensureSchema() {
 			FOREIGN KEY (event_id) REFERENCES created_events(event_id) ON DELETE CASCADE
 		) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci;
 	`);
+
+	// Ensure the `status` column supports all statuses used by the app.
+	// If the table already exists this will ALTER the column to include new enum values.
+	try {
+		await db.query(`ALTER TABLE certificate_requests MODIFY COLUMN status ENUM('pending','processing','sent','approved','rejected') NOT NULL DEFAULT 'pending'`);
+	} catch (e) {
+		// If ALTER fails (rare), log and continue — schema will still work for new installs.
+		console.warn('Could not ALTER certificate_requests.status column:', e && e.message ? e.message : e);
+	}
 }
 
 // Create a certificate request
