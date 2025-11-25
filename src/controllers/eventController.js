@@ -457,8 +457,11 @@ exports.markAttendance = async (req, res) => {
         const location_consent = req.body.location_consent === true || req.body.location_consent === 'true' || req.body.location_consent === 1 || req.body.location_consent === '1';
 
         // Server-side geofence configuration for Gordon College (single campus)
-        const GORDON_COLLEGE = { lat: 14.84, lon: 120.282 }; // approximate; update with verified coords if available
-        const GEOFENCE_METERS = process.env.GEOFENCE_METERS ? Number(process.env.GEOFENCE_METERS) : 200; // default 200m
+        // Updated center from Nominatim: lat 14.832926, lon 120.2821543
+        const GORDON_COLLEGE = { lat: 14.832926, lon: 120.2821543 }; // precise campus center
+        // Default geofence: increased to 1000m to cover the campus perimeter.
+        // Can still be overridden by setting the environment variable `GEOFENCE_METERS`.
+        const GEOFENCE_METERS = process.env.GEOFENCE_METERS ? Number(process.env.GEOFENCE_METERS) : 1000; // default 1000m
         const ACCURACY_THRESHOLD_METERS = process.env.ACCURACY_THRESHOLD_METERS ? Number(process.env.ACCURACY_THRESHOLD_METERS) : 100; // reject coarse fixes
         const user = req.user;
 
@@ -1175,11 +1178,8 @@ exports.approveRegistration = async (req, res) => {
         );
         // Notify student
         try {
-            await notificationService.createNotification({
-                user_id: String(rec.student_id),
-                event_id: rec.event_id,
-                message: `✅ Great news! Your registration for "${rec.title}" has been approved. You can now access your QR code for check-in.`
-            });
+            const msg = `Your registration for "${rec.title}" has been approved. You can now access your QR code for check-in.`;
+            await notificationService.createNotification({ user_id: String(rec.student_id), event_id: rec.event_id, message: msg, panel: 'student' });
         } catch (_) {}
         return handleSuccessResponse(res, { message: 'Registration approved' });
     } catch (error) {
@@ -1225,11 +1225,8 @@ exports.rejectRegistration = async (req, res) => {
         }
         await db.query(`UPDATE event_registrations SET status = 'rejected' WHERE id = ?`, [registration_id]);
         try {
-            await notificationService.createNotification({
-                user_id: String(rec.student_id),
-                event_id: rec.event_id,
-                message: `❌ Your registration for "${rec.title}" was not approved. Please contact the organizer if you have questions.`
-            });
+            const msg = `Your registration for "${rec.title}" was not approved. Please contact the organizer if you have questions.`;
+            await notificationService.createNotification({ user_id: String(rec.student_id), event_id: rec.event_id, message: msg, panel: 'student' });
         } catch (_) {}
         return handleSuccessResponse(res, { message: 'Registration rejected' });
     } catch (error) {
@@ -1430,11 +1427,13 @@ exports.requestCertificate = async (req, res) => {
 
         // Create notification to organizer account
         try {
-            await notificationService.createNotification({
-                user_id: toOrgId || toOswsId,
-                event_id: ev.event_id,
-                message: `📜 New certificate request from ${studentName} for "${ev.title}"`
-            });
+            const msg = `New certificate request from ${studentName} for "${ev.title}"`;
+            if (toOrgId) {
+                await notificationService.createNotification({ user_id: toOrgId, event_id: ev.event_id, message: msg, panel: 'organization', org_id: toOrgId, type: 'certificate_request' });
+            } else {
+                // Notify OSWS admin panel
+                await notificationService.createNotification({ user_id: toOswsId, event_id: ev.event_id, message: msg, panel: 'admin', type: 'certificate_request' });
+            }
         } catch (nerr) {
             console.warn('Notification create failed (requestCertificate):', nerr?.message || nerr);
         }
