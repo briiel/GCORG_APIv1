@@ -29,10 +29,12 @@ exports.getCertificateRequests = async (req, res) => {
 		if (!user) {
 			return handleErrorResponse(res, 'Unauthorized', 401);
 		}
-		
+        
 		// Only organization officers can view certificate requests
 		const userRoles = user && Array.isArray(user.roles) ? user.roles : [];
-		if (!userRoles.includes('orgofficer')) {
+		const normalizedRoles = userRoles.map(r => String(r).toLowerCase());
+		const isOrgOfficer = normalizedRoles.includes('orgofficer') || normalizedRoles.includes('organization') || normalizedRoles.includes('org_officer');
+		if (!isOrgOfficer) {
 			return handleErrorResponse(res, 'Only organization officers can view certificate requests.', 403);
 		}
 		
@@ -57,9 +59,11 @@ exports.approveCertificateRequest = async (req, res) => {
 		if (!user) {
 			return handleErrorResponse(res, 'Unauthorized', 401);
 		}
-		
+        
 		const userRoles = user && Array.isArray(user.roles) ? user.roles : [];
-		if (!userRoles.includes('orgofficer')) {
+		const normalizedRoles = userRoles.map(r => String(r).toLowerCase());
+		const isOrgOfficer = normalizedRoles.includes('orgofficer') || normalizedRoles.includes('organization') || normalizedRoles.includes('org_officer');
+		if (!isOrgOfficer) {
 			return handleErrorResponse(res, 'Only organization officers can approve certificate requests.', 403);
 		}
 		
@@ -132,11 +136,8 @@ exports.approveCertificateRequest = async (req, res) => {
 		
 		// Send notification to student
 		try {
-			await notificationService.createNotification({
-				user_id: request.student_id,
-				event_id: request.event_id,
-				message: `✅ Your certificate request for "${event.title}" has been approved! View it in your E-Certificates.`
-			});
+			const msg = `Your certificate request for "${event.title}" has been approved. View it in your E-Certificates.`;
+			await notificationService.createNotification({ user_id: request.student_id, event_id: request.event_id, message: msg, panel: 'student' });
 		} catch (nerr) {
 			console.warn('Notification create failed (approveCertificate):', nerr?.message || nerr);
 		}
@@ -158,9 +159,11 @@ exports.rejectCertificateRequest = async (req, res) => {
 		if (!user) {
 			return handleErrorResponse(res, 'Unauthorized', 401);
 		}
-		
+        
 		const userRoles = user && Array.isArray(user.roles) ? user.roles : [];
-		if (!userRoles.includes('orgofficer')) {
+		const normalizedRoles = userRoles.map(r => String(r).toLowerCase());
+		const isOrgOfficer = normalizedRoles.includes('orgofficer') || normalizedRoles.includes('organization') || normalizedRoles.includes('org_officer');
+		if (!isOrgOfficer) {
 			return handleErrorResponse(res, 'Only organization officers can reject certificate requests.', 403);
 		}
 		
@@ -193,11 +196,8 @@ exports.rejectCertificateRequest = async (req, res) => {
 		// Send notification to student
 		try {
 			const reasonText = rejection_reason ? ` Reason: ${rejection_reason}` : '';
-			await notificationService.createNotification({
-				user_id: request.student_id,
-				event_id: request.event_id,
-				message: `❌ Your certificate request for "${request.event_title}" was not approved.${reasonText}`
-			});
+			const msg = `Your certificate request for "${request.event_title}" was not approved.${reasonText}`;
+			await notificationService.createNotification({ user_id: request.student_id, event_id: request.event_id, message: msg, panel: 'student' });
 		} catch (nerr) {
 			console.warn('Notification create failed (rejectCertificate):', nerr?.message || nerr);
 		}
@@ -216,9 +216,11 @@ exports.updateCertificateRequestStatus = async (req, res) => {
 		if (!user) {
 			return handleErrorResponse(res, 'Unauthorized', 401);
 		}
-		
+        
 		const userRoles = user && Array.isArray(user.roles) ? user.roles : [];
-		if (!userRoles.includes('orgofficer')) {
+		const normalizedRoles = userRoles.map(r => String(r).toLowerCase());
+		const isOrgOfficer = normalizedRoles.includes('orgofficer') || normalizedRoles.includes('organization') || normalizedRoles.includes('org_officer');
+		if (!isOrgOfficer) {
 			return handleErrorResponse(res, 'Only organization officers can update certificate request status.', 403);
 		}
 		
@@ -253,19 +255,15 @@ exports.updateCertificateRequestStatus = async (req, res) => {
 		try {
 			let message = '';
 			if (status === 'processing') {
-				message = `🔄 Your certificate request for "${request.event_title}" is now being processed.`;
+				message = `Your certificate request for "${request.event_title}" is now being processed.`;
 			} else if (status === 'sent') {
-				message = `✅ Your certificate for "${request.event_title}" has been sent! Check your email.`;
+				message = `Your certificate for "${request.event_title}" has been sent. Please check your email.`;
 			} else if (status === 'pending') {
-				message = `⏳ Your certificate request for "${request.event_title}" is pending review.`;
+				message = `Your certificate request for "${request.event_title}" is pending review.`;
 			}
 			
 			if (message) {
-				await notificationService.createNotification({
-					user_id: request.student_id,
-					event_id: request.event_id,
-					message
-				});
+				await notificationService.createNotification({ user_id: request.student_id, event_id: request.event_id, message, panel: 'student' });
 			}
 		} catch (nerr) {
 			console.warn('Notification create failed (updateStatus):', nerr?.message || nerr);
