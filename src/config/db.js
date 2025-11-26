@@ -19,19 +19,38 @@ const poolConfig = {
     ssl: process.env.DB_SSL === 'true' ? {
         rejectUnauthorized: false
     } : undefined
+    ,
+    // Return date/time fields as strings to avoid automatic JS Date conversion
+    // by the driver. This makes timezone handling explicit and deterministic
+    // in application code (we provide `src/utils/dbDate.js` to parse these).
+    dateStrings: true
 };
+// Allow specifying a connection timezone so the mysql2 driver parses
+// TIMESTAMP/DATETIME fields consistently. Prefer using the pool `timezone`
+// option (applies driver-side) instead of issuing `SET time_zone` on every
+// connection which can produce double-conversion issues when the app already
+// handles timezone conversion via SQL (e.g. CONVERT_TZ) or the server uses UTC.
+const dbTimeZone = process.env.DB_TIME_ZONE || process.env.DB_TIMEZONE || null;
+// By default we DO NOT set the mysql2 driver's `timezone` option because
+// the application uses SQL `CONVERT_TZ(..., EVENT_TZ_OFFSET, '+00:00')`
+// in queries and also may rely on the DB server timezone. Setting both the
+// driver timezone and converting in SQL leads to double timezone shifts.
+//
+// If you really want the driver to parse/serialize dates using the given
+// offset, explicitly opt in by setting `DB_SET_DRIVER_TZ=true` in your env.
+const setDriverTz = process.env.DB_SET_DRIVER_TZ === 'true';
+if (dbTimeZone && setDriverTz) {
+    // mysql2 accepts offsets like '+08:00' or 'Z'. Only apply when explicitly enabled.
+    poolConfig.timezone = dbTimeZone;
+
+    // If you also want to set the MySQL session time_zone, set `DB_SET_SESSION_TZ=true`.
+}
 
 const pool = mysql.createPool(poolConfig);
 
-// Ensure new connections use an explicit session timezone when provided.
-// This ensures that server-side functions like NOW() return values in the
-// expected timezone (avoids relying on the DB server global timezone).
-// Set `DB_TIME_ZONE` in environment (e.g. '+08:00') to apply.
-const dbTimeZone = process.env.DB_TIME_ZONE || process.env.DB_TIMEZONE || null;
-if (dbTimeZone) {
+if (dbTimeZone && process.env.DB_SET_SESSION_TZ === 'true') {
     pool.on('connection', (conn) => {
         try {
-            // Use mysql.escape to safely quote the value (preserves sign and format)
             conn.query(`SET time_zone = ${mysql.escape(dbTimeZone)}`, (err) => {
                 if (err) console.warn('Failed to set session time_zone:', err && err.message ? err.message : err);
             });

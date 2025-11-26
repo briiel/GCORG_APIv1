@@ -136,12 +136,13 @@ function toLocalDateOnly(input) {
         return new Date(input.getFullYear(), input.getMonth(), input.getDate());
     }
     const s = String(input).trim();
-    // If formatted as YYYY-MM-DD, avoid timezone shifts by constructing local date
-    const m = s.match(/^(\d{4})-(\d{1,2})-(\d{1,2})$/);
-    if (m) {
+    // If formatted as YYYY-MM-DD or YYYY-MM-DD HH:MM:SS (or with a T separator),
+    // avoid timezone shifts by constructing local date from the date portion.
+    const dateOnlyMatch = s.match(/^(\d{4})-(\d{1,2})-(\d{1,2})(?:$|[ T]/);
+    if (dateOnlyMatch) {
         const y = Number(m[1]);
-        const mo = Number(m[2]);
-        const d = Number(m[3]);
+        const mo = Number(dateOnlyMatch[2]);
+        const d = Number(dateOnlyMatch[3]);
         const dt = new Date(y, mo - 1, d);
         if (!isNaN(dt)) return dt;
     }

@@ -35,6 +35,8 @@ const certificateRequestService = require('../services/certificateRequestService
 const { handleErrorResponse, handleSuccessResponse } = require('../utils/errorHandler');
 const db = require('../config/db');
 const { generateCertificate, generateCertificatePreview } = require('../utils/certificateGenerator');
+const { parseMysqlLocalStringToDate, parseMysqlUtcStringToDate } = require('../utils/dbDate');
+const EVENT_TZ_OFFSET = process.env.EVENT_TZ_OFFSET || '+08:00';
 const notificationService = require('../services/notificationService');
 const { v2: cloudinary } = require('cloudinary');
 const { upload, convertToWebpAndUpload } = require('../middleware/uploadMiddleware');
@@ -111,12 +113,12 @@ exports.getEvents = async (req, res) => {
         const computeAutoStatus = (ev) => {
             const statusStr = (ev.status || '').toString().toLowerCase();
             if (statusStr === 'cancelled') return null; // never auto-override cancelled
-            const sd = ev.start_date ? new Date(`${ev.start_date}T${ev.start_time || '00:00:00'}`) : null;
-            const ed = ev.end_date ? new Date(`${ev.end_date}T${ev.end_time || '23:59:59'}`) : null;
+            const sd = ev.start_date ? parseMysqlLocalStringToDate(`${ev.start_date} ${ev.start_time || '00:00:00'}`, EVENT_TZ_OFFSET) : null;
+            const ed = ev.end_date ? parseMysqlLocalStringToDate(`${ev.end_date} ${ev.end_time || '23:59:59'}`, EVENT_TZ_OFFSET) : null;
             if (!sd) return null;
             const start = sd;
-            const end = ed && !isNaN(ed.getTime()) ? ed : new Date(`${ev.start_date}T${ev.end_time || '23:59:59'}`);
-            if (isNaN(start.getTime()) || isNaN(end.getTime())) return null;
+            const end = ed && !isNaN(ed.getTime()) ? ed : parseMysqlLocalStringToDate(`${ev.start_date} ${ev.end_time || '23:59:59'}`, EVENT_TZ_OFFSET);
+            if (!start || isNaN(start.getTime()) || !end || isNaN(end.getTime())) return null;
             if (now < start) return 'not yet started';
             if (now >= start && now <= end) return 'ongoing';
             if (now > end) return 'concluded';
@@ -255,12 +257,12 @@ exports.getEventsByCreator = async (req, res) => {
         const computeAutoStatus = (ev) => {
             const statusStr = (ev.status || '').toString().toLowerCase();
             if (statusStr === 'cancelled') return null;
-            const sd = ev.start_date ? new Date(`${ev.start_date}T${ev.start_time || '00:00:00'}`) : null;
-            const ed = ev.end_date ? new Date(`${ev.end_date}T${ev.end_time || '23:59:59'}`) : null;
+            const sd = ev.start_date ? parseMysqlLocalStringToDate(`${ev.start_date} ${ev.start_time || '00:00:00'}`, EVENT_TZ_OFFSET) : null;
+            const ed = ev.end_date ? parseMysqlLocalStringToDate(`${ev.end_date} ${ev.end_time || '23:59:59'}`, EVENT_TZ_OFFSET) : null;
             if (!sd) return null;
             const start = sd;
-            const end = ed && !isNaN(ed.getTime()) ? ed : new Date(`${ev.start_date}T${ev.end_time || '23:59:59'}`);
-            if (isNaN(start.getTime()) || isNaN(end.getTime())) return null;
+            const end = ed && !isNaN(ed.getTime()) ? ed : parseMysqlLocalStringToDate(`${ev.start_date} ${ev.end_time || '23:59:59'}`, EVENT_TZ_OFFSET);
+            if (!start || isNaN(start.getTime()) || !end || isNaN(end.getTime())) return null;
             if (now < start) return 'not yet started';
             if (now >= start && now <= end) return 'ongoing';
             if (now > end) return 'concluded';
@@ -323,12 +325,12 @@ exports.updateEventStatus = async (req, res) => {
         const computeAutoStatus = (e) => {
             const statusStr = (e.status || '').toString().toLowerCase();
             if (statusStr === 'cancelled') return null;
-            const sd = e.start_date ? new Date(`${e.start_date}T${e.start_time || '00:00:00'}`) : null;
-            const ed = e.end_date ? new Date(`${e.end_date}T${e.end_time || '23:59:59'}`) : null;
+            const sd = e.start_date ? parseMysqlLocalStringToDate(`${e.start_date} ${e.start_time || '00:00:00'}`, EVENT_TZ_OFFSET) : null;
+            const ed = e.end_date ? parseMysqlLocalStringToDate(`${e.end_date} ${e.end_time || '23:59:59'}`, EVENT_TZ_OFFSET) : null;
             if (!sd) return null;
             const start = sd;
-            const end = ed && !isNaN(ed.getTime()) ? ed : new Date(`${e.start_date}T${e.end_time || '23:59:59'}`);
-            if (isNaN(start.getTime()) || isNaN(end.getTime())) return null;
+            const end = ed && !isNaN(ed.getTime()) ? ed : parseMysqlLocalStringToDate(`${e.start_date} ${e.end_time || '23:59:59'}`, EVENT_TZ_OFFSET);
+            if (!start || isNaN(start.getTime()) || !end || isNaN(end.getTime())) return null;
             if (now < start) return 'not yet started';
             if (now >= start && now <= end) return 'ongoing';
             if (now > end) return 'concluded';
@@ -1030,12 +1032,12 @@ exports.getEventsByAdmin = async (req, res) => {
         const computeAutoStatus = (ev) => {
             const statusStr = (ev.status || '').toString().toLowerCase();
             if (statusStr === 'cancelled') return null;
-            const sd = ev.start_date ? new Date(`${ev.start_date}T${ev.start_time || '00:00:00'}`) : null;
-            const ed = ev.end_date ? new Date(`${ev.end_date}T${ev.end_time || '23:59:59'}`) : null;
+            const sd = ev.start_date ? parseMysqlLocalStringToDate(`${ev.start_date} ${ev.start_time || '00:00:00'}`, EVENT_TZ_OFFSET) : null;
+            const ed = ev.end_date ? parseMysqlLocalStringToDate(`${ev.end_date} ${ev.end_time || '23:59:59'}`, EVENT_TZ_OFFSET) : null;
             if (!sd) return null;
             const start = sd;
-            const end = ed && !isNaN(ed.getTime()) ? ed : new Date(`${ev.start_date}T${ev.end_time || '23:59:59'}`);
-            if (isNaN(start.getTime()) || isNaN(end.getTime())) return null;
+            const end = ed && !isNaN(ed.getTime()) ? ed : parseMysqlLocalStringToDate(`${ev.start_date} ${ev.end_time || '23:59:59'}`, EVENT_TZ_OFFSET);
+            if (!start || isNaN(start.getTime()) || !end || isNaN(end.getTime())) return null;
             if (now < start) return 'not yet started';
             if (now >= start && now <= end) return 'ongoing';
             if (now > end) return 'concluded';
@@ -1073,12 +1075,12 @@ exports.getAllOrgEvents = async (req, res) => {
         const computeAutoStatus = (ev) => {
             const statusStr = (ev.status || '').toString().toLowerCase();
             if (statusStr === 'cancelled') return null;
-            const sd = ev.start_date ? new Date(`${ev.start_date}T${ev.start_time || '00:00:00'}`) : null;
-            const ed = ev.end_date ? new Date(`${ev.end_date}T${ev.end_time || '23:59:59'}`) : null;
+            const sd = ev.start_date ? parseMysqlLocalStringToDate(`${ev.start_date} ${ev.start_time || '00:00:00'}`, EVENT_TZ_OFFSET) : null;
+            const ed = ev.end_date ? parseMysqlLocalStringToDate(`${ev.end_date} ${ev.end_time || '23:59:59'}`, EVENT_TZ_OFFSET) : null;
             if (!sd) return null;
             const start = sd;
-            const end = ed && !isNaN(ed.getTime()) ? ed : new Date(`${ev.start_date}T${ev.end_time || '23:59:59'}`);
-            if (isNaN(start.getTime()) || isNaN(end.getTime())) return null;
+            const end = ed && !isNaN(ed.getTime()) ? ed : parseMysqlLocalStringToDate(`${ev.start_date} ${ev.end_time || '23:59:59'}`, EVENT_TZ_OFFSET);
+            if (!start || isNaN(start.getTime()) || !end || isNaN(end.getTime())) return null;
             if (now < start) return 'not yet started';
             if (now >= start && now <= end) return 'ongoing';
             if (now > end) return 'concluded';
@@ -1116,12 +1118,12 @@ exports.getAllOswsEvents = async (req, res) => {
         const computeAutoStatus = (ev) => {
             const statusStr = (ev.status || '').toString().toLowerCase();
             if (statusStr === 'cancelled') return null;
-            const sd = ev.start_date ? new Date(`${ev.start_date}T${ev.start_time || '00:00:00'}`) : null;
-            const ed = ev.end_date ? new Date(`${ev.end_date}T${ev.end_time || '23:59:59'}`) : null;
+            const sd = ev.start_date ? parseMysqlLocalStringToDate(`${ev.start_date} ${ev.start_time || '00:00:00'}`, EVENT_TZ_OFFSET) : null;
+            const ed = ev.end_date ? parseMysqlLocalStringToDate(`${ev.end_date} ${ev.end_time || '23:59:59'}`, EVENT_TZ_OFFSET) : null;
             if (!sd) return null;
             const start = sd;
-            const end = ed && !isNaN(ed.getTime()) ? ed : new Date(`${ev.start_date}T${ev.end_time || '23:59:59'}`);
-            if (isNaN(start.getTime()) || isNaN(end.getTime())) return null;
+            const end = ed && !isNaN(ed.getTime()) ? ed : parseMysqlLocalStringToDate(`${ev.start_date} ${ev.end_time || '23:59:59'}`, EVENT_TZ_OFFSET);
+            if (!start || isNaN(start.getTime()) || !end || isNaN(end.getTime())) return null;
             if (now < start) return 'not yet started';
             if (now >= start && now <= end) return 'ongoing';
             if (now > end) return 'concluded';

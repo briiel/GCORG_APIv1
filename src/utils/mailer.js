@@ -31,8 +31,10 @@ function buildRegistrationHtml({ event = {}, student = {}, qrUrl }) {
     if (typeof value === 'number') return isValidDate(new Date(value)) ? new Date(value) : null;
     if (typeof value === 'string') {
       const v = value.trim();
-      // If it's YYYY-MM-DD
-      const m = v.match(/^(\d{4})-(\d{1,2})-(\d{1,2})$/);
+      // If it's YYYY-MM-DD or YYYY-MM-DD HH:MM:SS (or with a T separator),
+      // extract the date part and construct a local date to avoid timezone shifts.
+      const datePart = v.split('T')[0].split(' ')[0];
+      const m = datePart.match(/^(\d{4})-(\d{1,2})-(\d{1,2})$/);
       if (m) {
         const y = parseInt(m[1], 10);
         const mo = parseInt(m[2], 10) - 1;
@@ -41,7 +43,7 @@ function buildRegistrationHtml({ event = {}, student = {}, qrUrl }) {
         const dt = new Date(y, mo, d);
         return isValidDate(dt) ? dt : null;
       }
-      // Try generic Date parsing for strings like "Wed Aug 20 2025 ..."
+      // Try generic Date parsing for other human-readable strings
       const dt2 = new Date(v);
       return isValidDate(dt2) ? dt2 : null;
     }
