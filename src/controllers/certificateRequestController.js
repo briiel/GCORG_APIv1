@@ -133,13 +133,13 @@ exports.approveCertificateRequest = async (req, res) => {
 	}
 };
 
-// POST /api/certificates/requests/:id/reject - Reject certificate request
+// POST /api/certificates/requests/:id/reject - Decline certificate request
 exports.rejectCertificateRequest = async (req, res) => {
 	try {
 		const user = req.user;
 		if (!user) return handleErrorResponse(res, 'Unauthorized', 401);
 
-		if (!userIsOrgOfficer(user)) return handleErrorResponse(res, 'Only organization officers can reject certificate requests.', 403);
+		if (!userIsOrgOfficer(user)) return handleErrorResponse(res, 'Only organization officers can decline certificate requests.', 403);
 
 		const requestId = req.params.id;
 		const { rejection_reason } = req.body || {};
@@ -149,7 +149,7 @@ exports.rejectCertificateRequest = async (req, res) => {
 		if (request.status !== 'pending') return handleErrorResponse(res, 'This request has already been processed.', 400);
 
 		const orgId = getOrgIdFromUser(user);
-		if (request.created_by_org_id !== orgId) return handleErrorResponse(res, 'You do not have permission to reject this request.', 403);
+		if (request.created_by_org_id !== orgId) return handleErrorResponse(res, 'You do not have permission to decline this request.', 403);
 
 		await certificateRequestService.updateCertificateRequestStatus(requestId, {
 			status: 'rejected',
@@ -166,9 +166,9 @@ exports.rejectCertificateRequest = async (req, res) => {
 			console.warn('Notification create failed (rejectCertificate):', nerr?.message || nerr);
 		}
 
-		return handleSuccessResponse(res, { message: 'Certificate request rejected.' });
+		return handleSuccessResponse(res, { message: 'Certificate request declined.' });
 	} catch (error) {
-		console.error('rejectCertificateRequest error:', error);
+		console.error('declineCertificateRequest error:', error);
 		return handleErrorResponse(res, error.message);
 	}
 };

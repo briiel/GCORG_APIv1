@@ -75,7 +75,7 @@ router.post('/admin/approve/:requestId',
 
 /**
  * @route   POST /api/admin/reject/:requestId
- * @desc    Reject a role request
+ * @desc    Decline a role request
  * @access  Protected - Admin only
  */
 router.post('/admin/reject/:requestId', 

@@ -435,6 +435,7 @@ const updateEvent = async (eventId, eventData) => {
         title,
         description,
         location,
+        room,
         start_date,
         start_time,
         end_date,

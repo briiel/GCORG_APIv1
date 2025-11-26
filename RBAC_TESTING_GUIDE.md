@@ -299,7 +299,7 @@ Authorization: Bearer <admin_token>
 - Student is added to `OrganizationMembers` table
 - Student's next login will include "OrgOfficer" role
 
-### 9. Reject Request (Admin Only)
+### 9. Decline Request (Admin Only)
 
 **Endpoint:** `POST http://localhost:3000/api/admin/reject/:requestId`
 

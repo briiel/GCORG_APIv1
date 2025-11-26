@@ -4,6 +4,7 @@
  */
 
 const db = require('../config/db');
+const notificationService = require('../services/notificationService');
 
 /**
  * Get all organizations (for dropdown in role request form)
@@ -104,6 +105,24 @@ const submitRoleRequest = async (req, res) => {
        VALUES (?, ?, ?, ?, 'pending')`,
       [studentId, org_id, requested_position, justification || null]
     );
+
+    // Notify OSWS admins about a new role request
+    try {
+      // Fetch student name for a clearer message
+      const [srows] = await db.query(`SELECT first_name, middle_initial, last_name, suffix FROM students WHERE id = ? LIMIT 1`, [studentId]);
+      const s = srows[0] || {};
+      const studentName = [s.first_name, s.middle_initial ? `${s.middle_initial}.` : '', s.last_name, s.suffix || ''].filter(Boolean).join(' ').replace(/\s+/g, ' ');
+
+      // Fetch organization name (we already validated existence earlier)
+      const [orgRows] = await db.query(`SELECT org_name FROM student_organizations WHERE id = ? LIMIT 1`, [org_id]);
+      const orgName = orgRows[0]?.org_name || String(org_id);
+
+      const msg = `New role request submitted by ${studentName} for ${orgName}`;
+      // user_id is NULL so it is visible as a global/admin notification; panel='admin' scopes it to admin panel
+      await notificationService.createNotification({ user_id: null, message: msg, panel: 'admin', type: 'role_request' });
+    } catch (nerr) {
+      console.warn('Notification create failed (roleRequest):', nerr?.message || nerr);
+    }
 
     return res.status(201).json({
       success: true,
@@ -307,7 +326,7 @@ const approveRequest = async (req, res) => {
 };
 
 /**
- * Reject a role request
+ * Decline a role request
  * @access Admin only
  */
 const rejectRequest = async (req, res) => {
@@ -356,14 +375,14 @@ const rejectRequest = async (req, res) => {
 
     return res.status(200).json({
       success: true,
-      message: 'Role request rejected.'
+      message: 'Role request declined.'
     });
 
   } catch (error) {
-    console.error('Reject request error:', error);
+    console.error('Decline request error:', error);
     return res.status(500).json({
       success: false,
-      message: 'An error occurred while rejecting the request.'
+      message: 'An error occurred while declining the request.'
     });
   }
 };

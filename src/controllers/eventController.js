@@ -1248,7 +1248,7 @@ exports.approveRegistration = async (req, res) => {
     }
 };
 
-// Reject a pending registration
+// Decline a pending registration
 exports.rejectRegistration = async (req, res) => {
     try {
         const user = req.user;
@@ -1257,7 +1257,7 @@ exports.rejectRegistration = async (req, res) => {
         const isAdmin = roles.includes('oswsadmin');
         
         if (!user || (!isOrgOfficer && !isAdmin)) {
-            return handleErrorResponse(res, 'Forbidden: Only organization officers and admins can reject registrations', 403);
+            return handleErrorResponse(res, 'Forbidden: Only organization officers and admins can decline registrations', 403);
         }
         
         const { registration_id } = req.params;
@@ -1279,17 +1279,17 @@ exports.rejectRegistration = async (req, res) => {
         
         // Check ownership
         if (isOrgOfficer && rec.created_by_org_id !== orgId) {
-            return handleErrorResponse(res, 'Forbidden: You can only reject registrations for your organization events', 403);
+            return handleErrorResponse(res, 'Forbidden: You can only decline registrations for your organization events', 403);
         }
         if (isAdmin && rec.created_by_osws_id !== adminId) {
-            return handleErrorResponse(res, 'Forbidden: You can only reject registrations for your OSWS events', 403);
+            return handleErrorResponse(res, 'Forbidden: You can only decline registrations for your OSWS events', 403);
         }
         await db.query(`UPDATE event_registrations SET status = 'rejected' WHERE id = ?`, [registration_id]);
         try {
             const msg = `Your registration for "${rec.title}" was not approved. Please contact the organizer if you have questions.`;
             await notificationService.createNotification({ user_id: String(rec.student_id), event_id: rec.event_id, message: msg, panel: 'student' });
         } catch (_) {}
-        return handleSuccessResponse(res, { message: 'Registration rejected' });
+        return handleSuccessResponse(res, { message: 'Registration declined' });
     } catch (error) {
         return handleErrorResponse(res, error.message);
     }
@@ -1329,6 +1329,33 @@ exports.updateEvent = async (req, res) => {
                 eventData.event_poster_public_id = req.file.cloudinaryPublicId;
             }
         }
+            // Support receiving a data URL / base64 image in JSON body when the client
+            // cannot/doesn't send multipart form-data. If `event_poster` in the body is
+            // a data URL or base64 string and no `req.file` was provided, upload it
+            // to Cloudinary so users can add a poster when editing an event that
+            // originally had no poster.
+            if (!req.file && eventData && typeof eventData.event_poster === 'string') {
+                const val = eventData.event_poster.trim();
+                const looksLikeDataUrl = val.startsWith('data:image/');
+                const looksLikeBase64 = /^(?:[A-Za-z0-9+/]{4})*(?:[A-Za-z0-9+/]{2}==|[A-Za-z0-9+/]{3}=)?$/.test(val.replace(/^data:[^;]+;base64,/, ''));
+                if (looksLikeDataUrl || (val.length > 100 && looksLikeBase64)) {
+                    try {
+                        const uploadResult = await cloudinary.uploader.upload(val, {
+                            folder: 'event-posters',
+                            resource_type: 'image',
+                            quality: 'auto',
+                            fetch_format: 'auto'
+                        });
+                        if (uploadResult && uploadResult.secure_url) {
+                            eventData.event_poster = uploadResult.secure_url;
+                            eventData.event_poster_public_id = uploadResult.public_id;
+                        }
+                    } catch (e) {
+                        console.warn('Failed to upload event_poster from data URL/body:', e?.message || e);
+                        // Do not fail the whole update because of upload; proceed without setting poster
+                    }
+                }
+            }
         if (eventData.is_paid !== undefined) {
             const v = eventData.is_paid;
             const s = typeof v === 'string' ? v.toLowerCase() : v;

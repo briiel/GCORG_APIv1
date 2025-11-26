@@ -116,9 +116,9 @@ const registerParticipant = async ({
                     const eventTitle2 = eventRows?.[0]?.title;
                     if (eventTitle2) {
                         const msg2 = initialStatus === 'approved'
-                            ? `✅ Registration confirmed! You're all set for "${eventTitle2}". Your QR code is ready for check-in.`
-                            : `⏳ Registration submitted! Your request for "${eventTitle2}" is pending approval. You'll be notified once it's processed.`;
-                        await notificationService.createNotification({ user_id: String(student_id), event_id, message: msg2 });
+                            ? `Registration confirmed for "${eventTitle2}". Your QR code is ready for check-in.`
+                            : `Registration submitted for "${eventTitle2}" and is pending approval. You will be notified once it's processed.`;
+                        await notificationService.createNotification({ user_id: String(student_id), event_id, message: msg2, panel: 'student' });
                     }
                 } catch (_) {}
 
@@ -262,9 +262,9 @@ const registerParticipant = async ({
         if (studentIdStr && eventTitle) {
             try {
                 const msg = initialStatus === 'approved'
-                    ? `✅ Registration successful! You're registered for "${eventTitle}". Your QR code is ready for check-in.`
-                    : `⏳ Registration received! Your request for "${eventTitle}" is being reviewed. We'll notify you once approved.`;
-                await notificationService.createNotification({ user_id: studentIdStr, event_id, message: msg });
+                    ? `Registration successful for "${eventTitle}". Your QR code is ready for check-in.`
+                    : `Registration received for "${eventTitle}" and is being reviewed. You will be notified once approved.`;
+                await notificationService.createNotification({ user_id: studentIdStr, event_id, message: msg, panel: 'student' });
             } catch (nerr) {
                 console.warn('Notification create failed (registration):', nerr?.message || nerr);
             }
