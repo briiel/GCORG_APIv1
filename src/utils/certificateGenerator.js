@@ -138,9 +138,9 @@ function toLocalDateOnly(input) {
     const s = String(input).trim();
     // If formatted as YYYY-MM-DD or YYYY-MM-DD HH:MM:SS (or with a T separator),
     // avoid timezone shifts by constructing local date from the date portion.
-    const dateOnlyMatch = s.match(/^(\d{4})-(\d{1,2})-(\d{1,2})(?:$|[ T]/);
+    const dateOnlyMatch = s.match(/^(\d{4})-(\d{1,2})-(\d{1,2})(?:$|[ T])/);
     if (dateOnlyMatch) {
-        const y = Number(m[1]);
+        const y = Number(dateOnlyMatch[1]);
         const mo = Number(dateOnlyMatch[2]);
         const d = Number(dateOnlyMatch[3]);
         const dt = new Date(y, mo - 1, d);
