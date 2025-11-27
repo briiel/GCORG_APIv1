@@ -44,5 +44,7 @@ router.post('/events/:id/request-certificate', authenticateToken, eventControlle
 // Dashboard stats endpoints
 router.get('/stats/organization', authenticateToken, eventController.getOrgDashboardStats);
 router.get('/stats/osws', authenticateToken, eventController.getOswsDashboardStats);
+// Charts/aggregation for OSWS dashboard (events by department, activities per org)
+router.get('/stats/osws/charts', authenticateToken, eventController.getOswsDashboardCharts);
 
 module.exports = router;

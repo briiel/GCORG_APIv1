@@ -892,6 +892,57 @@ module.exports = {
             concluded: cm[0]?.cnt || 0,
         };
     },
+        // Aggregated chart datasets for OSWS dashboard
+        // filter: 'weekly' (last 12 weeks), 'monthly' (current year), 'yearly' (last 5 years)
+        // NOTE: Use TIMESTAMP(...) and UTC_TIMESTAMP() for comparisons to avoid
+        // relying on CONVERT_TZ / EVENT_TZ_OFFSET. This keeps chart counts
+        // consistent with `getOswsDashboardStats` which also uses UTC comparisons.
+        getOswsDashboardCharts: async (filter) => {
+            const nowExpr = 'UTC_TIMESTAMP()';
+            const startExpr = `TIMESTAMP(start_date, COALESCE(start_time, '00:00:00'))`;
+            let timeWhere = '';
+            if (filter === 'weekly') {
+                // last 12 weeks
+                timeWhere = `AND ${startExpr} >= (${nowExpr} - INTERVAL 12 WEEK)`;
+            } else if (filter === 'monthly') {
+                // current year
+                timeWhere = `AND YEAR(${startExpr}) = YEAR(${nowExpr})`;
+            } else if (filter === 'yearly') {
+                // last 5 years
+                timeWhere = `AND ${startExpr} >= (${nowExpr} - INTERVAL 5 YEAR)`;
+            }
+
+            // Events by department (organization-created events only)
+            const [deptRows] = await db.query(
+                `SELECT COALESCE(org.department, 'Unknown') AS department, COUNT(*) AS cnt
+                 FROM created_events ce
+                 LEFT JOIN student_organizations org ON ce.created_by_org_id = org.id
+                 WHERE ce.created_by_org_id IS NOT NULL
+                   AND ce.deleted_at IS NULL
+                   ${timeWhere}
+                 GROUP BY department
+                 ORDER BY cnt DESC
+                 LIMIT 50`
+            );
+
+            // Activities per organization (organization-created events only)
+            const [orgRows] = await db.query(
+                `SELECT COALESCE(org.org_name, CONCAT('Org ', ce.created_by_org_id)) AS org_name, COUNT(*) AS cnt
+                 FROM created_events ce
+                 LEFT JOIN student_organizations org ON ce.created_by_org_id = org.id
+                 WHERE ce.created_by_org_id IS NOT NULL
+                   AND ce.deleted_at IS NULL
+                   ${timeWhere}
+                 GROUP BY org_name
+                 ORDER BY cnt DESC
+                 LIMIT 100`
+            );
+
+            return {
+                events_by_department: deptRows.map(r => ({ department: r.department || 'Unknown', count: r.cnt || 0 })),
+                activities_by_organization: orgRows.map(r => ({ org_name: r.org_name || 'Unknown', count: r.cnt || 0 }))
+            };
+        },
         getOswsDashboardStats: async () => {
         // Use UTC_TIMESTAMP() and TIMESTAMP() for comparisons to avoid reliance on CONVERT_TZ
         // which may be unavailable if MySQL tz tables are not loaded. Use UTC explicitly

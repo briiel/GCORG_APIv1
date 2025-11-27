@@ -910,6 +910,20 @@ exports.getOswsDashboardStats = async (req, res) => {
     }
 };
 
+    // Aggregated chart datasets for OSWS dashboard: events by department, activities per organization
+    exports.getOswsDashboardCharts = async (req, res) => {
+        try {
+            // Optional query param `filter` can be 'weekly'|'monthly'|'yearly'
+            const filter = String(req.query.filter || 'monthly').toLowerCase();
+            const allowed = ['weekly', 'monthly', 'yearly'];
+            const f = allowed.includes(filter) ? filter : 'monthly';
+            const data = await eventService.getOswsDashboardCharts(f);
+            return handleSuccessResponse(res, data);
+        } catch (error) {
+            return handleErrorResponse(res, error.message);
+        }
+    };
+
 exports.getCertificatesByStudent = async (req, res) => {
     try {
         const { student_id } = req.query;

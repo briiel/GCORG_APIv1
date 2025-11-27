@@ -156,6 +156,16 @@ const getOswsDashboardStats = async () => {
     return await eventModel.getOswsDashboardStats();
 };
 
+// Provide aggregated chart datasets for OSWS dashboard
+const getOswsDashboardCharts = async (filter) => {
+    try {
+        return await eventModel.getOswsDashboardCharts(filter);
+    } catch (err) {
+        console.error('Error fetching OSWS dashboard charts in service:', err);
+        throw err;
+    }
+};
+
 module.exports = {
     createNewEvent,
     fetchAllEvents,
@@ -175,6 +185,7 @@ module.exports = {
     getEventById,
     getOrgDashboardStats,
     getOswsDashboardStats,
+    getOswsDashboardCharts,
     getTrashedOrgEvents: eventModel.getTrashedOrgEvents,
     getTrashedOswsEvents: eventModel.getTrashedOswsEvents,
     restoreEvent: eventModel.restoreEvent,
