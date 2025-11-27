@@ -39,6 +39,42 @@ const createCertificateRequest = async ({ event_id, student_id }) => {
 };
 
 // Get all certificate requests for an organization
+const { parseMysqlUtcStringToDate } = require('../utils/dbDate');
+const EVENT_TZ_OFFSET = process.env.EVENT_TZ_OFFSET || '+08:00';
+
+// Convert a JS Date (assumed UTC) to a local datetime string using an offset like '+08:00'.
+// Returns 'YYYY-MM-DD HH:mm:ss' and an ISO with offset 'YYYY-MM-DDTHH:mm:ss+08:00'.
+function formatDateToOffsetStrings(dateObj, offset = '+00:00') {
+	if (!dateObj || isNaN(dateObj.getTime())) return { local: null, iso_with_offset: null };
+	// offset format: (+|-)HH:MM
+	const m = String(offset).match(/^([+-])(\d{2}):(\d{2})$/);
+	let totalMinutes = 0;
+	if (m) {
+		const sign = m[1] === '-' ? -1 : 1;
+		totalMinutes = sign * (Number(m[2]) * 60 + Number(m[3]));
+	} else {
+		// fallback: try '+08' style
+		const m2 = String(offset).match(/^([+-])(\d{2})$/);
+		if (m2) {
+			const sign = m2[1] === '-' ? -1 : 1;
+			totalMinutes = sign * (Number(m2[2]) * 60);
+		}
+	}
+	// dateObj is UTC; compute local by adding offset minutes
+	const localMs = dateObj.getTime() + totalMinutes * 60 * 1000;
+	const local = new Date(localMs);
+	const YYYY = local.getUTCFullYear();
+	const MM = String(local.getUTCMonth() + 1).padStart(2, '0');
+	const DD = String(local.getUTCDate()).padStart(2, '0');
+	const hh = String(local.getUTCHours()).padStart(2, '0');
+	const mm = String(local.getUTCMinutes()).padStart(2, '0');
+	const ss = String(local.getUTCSeconds()).padStart(2, '0');
+	const localStr = `${YYYY}-${MM}-${DD} ${hh}:${mm}:${ss}`;
+	// Build ISO with offset
+	const iso = `${YYYY}-${MM}-${DD}T${hh}:${mm}:${ss}${offset}`;
+	return { local: localStr, iso_with_offset: iso };
+}
+
 const getCertificateRequestsByOrg = async (org_id) => {
 	await ensureSchema();
 	const query = `
@@ -56,7 +92,32 @@ const getCertificateRequestsByOrg = async (org_id) => {
 		ORDER BY cr.requested_at DESC
 	`;
 	const [rows] = await db.query(query, [org_id]);
-	return rows;
+	// Convert DATETIME strings (returned as strings by dateStrings: true) into
+	// explicit ISO UTC strings and event-local formatted strings so the frontend
+	// can display either UTC or event-local times without ambiguity.
+	const mapped = (rows || []).map(r => {
+		const out = { ...r };
+		try {
+			if (out.requested_at) {
+				const d = parseMysqlUtcStringToDate(out.requested_at);
+				out.requested_at = d ? d.toISOString() : null;
+				const f = d ? formatDateToOffsetStrings(d, EVENT_TZ_OFFSET) : { local: null, iso_with_offset: null };
+				out.requested_at_local = f.local;
+				out.requested_at_local_iso = f.iso_with_offset;
+			}
+		} catch (_) { /* keep originals on error */ }
+		try {
+			if (out.processed_at) {
+				const d2 = parseMysqlUtcStringToDate(out.processed_at);
+				out.processed_at = d2 ? d2.toISOString() : null;
+				const f2 = d2 ? formatDateToOffsetStrings(d2, EVENT_TZ_OFFSET) : { local: null, iso_with_offset: null };
+				out.processed_at_local = f2.local;
+				out.processed_at_local_iso = f2.iso_with_offset;
+			}
+		} catch (_) { /* keep originals on error */ }
+		return out;
+	});
+	return mapped;
 };
 
 // Get certificate request by ID
@@ -74,7 +135,28 @@ const getCertificateRequestById = async (request_id) => {
 		LIMIT 1
 	`;
 	const [rows] = await db.query(query, [request_id]);
-	return rows[0] || null;
+	const row = rows[0] || null;
+	if (!row) return null;
+	// Normalize timestamps to ISO UTC and add event-local formatted strings
+	try {
+		if (row.requested_at) {
+			const d = parseMysqlUtcStringToDate(row.requested_at);
+			row.requested_at = d ? d.toISOString() : null;
+			const f = d ? formatDateToOffsetStrings(d, EVENT_TZ_OFFSET) : { local: null, iso_with_offset: null };
+			row.requested_at_local = f.local;
+			row.requested_at_local_iso = f.iso_with_offset;
+		}
+	} catch (_) {}
+	try {
+		if (row.processed_at) {
+			const d2 = parseMysqlUtcStringToDate(row.processed_at);
+			row.processed_at = d2 ? d2.toISOString() : null;
+			const f2 = d2 ? formatDateToOffsetStrings(d2, EVENT_TZ_OFFSET) : { local: null, iso_with_offset: null };
+			row.processed_at_local = f2.local;
+			row.processed_at_local_iso = f2.iso_with_offset;
+		}
+	} catch (_) {}
+	return row;
 };
 
 // Update certificate request status (approve or reject)
