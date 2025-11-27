@@ -48,11 +48,21 @@ if (dbTimeZone && setDriverTz) {
 
 const pool = mysql.createPool(poolConfig);
 
-if (dbTimeZone && process.env.DB_SET_SESSION_TZ === 'true') {
+// Decide whether to set the MySQL session timezone on new connections.
+// For production deployments it's safer to force the DB session to UTC so
+// `NOW()` and other server-side functions return UTC. This prevents surprises
+// when the cloud DB server's SYSTEM timezone is not UTC (Alwaysdata often
+// uses SYSTEM). We enable this behavior when either `DB_SET_SESSION_TZ=true`
+// or when running in production (`NODE_ENV=production`). To opt-out set
+// `DB_SET_SESSION_TZ=false` explicitly.
+const shouldSetSessionTz = (process.env.DB_SET_SESSION_TZ === 'true') || (process.env.NODE_ENV === 'production');
+if (shouldSetSessionTz) {
+    const tzToSet = dbTimeZone || '+00:00';
     pool.on('connection', (conn) => {
         try {
-            conn.query(`SET time_zone = ${mysql.escape(dbTimeZone)}`, (err) => {
+            conn.query(`SET time_zone = ${mysql.escape(tzToSet)}`, (err) => {
                 if (err) console.warn('Failed to set session time_zone:', err && err.message ? err.message : err);
+                else console.info('Applied session time_zone =', tzToSet);
             });
         } catch (e) {
             console.warn('Failed to apply session time_zone on new connection:', e && e.message ? e.message : e);

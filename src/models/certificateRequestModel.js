@@ -164,7 +164,7 @@ const updateCertificateRequestStatus = async (request_id, { status, processed_by
 	await ensureSchema();
 	const query = `
 		UPDATE certificate_requests 
-		SET status = ?, processed_at = NOW(), processed_by = ?, rejection_reason = ?, certificate_url = ?
+		SET status = ?, processed_at = UTC_TIMESTAMP(), processed_by = ?, rejection_reason = ?, certificate_url = ?
 		WHERE id = ?
 	`;
 	await db.query(query, [status, processed_by, rejection_reason, certificate_url, request_id]);

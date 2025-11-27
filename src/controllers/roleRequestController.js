@@ -288,7 +288,7 @@ const approveRequest = async (req, res) => {
     await connection.query(
       `UPDATE organization_role_requests 
        SET status = 'approved', 
-           reviewed_at = NOW(), 
+           reviewed_at = UTC_TIMESTAMP(), 
            reviewed_by_admin_id = ?,
            review_notes = ?
        WHERE request_id = ?`,
@@ -366,7 +366,7 @@ const rejectRequest = async (req, res) => {
     await db.query(
       `UPDATE organization_role_requests 
        SET status = 'rejected', 
-           reviewed_at = NOW(), 
+           reviewed_at = UTC_TIMESTAMP(), 
            reviewed_by_admin_id = ?,
            review_notes = ?
        WHERE request_id = ?`,

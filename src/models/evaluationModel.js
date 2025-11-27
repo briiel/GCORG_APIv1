@@ -16,7 +16,7 @@ async function createEvaluation({ event_id, student_id, responses }) {
   // Also update attendance_records to mark evaluation as submitted
   await db.query(
     `UPDATE attendance_records 
-     SET evaluation_submitted = 1, evaluation_submitted_at = NOW() 
+     SET evaluation_submitted = 1, evaluation_submitted_at = UTC_TIMESTAMP() 
      WHERE event_id = ? AND student_id = ?`,
     [event_id, student_id]
   );

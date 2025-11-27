@@ -689,20 +689,21 @@ exports.markAttendance = async (req, res) => {
 
         // Helper writers
         const doTimeInInsert = async () => {
+            // Store timestamps in UTC to avoid DB server timezone differences.
             await db.query(
                 `INSERT INTO attendance_records (event_id, student_id, attended_at, time_in, scanned_by_org_id, scanned_by_osws_id, scanned_by_student_id, reported_lat, reported_lon, reported_accuracy, location_consent, reported_at)
-                 VALUES (?, ?, NOW(), NOW(), ?, ?, ?, ?, ?, ?, ?, NOW())`,
+                 VALUES (?, ?, UTC_TIMESTAMP(), UTC_TIMESTAMP(), ?, ?, ?, ?, ?, ?, ?, UTC_TIMESTAMP())`,
                 [event_id, student_id, scannedByOrgId, scannedByOswsId, scannedByStudentId, user_lat, user_lon, user_accuracy, location_consent ? 1 : 0]
             );
         };
         const doTimeInUpdate = async (id) => {
             await db.query(
                 `UPDATE attendance_records 
-                 SET time_in = COALESCE(time_in, NOW()), attended_at = COALESCE(attended_at, NOW()),
+                 SET time_in = COALESCE(time_in, UTC_TIMESTAMP()), attended_at = COALESCE(attended_at, UTC_TIMESTAMP()),
                      scanned_by_org_id = COALESCE(scanned_by_org_id, ?),
                      scanned_by_osws_id = COALESCE(scanned_by_osws_id, ?),
                      scanned_by_student_id = COALESCE(scanned_by_student_id, ?),
-                     reported_lat = ?, reported_lon = ?, reported_accuracy = ?, location_consent = ?, reported_at = NOW()
+                     reported_lat = ?, reported_lon = ?, reported_accuracy = ?, location_consent = ?, reported_at = UTC_TIMESTAMP()
                  WHERE id = ?`,
                 [scannedByOrgId, scannedByOswsId, scannedByStudentId, user_lat, user_lon, user_accuracy, location_consent ? 1 : 0, id]
             );
@@ -710,11 +711,11 @@ exports.markAttendance = async (req, res) => {
         const doTimeOutUpdate = async (id) => {
             await db.query(
                 `UPDATE attendance_records 
-                 SET time_out = NOW(),
+                 SET time_out = UTC_TIMESTAMP(),
                      scanned_by_org_id = COALESCE(scanned_by_org_id, ?),
                      scanned_by_osws_id = COALESCE(scanned_by_osws_id, ?),
                      scanned_by_student_id = COALESCE(scanned_by_student_id, ?),
-                     reported_lat = ?, reported_lon = ?, reported_accuracy = ?, location_consent = ?, reported_at = NOW()
+                     reported_lat = ?, reported_lon = ?, reported_accuracy = ?, location_consent = ?, reported_at = UTC_TIMESTAMP()
                  WHERE id = ?`,
                 [scannedByOrgId, scannedByOswsId, scannedByStudentId, user_lat, user_lon, user_accuracy, location_consent ? 1 : 0, id]
             );
@@ -1234,7 +1235,7 @@ exports.approveRegistration = async (req, res) => {
             return handleSuccessResponse(res, { message: 'Already approved' });
         }
         await db.query(
-            `UPDATE event_registrations SET status = 'approved', approved_at = NOW(),
+            `UPDATE event_registrations SET status = 'approved', approved_at = UTC_TIMESTAMP(),
              approved_by_org_id = ?, approved_by_osws_id = ?
              WHERE id = ?`,
             [isOrgOfficer ? orgId : null, isAdmin ? adminId : null, registration_id]
@@ -1473,14 +1474,14 @@ exports.requestCertificate = async (req, res) => {
         const studentIdStr = String(user.id);
         const [cntRows] = await db.query(
             `SELECT COUNT(*) AS cnt FROM certificate_request_logs
-             WHERE event_id = ? AND student_id = ? AND requested_at >= (NOW() - INTERVAL 48 HOUR)`,
+             WHERE event_id = ? AND student_id = ? AND requested_at >= (UTC_TIMESTAMP() - INTERVAL 48 HOUR)`,
             [eventId, studentIdStr]
         );
         const recentCount = Number(cntRows?.[0]?.cnt || 0);
         if (recentCount >= 2) {
             const [firstRows] = await db.query(
                 `SELECT MIN(requested_at) AS first_in_window FROM certificate_request_logs
-                 WHERE event_id = ? AND student_id = ? AND requested_at >= (NOW() - INTERVAL 48 HOUR)`,
+                 WHERE event_id = ? AND student_id = ? AND requested_at >= (UTC_TIMESTAMP() - INTERVAL 48 HOUR)`,
                 [eventId, studentIdStr]
             );
             const firstDateStr = firstRows?.[0]?.first_in_window;

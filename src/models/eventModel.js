@@ -375,7 +375,7 @@ const getAttendanceRecordsByStudent = async (studentId) => {
 
 // Soft delete: mark event as trashed
 const deleteEvent = async (eventId, deletedBy) => {
-    const query = `UPDATE created_events SET deleted_at = NOW(), deleted_by = ? WHERE event_id = ? AND deleted_at IS NULL`;
+    const query = `UPDATE created_events SET deleted_at = UTC_TIMESTAMP(), deleted_by = ? WHERE event_id = ? AND deleted_at IS NULL`;
     try {
         const [result] = await db.query(query, [deletedBy || null, eventId]);
         return result.affectedRows > 0;
@@ -893,33 +893,48 @@ module.exports = {
         };
     },
         getOswsDashboardStats: async () => {
+        // Use UTC_TIMESTAMP() and TIMESTAMP() for comparisons to avoid reliance on CONVERT_TZ
+        // which may be unavailable if MySQL tz tables are not loaded. Use UTC explicitly
+        // so dashboard counts are consistent across environments regardless of DB server tz.
         const nowQuery = 'UTC_TIMESTAMP()';
-            const [up] = await db.query(
-                `SELECT COUNT(*) AS cnt FROM created_events
-                 WHERE created_by_osws_id IS NOT NULL AND deleted_at IS NULL
-                     AND CONVERT_TZ(TIMESTAMP(start_date, start_time), '${process.env.EVENT_TZ_OFFSET || '+08:00'}', '+00:00') > ${nowQuery}
-                     AND LOWER(COALESCE(status, '')) NOT IN ('cancelled', 'concluded')`
-            );
-            const [og] = await db.query(
-                `SELECT COUNT(*) AS CNT FROM created_events
-                 WHERE created_by_osws_id IS NOT NULL AND deleted_at IS NULL
-                     AND CONVERT_TZ(TIMESTAMP(start_date, start_time), '${process.env.EVENT_TZ_OFFSET || '+08:00'}', '+00:00') <= ${nowQuery}
-                     AND CONVERT_TZ(TIMESTAMP(end_date, end_time), '${process.env.EVENT_TZ_OFFSET || '+08:00'}', '+00:00') >= ${nowQuery}
-                     AND LOWER(COALESCE(status, '')) NOT IN ('cancelled', 'concluded')`
-            );
+        // Normalize empty times
+        const startExpr = `TIMESTAMP(start_date, COALESCE(start_time, '00:00:00'))`;
+        const endExpr = `TIMESTAMP(end_date, COALESCE(end_time, '23:59:59'))`;
+
+        // Upcoming: start after now, exclude trashed
+        const [up] = await db.query(
+            `SELECT COUNT(*) AS cnt FROM created_events
+             WHERE created_by_osws_id IS NOT NULL AND deleted_at IS NULL
+               AND ${startExpr} > ${nowQuery}
+               AND LOWER(COALESCE(status, '')) NOT IN ('cancelled','concluded')`
+        );
+
+        // Ongoing: now between start and end, exclude trashed
+        const [og] = await db.query(
+            `SELECT COUNT(*) AS cnt FROM created_events
+             WHERE created_by_osws_id IS NOT NULL AND deleted_at IS NULL
+               AND ${startExpr} <= ${nowQuery}
+               AND ${endExpr} >= ${nowQuery}
+               AND LOWER(COALESCE(status, '')) NOT IN ('cancelled','concluded')`
+        );
+
+        // Cancelled: exclude trashed
         const [cc] = await db.query(
             `SELECT COUNT(*) AS cnt FROM created_events
              WHERE created_by_osws_id IS NOT NULL AND deleted_at IS NULL
                AND LOWER(COALESCE(status, '')) = 'cancelled'`
         );
+
+        // Concluded: include trashed or not (server-side rule: concluded includes trashed)
         const [cm] = await db.query(
             `SELECT COUNT(*) AS cnt FROM created_events
-             WHERE created_by_osws_id IS NOT NULL AND deleted_at IS NULL
+             WHERE created_by_osws_id IS NOT NULL
                AND (
                    LOWER(COALESCE(status, '')) = 'concluded'
-                   OR CONVERT_TZ(TIMESTAMP(end_date, end_time), '${process.env.EVENT_TZ_OFFSET || '+08:00'}', '+00:00') < ${nowQuery}
+                   OR ${endExpr} < ${nowQuery}
                )`
         );
+
         return {
             upcoming: up[0]?.cnt || 0,
             ongoing: og[0]?.cnt || 0,
