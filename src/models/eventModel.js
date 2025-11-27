@@ -944,47 +944,48 @@ module.exports = {
             };
         },
         getOswsDashboardStats: async () => {
-        // Use UTC_TIMESTAMP() and TIMESTAMP() for comparisons to avoid reliance on CONVERT_TZ
-        // which may be unavailable if MySQL tz tables are not loaded. Use UTC explicitly
-        // so dashboard counts are consistent across environments regardless of DB server tz.
+        // Use UTC_TIMESTAMP() for comparisons but convert stored event local timestamps
+        // to UTC using the configured EVENT_TZ_OFFSET so counts reflect the event
+        // organizer's local timezone (e.g. '+08:00'). This prevents flip-flopping
+        // when the DB server timezone differs from event local time.
         const nowQuery = 'UTC_TIMESTAMP()';
-        // Normalize empty times
-        const startExpr = `TIMESTAMP(start_date, COALESCE(start_time, '00:00:00'))`;
-        const endExpr = `TIMESTAMP(end_date, COALESCE(end_time, '23:59:59'))`;
+        const eventTzOffset = process.env.EVENT_TZ_OFFSET || '+08:00';
+        const startExpr = `CONVERT_TZ(TIMESTAMP(start_date, COALESCE(start_time, '00:00:00')), '${eventTzOffset}', '+00:00')`;
+        const endExpr = `CONVERT_TZ(TIMESTAMP(end_date, COALESCE(end_time, '23:59:59')), '${eventTzOffset}', '+00:00')`;
 
         // Upcoming: start after now, exclude trashed
-        const [up] = await db.query(
-            `SELECT COUNT(*) AS cnt FROM created_events
-             WHERE created_by_osws_id IS NOT NULL AND deleted_at IS NULL
-               AND ${startExpr} > ${nowQuery}
-               AND LOWER(COALESCE(status, '')) NOT IN ('cancelled','concluded')`
-        );
+                const [up] = await db.query(
+                        `SELECT COUNT(*) AS cnt FROM created_events
+                         WHERE created_by_osws_id IS NOT NULL AND deleted_at IS NULL
+                             AND ${startExpr} > ${nowQuery}
+                             AND LOWER(COALESCE(status, '')) NOT IN ('cancelled','concluded')`
+                );
 
-        // Ongoing: now between start and end, exclude trashed
-        const [og] = await db.query(
-            `SELECT COUNT(*) AS cnt FROM created_events
-             WHERE created_by_osws_id IS NOT NULL AND deleted_at IS NULL
-               AND ${startExpr} <= ${nowQuery}
-               AND ${endExpr} >= ${nowQuery}
-               AND LOWER(COALESCE(status, '')) NOT IN ('cancelled','concluded')`
-        );
+                // Ongoing: now between start and end, exclude trashed
+                const [og] = await db.query(
+                        `SELECT COUNT(*) AS cnt FROM created_events
+                         WHERE created_by_osws_id IS NOT NULL AND deleted_at IS NULL
+                             AND ${startExpr} <= ${nowQuery}
+                             AND ${endExpr} >= ${nowQuery}
+                             AND LOWER(COALESCE(status, '')) NOT IN ('cancelled','concluded')`
+                );
 
-        // Cancelled: exclude trashed
-        const [cc] = await db.query(
-            `SELECT COUNT(*) AS cnt FROM created_events
-             WHERE created_by_osws_id IS NOT NULL AND deleted_at IS NULL
-               AND LOWER(COALESCE(status, '')) = 'cancelled'`
-        );
+                // Cancelled: exclude trashed
+                const [cc] = await db.query(
+                        `SELECT COUNT(*) AS cnt FROM created_events
+                         WHERE created_by_osws_id IS NOT NULL AND deleted_at IS NULL
+                             AND LOWER(COALESCE(status, '')) = 'cancelled'`
+                );
 
-        // Concluded: include trashed or not (server-side rule: concluded includes trashed)
-        const [cm] = await db.query(
-            `SELECT COUNT(*) AS cnt FROM created_events
-             WHERE created_by_osws_id IS NOT NULL
-               AND (
-                   LOWER(COALESCE(status, '')) = 'concluded'
-                   OR ${endExpr} < ${nowQuery}
-               )`
-        );
+                // Concluded: include trashed or not (server-side rule: concluded includes trashed)
+                const [cm] = await db.query(
+                        `SELECT COUNT(*) AS cnt FROM created_events
+                         WHERE created_by_osws_id IS NOT NULL
+                             AND (
+                                     LOWER(COALESCE(status, '')) = 'concluded'
+                                     OR ${endExpr} < ${nowQuery}
+                             )`
+                );
 
         return {
             upcoming: up[0]?.cnt || 0,
