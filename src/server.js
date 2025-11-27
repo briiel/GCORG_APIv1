@@ -13,6 +13,7 @@ const evaluationRoutes = require('./routes/evaluationRoutes');
 const roleRequestRoutes = require('./routes/roleRequestRoutes');
 const certificateRequestRoutes = require('./routes/certificateRequestRoutes');
 const path = require('path');
+const fs = require('fs');
 
 const eventService = require('./services/eventService');
 
@@ -91,6 +92,34 @@ app.use('/api', roleRequestRoutes);
 app.use('/api/certificates', certificateRequestRoutes);
 
 app.use('/uploads', express.static(path.join(__dirname, '../uploads')));
+
+// If a built frontend exists in the workspace, serve it (optional).
+// This helps when the API and frontend are deployed together under the same host.
+// We avoid returning index.html for missing static assets (like .js files)
+// by only rewriting requests without an extension and when the client accepts HTML.
+try {
+    const clientDist = path.join(__dirname, '..', 'GC_ORGanize', 'gc_organize', 'dist', 'gc_organize');
+    if (fs.existsSync(clientDist)) {
+        app.use(express.static(clientDist));
+
+        app.get('*', (req, res, next) => {
+            // Skip API and uploads routes
+            if (req.path.startsWith('/api') || req.path.startsWith('/uploads')) return next();
+            // Only handle GET navigation requests
+            if (req.method !== 'GET') return next();
+            // If the request looks like a file (has an extension), don't rewrite
+            const ext = path.extname(req.path);
+            if (ext) return next();
+            // Only rewrite when the client expects HTML (browser navigation)
+            const accept = req.headers.accept || '';
+            if (!accept.includes('text/html')) return next();
+
+            return res.sendFile(path.join(clientDist, 'index.html'));
+        });
+    }
+} catch (e) {
+    console.warn('Client static serving skipped:', e.message);
+}
 
 // 404 handler
 app.use((req, res) => {
