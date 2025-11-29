@@ -1,6 +1,10 @@
 const express = require('express');
 const router = express.Router();
 const db = require('../config/db');
+const rateLimit = require('../middleware/rateLimit');
+
+// Metrics rate limiters
+const metricsLimiter = rateLimit({ windowMs: 60 * 1000, max: 120 }); // 120 requests per minute
 
 async function ensureTable() {
   await db.execute(`
@@ -14,7 +18,7 @@ async function ensureTable() {
   await db.execute(`INSERT IGNORE INTO site_visits (id, total) VALUES (1, 0)`);
 }
 
-router.get('/visits', async (req, res) => {
+router.get('/visits', metricsLimiter, async (req, res) => {
   try {
     await ensureTable();
     const [rows] = await db.execute('SELECT total FROM site_visits WHERE id = 1');
@@ -26,7 +30,7 @@ router.get('/visits', async (req, res) => {
   }
 });
 
-router.post('/visits', async (req, res) => {
+router.post('/visits', metricsLimiter, async (req, res) => {
   try {
     await ensureTable();
     // Prefer a simple atomic UPDATE; if no row exists, insert it.

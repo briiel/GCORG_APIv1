@@ -18,6 +18,7 @@ const fs = require('fs');
 
 const eventService = require('./services/eventService');
 const autoCleanupService = require('./services/autoCleanupService');
+const rateLimit = require('./middleware/rateLimit');
 
 const app = express();
 
@@ -29,6 +30,14 @@ app.use(helmet({
 
 // Compression middleware for performance
 app.use(compression());
+
+// Global rate limiter - baseline protection for all endpoints
+// Individual routes can have stricter limits
+const globalLimiter = rateLimit({ 
+    windowMs: 60 * 1000, // 1 minute
+    max: 200 // 200 requests per minute per IP
+});
+app.use('/api', globalLimiter);
 
 // CORS configuration
 app.use(cors());

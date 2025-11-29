@@ -8,6 +8,11 @@ const router = express.Router();
 const roleRequestController = require('../controllers/roleRequestController');
 const checkAuth = require('../middleware/checkAuth');
 const { checkRole } = require('../middleware/checkRole');
+const rateLimit = require('../middleware/rateLimit');
+
+// Role request rate limits
+const requestLimiter = rateLimit({ windowMs: 15 * 60 * 1000, max: 5 }); // 5 submissions per 15 minutes
+const apiLimiter = rateLimit({ windowMs: 60 * 1000, max: 100 }); // 100 requests per minute
 
 /**
  * @route   GET /api/organizations
@@ -15,7 +20,8 @@ const { checkRole } = require('../middleware/checkRole');
  * @access  Protected - Any authenticated user
  */
 router.get('/organizations', 
-  checkAuth, 
+  checkAuth,
+  apiLimiter,
   roleRequestController.getAllOrganizations
 );
 
@@ -26,7 +32,8 @@ router.get('/organizations',
  */
 router.post('/roles/request', 
   checkAuth, 
-  checkRole(['Student']), 
+  checkRole(['Student']),
+  requestLimiter,
   roleRequestController.submitRoleRequest
 );
 
@@ -36,7 +43,8 @@ router.post('/roles/request',
  * @access  Protected - Any authenticated user
  */
 router.get('/roles/my-requests', 
-  checkAuth, 
+  checkAuth,
+  apiLimiter,
   roleRequestController.getMyRequests
 );
 
@@ -47,7 +55,8 @@ router.get('/roles/my-requests',
  */
 router.get('/admin/requests', 
   checkAuth, 
-  checkRole(['OSWSAdmin']), 
+  checkRole(['OSWSAdmin']),
+  apiLimiter,
   roleRequestController.getAllRequests
 );
 
@@ -58,7 +67,8 @@ router.get('/admin/requests',
  */
 router.get('/admin/requests/pending', 
   checkAuth, 
-  checkRole(['OSWSAdmin']), 
+  checkRole(['OSWSAdmin']),
+  apiLimiter,
   roleRequestController.getPendingRequests
 );
 
@@ -69,7 +79,8 @@ router.get('/admin/requests/pending',
  */
 router.post('/admin/approve/:requestId', 
   checkAuth, 
-  checkRole(['OSWSAdmin']), 
+  checkRole(['OSWSAdmin']),
+  apiLimiter,
   roleRequestController.approveRequest
 );
 
@@ -80,7 +91,8 @@ router.post('/admin/approve/:requestId',
  */
 router.post('/admin/reject/:requestId', 
   checkAuth, 
-  checkRole(['OSWSAdmin']), 
+  checkRole(['OSWSAdmin']),
+  apiLimiter,
   roleRequestController.rejectRequest
 );
 
