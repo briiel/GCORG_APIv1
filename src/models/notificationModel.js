@@ -1,4 +1,6 @@
 const db = require('../config/db');
+const { parseMysqlLocalStringToDate } = require('../utils/dbDate');
+const SERVER_TZ_OFFSET = process.env.SERVER_TZ_OFFSET || process.env.EVENT_TZ_OFFSET || '+08:00';
 
 // Ensure notifications table exists (idempotent) and attempt to add
 // missing columns/indexes when running against an older schema.
@@ -104,7 +106,19 @@ const getNotificationsForUser = async (user_id, options = {}) => {
 	sql += ` ORDER BY n.created_at DESC, n.id DESC`;
 
 	const [rows] = await db.query(sql, params);
-	return rows;
+	// Normalize created_at (DATETIME without timezone) into an ISO UTC instant
+	// using the server-configured timezone offset. This prevents the frontend
+	// from misinterpreting the DATETIME as UTC and shifting displayed times.
+	const mapped = (rows || []).map(r => {
+		try {
+			if (r.created_at) {
+				const d = parseMysqlLocalStringToDate(r.created_at, SERVER_TZ_OFFSET);
+				return { ...r, created_at: d ? d.toISOString() : null };
+			}
+		} catch (_) {}
+		return r;
+	});
+	return mapped;
 };
 
 // Mark notification as read
