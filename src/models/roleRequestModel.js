@@ -112,6 +112,7 @@ const getPendingRequests = async () => {
       s.first_name,
       s.last_name,
       s.id as student_id,
+      COALESCE(s.year_level, 4) AS year_level,
       o.org_name,
       o.department
      FROM organization_role_requests orr
@@ -129,7 +130,7 @@ const getPendingRequests = async () => {
  * @returns {Promise<Array>} List of requests
  */
 const getAllRequests = async (status = null) => {
-  let query = `
+    let query = `
     SELECT 
       orr.request_id,
       orr.student_id,
@@ -144,6 +145,7 @@ const getAllRequests = async (status = null) => {
       s.first_name,
       s.last_name,
       s.id as student_id,
+      COALESCE(s.year_level, 4) AS year_level,
       o.org_name,
       o.department,
       ra.name AS reviewer_name

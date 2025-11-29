@@ -72,7 +72,8 @@ async function getEvaluationsByEvent(event_id) {
             IFNULL(s.middle_initial, '') AS middle_initial,
             IFNULL(s.suffix, '') AS suffix,
             IFNULL(s.department, '') AS department,
-            IFNULL(s.program, '') AS program
+            IFNULL(s.program, '') AS program,
+            COALESCE(s.year_level, 4) AS year_level
      FROM evaluations e
      LEFT JOIN students s ON e.student_id = s.id
      WHERE e.event_id = ?

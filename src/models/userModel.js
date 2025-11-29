@@ -2,14 +2,14 @@ const db = require('../config/db');
 
 // Fetch all users from both tables
 const getAllUsers = async () => {
-    const [students] = await db.query('SELECT id, email, first_name, last_name, middle_initial, suffix, department, program, "student" as userType, NULL as org_name FROM students');
+    const [students] = await db.query('SELECT id, email, first_name, last_name, middle_initial, suffix, department, program, COALESCE(year_level, 4) AS year_level, "student" as userType, NULL as org_name FROM students');
     const [organizations] = await db.query('SELECT id, email, org_name as name, "organization" as userType, department FROM student_organizations');
     return [...students, ...organizations];
 };
 
 // Fetch user by ID from both tables
 const getUserById = async (id) => {
-    const [student] = await db.query('SELECT id, email, first_name, last_name, middle_initial, suffix, department, program, "student" as userType, NULL as org_name FROM students WHERE id = ?', [id]);
+    const [student] = await db.query('SELECT id, email, first_name, last_name, middle_initial, suffix, department, program, COALESCE(year_level, 4) AS year_level, "student" as userType, NULL as org_name FROM students WHERE id = ?', [id]);
     if (student.length > 0) return student[0];
     const [organization] = await db.query('SELECT id, email, org_name as name, "organization" as userType, department FROM student_organizations WHERE id = ?', [id]);
     if (organization.length > 0) return organization[0];
@@ -31,7 +31,8 @@ const getOrganizationMembers = async (orgId) => {
             s.suffix,
             s.email,
             s.department,
-            s.program
+            s.program,
+            COALESCE(s.year_level, 4) AS year_level
         FROM organizationmembers om
         JOIN students s ON om.student_id = s.id
         WHERE om.org_id = ? AND om.is_active = TRUE AND om.deleted_at IS NULL

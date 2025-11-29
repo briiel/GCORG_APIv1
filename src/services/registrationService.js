@@ -245,7 +245,7 @@ const registerParticipant = async ({
 
         // Fetch student info for notification
         const [studentRows] = await conn.query(
-            `SELECT id, email, first_name, last_name FROM students WHERE id = ?`,
+            `SELECT id, email, first_name, last_name, COALESCE(year_level,4) AS year_level FROM students WHERE id = ?`,
             [student_id]
         );
         const student = studentRows[0] || {};

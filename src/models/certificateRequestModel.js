@@ -84,7 +84,7 @@ const getCertificateRequestsByOrg = async (org_id) => {
 			e.title AS event_title, e.location AS event_location, 
 			e.start_date AS event_start_date, e.end_date AS event_end_date,
 			s.first_name, s.middle_initial, s.last_name, s.suffix, s.email AS student_email,
-			s.department, s.program
+			s.department, s.program, COALESCE(s.year_level, 4) AS year_level
 		FROM certificate_requests cr
 		INNER JOIN created_events e ON cr.event_id = e.event_id
 		INNER JOIN students s ON cr.student_id = s.id
@@ -129,7 +129,7 @@ const getCertificateRequestById = async (request_id) => {
 		SELECT 
 			cr.*, 
 			e.title AS event_title, e.created_by_org_id, e.created_by_osws_id,
-			s.first_name, s.middle_initial, s.last_name, s.suffix, s.email AS student_email
+			s.first_name, s.middle_initial, s.last_name, s.suffix, s.email AS student_email, COALESCE(s.year_level, 4) AS year_level
 		FROM certificate_requests cr
 		INNER JOIN created_events e ON cr.event_id = e.event_id
 		INNER JOIN students s ON cr.student_id = s.id

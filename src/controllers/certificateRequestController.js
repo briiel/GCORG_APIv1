@@ -73,7 +73,7 @@ exports.approveCertificateRequest = async (req, res) => {
 		const event = eventRows && eventRows[0];
 		if (!event) return handleErrorResponse(res, 'Event not found for this request.', 404);
 
-		const [studentRows] = await db.query(`SELECT id, first_name, middle_initial, last_name, suffix FROM students WHERE id = ? LIMIT 1`, [request.student_id]);
+		const [studentRows] = await db.query(`SELECT id, first_name, middle_initial, last_name, suffix, COALESCE(year_level,4) AS year_level FROM students WHERE id = ? LIMIT 1`, [request.student_id]);
 		const student = studentRows && studentRows[0];
 		if (!student) return handleErrorResponse(res, 'Student not found for this request.', 404);
 
