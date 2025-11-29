@@ -1,3 +1,8 @@
+/**
+ * Notification Controller
+ * Handles notification retrieval and status updates
+ */
+
 const notificationService = require('../services/notificationService');
 const { handleSuccessResponse, handleErrorResponse } = require('../utils/errorHandler');
 

@@ -12,10 +12,12 @@ const notificationRoutes = require('./routes/notificationRoutes');
 const evaluationRoutes = require('./routes/evaluationRoutes');
 const roleRequestRoutes = require('./routes/roleRequestRoutes');
 const certificateRequestRoutes = require('./routes/certificateRequestRoutes');
+const archiveRoutes = require('./routes/archiveRoutes');
 const path = require('path');
 const fs = require('fs');
 
 const eventService = require('./services/eventService');
+const autoCleanupService = require('./services/autoCleanupService');
 
 const app = express();
 
@@ -90,6 +92,7 @@ app.use('/api/notifications', notificationRoutes);
 app.use('/api', evaluationRoutes);
 app.use('/api', roleRequestRoutes);
 app.use('/api/certificates', certificateRequestRoutes);
+app.use('/api', archiveRoutes);
 
 app.use('/uploads', express.static(path.join(__dirname, '../uploads')));
 
@@ -219,6 +222,14 @@ const server = app.listen(PORT, async () => {
         } catch (e) {
             console.warn('Auto-status scheduler not started:', e.message);
         }
+    }
+
+    // Start auto-cleanup service for archived items (30-day retention)
+    try {
+        autoCleanupService.startAutoCleanup();
+        console.log('[Auto-Cleanup] Service initialized successfully');
+    } catch (e) {
+        console.warn('[Auto-Cleanup] Service failed to start:', e.message);
     }
 
     console.log(`Server listening on port ${PORT}`);

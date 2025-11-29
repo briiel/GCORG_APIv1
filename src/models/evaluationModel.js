@@ -124,6 +124,6 @@ module.exports = {
   getEvaluationByStudentAndEvent,
   hasSubmittedEvaluation,
   getEvaluationsByEvent,
-  getEvaluationStats
-  , getRawEvaluationsByEvent
+  getEvaluationStats,
+  getRawEvaluationsByEvent
 };

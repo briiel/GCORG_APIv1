@@ -6,6 +6,7 @@
 const bcrypt = require('bcrypt');
 const jwt = require('jsonwebtoken');
 const db = require('../config/db');
+const { handleSuccessResponse, handleErrorResponse } = require('../utils/errorHandler');
 
 /**
  * Login with personal email (RBAC-enabled)
@@ -17,10 +18,7 @@ const login = async (req, res) => {
 
   // Validation
   if (!email || !password) {
-    return res.status(400).json({
-      success: false,
-      message: 'Email and password are required.'
-    });
+    return handleErrorResponse(res, 'Email and password are required.', 400);
   }
 
   try {
@@ -63,20 +61,14 @@ const login = async (req, res) => {
     }
 
     if (!user) {
-      return res.status(401).json({
-        success: false,
-        message: 'Invalid credentials. Please check your email and password.'
-      });
+      return handleErrorResponse(res, 'Invalid credentials. Please check your email and password.', 401);
     }
 
     // Step 2: Verify password
     const isPasswordValid = await bcrypt.compare(password, user.password_hash);
 
     if (!isPasswordValid) {
-      return res.status(401).json({
-        success: false,
-        message: 'Invalid credentials. Please check your email and password.'
-      });
+      return handleErrorResponse(res, 'Invalid credentials. Please check your email and password.', 401);
     }
 
     // Step 3: Fetch user's roles from UserRoles table
@@ -170,10 +162,7 @@ const login = async (req, res) => {
 
   } catch (error) {
     console.error('Login error:', error);
-    return res.status(500).json({
-      success: false,
-      message: 'An error occurred during login. Please try again.'
-    });
+    return handleErrorResponse(res, 'An error occurred during login. Please try again.');
   }
 };
 
@@ -196,27 +185,18 @@ const register = async (req, res) => {
 
   // Validation
   if (!student_id || !email || !password || !first_name || !last_name) {
-    return res.status(400).json({
-      success: false,
-      message: 'Student ID, email, password, first name, and last name are required.'
-    });
+    return handleErrorResponse(res, 'Student ID, email, password, first name, and last name are required.', 400);
   }
 
   // Validate email format (must be Gordon College email)
   const emailRegex = /^[0-9]{9}@gordoncollege\.edu\.ph$/;
   if (!emailRegex.test(email)) {
-    return res.status(400).json({
-      success: false,
-      message: 'Email must be a valid Gordon College email (format: 202211223@gordoncollege.edu.ph).'
-    });
+    return handleErrorResponse(res, 'Email must be a valid Gordon College email (format: 202211223@gordoncollege.edu.ph).', 400);
   }
 
   // Validate student ID format
   if (!/^[0-9]{9}$/.test(student_id)) {
-    return res.status(400).json({
-      success: false,
-      message: 'Student ID must be 9 digits.'
-    });
+    return handleErrorResponse(res, 'Student ID must be 9 digits.', 400);
   }
 
   try {
@@ -227,10 +207,7 @@ const register = async (req, res) => {
     );
 
     if (existingById.length > 0) {
-      return res.status(409).json({
-        success: false,
-        message: 'A student with this ID already exists.'
-      });
+      return handleErrorResponse(res, 'A student with this ID already exists.', 409);
     }
 
     // Check if email already exists
@@ -240,10 +217,7 @@ const register = async (req, res) => {
     );
 
     if (existingByEmail.length > 0) {
-      return res.status(409).json({
-        success: false,
-        message: 'This email is already registered.'
-      });
+      return handleErrorResponse(res, 'This email is already registered.', 409);
     }
 
     // Hash password
@@ -257,17 +231,11 @@ const register = async (req, res) => {
       [student_id, email, hashedPassword, first_name, last_name, middle_initial || null, suffix || null, department || null, program || null]
     );
 
-    return res.status(201).json({
-      success: true,
-      message: 'Student account created successfully. You can now log in.'
-    });
+    return handleSuccessResponse(res, { message: 'Student account created successfully. You can now log in.' }, 201);
 
   } catch (error) {
     console.error('Registration error:', error);
-    return res.status(500).json({
-      success: false,
-      message: 'An error occurred during registration. Please try again.'
-    });
+    return handleErrorResponse(res, 'An error occurred during registration. Please try again.');
   }
 };
 
@@ -276,11 +244,7 @@ const register = async (req, res) => {
  */
 const verifyToken = async (req, res) => {
   // If we reach here, checkAuth middleware has already verified the token
-  return res.status(200).json({
-    success: true,
-    message: 'Token is valid.',
-    user: req.user
-  });
+  return handleSuccessResponse(res, { message: 'Token is valid.', user: req.user });
 };
 
 module.exports = {

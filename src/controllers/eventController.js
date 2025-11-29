@@ -1,3 +1,8 @@
+/**
+ * Event Controller
+ * Handles all event-related operations including CRUD, attendance, and certificates
+ */
+
 // Trash (soft-delete) multiple events
 exports.trashMultipleEvents = async (req, res) => {
     try {

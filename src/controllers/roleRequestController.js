@@ -4,7 +4,9 @@
  */
 
 const db = require('../config/db');
+const roleRequestModel = require('../models/roleRequestModel');
 const notificationService = require('../services/notificationService');
+const { handleSuccessResponse, handleErrorResponse } = require('../utils/errorHandler');
 
 /**
  * Get all organizations (for dropdown in role request form)
@@ -18,17 +20,11 @@ const getAllOrganizations = async (req, res) => {
        ORDER BY org_name ASC`
     );
 
-    return res.status(200).json({
-      success: true,
-      organizations: organizations
-    });
+    return handleSuccessResponse(res, { organizations });
 
   } catch (error) {
     console.error('Get all organizations error:', error);
-    return res.status(500).json({
-      success: false,
-      message: 'An error occurred while fetching organizations.'
-    });
+    return handleErrorResponse(res, 'An error occurred while fetching organizations.');
   }
 };
 
@@ -42,18 +38,12 @@ const submitRoleRequest = async (req, res) => {
 
   // Only students can submit role requests
   if (!studentId) {
-    return res.status(403).json({
-      success: false,
-      message: 'Only students can request organization officer roles.'
-    });
+    return handleErrorResponse(res, 'Only students can request organization officer roles.', 403);
   }
 
   // Validation
   if (!org_id || !requested_position) {
-    return res.status(400).json({
-      success: false,
-      message: 'Organization and position are required.'
-    });
+    return handleErrorResponse(res, 'Organization and position are required.', 400);
   }
 
   try {
@@ -64,10 +54,7 @@ const submitRoleRequest = async (req, res) => {
     );
 
     if (orgs.length === 0) {
-      return res.status(404).json({
-        success: false,
-        message: 'Organization not found.'
-      });
+      return handleErrorResponse(res, 'Organization not found.', 404);
     }
 
     // Check if user already has a pending request for this organization
@@ -78,10 +65,7 @@ const submitRoleRequest = async (req, res) => {
     );
 
     if (existingRequests.length > 0) {
-      return res.status(400).json({
-        success: false,
-        message: 'You already have a pending request for this organization.'
-      });
+      return handleErrorResponse(res, 'You already have a pending request for this organization.', 400);
     }
 
     // Check if user is already an officer in this organization
@@ -92,10 +76,7 @@ const submitRoleRequest = async (req, res) => {
     );
 
     if (existingMemberships.length > 0) {
-      return res.status(400).json({
-        success: false,
-        message: 'You are already an officer in this organization.'
-      });
+      return handleErrorResponse(res, 'You are already an officer in this organization.', 400);
     }
 
     // Create the request
@@ -124,17 +105,11 @@ const submitRoleRequest = async (req, res) => {
       console.warn('Notification create failed (roleRequest):', nerr?.message || nerr);
     }
 
-    return res.status(201).json({
-      success: true,
-      message: 'Role request submitted successfully. Please wait for admin approval.'
-    });
+    return handleSuccessResponse(res, { message: 'Role request submitted successfully. Please wait for admin approval.' }, 201);
 
   } catch (error) {
     console.error('Submit role request error:', error);
-    return res.status(500).json({
-      success: false,
-      message: 'An error occurred while submitting your request.'
-    });
+    return handleErrorResponse(res, 'An error occurred while submitting your request.');
   }
 };
 
@@ -165,17 +140,11 @@ const getPendingRequests = async (req, res) => {
        ORDER BY orr.requested_at ASC`
     );
 
-    return res.status(200).json({
-      success: true,
-      requests: requests
-    });
+    return handleSuccessResponse(res, { requests });
 
   } catch (error) {
     console.error('Get pending requests error:', error);
-    return res.status(500).json({
-      success: false,
-      message: 'An error occurred while fetching requests.'
-    });
+    return handleErrorResponse(res, 'An error occurred while fetching requests.');
   }
 };
 
@@ -222,17 +191,11 @@ const getAllRequests = async (req, res) => {
 
     const [requests] = await db.query(query, params);
 
-    return res.status(200).json({
-      success: true,
-      requests: requests
-    });
+    return handleSuccessResponse(res, { requests });
 
   } catch (error) {
     console.error('Get all requests error:', error);
-    return res.status(500).json({
-      success: false,
-      message: 'An error occurred while fetching requests.'
-    });
+    return handleErrorResponse(res, 'An error occurred while fetching requests.');
   }
 };
 
@@ -246,10 +209,7 @@ const approveRequest = async (req, res) => {
   const reviewerAdminId = req.user.legacyId; // Admin's ID from osws_admins
 
   if (!requestId) {
-    return res.status(400).json({
-      success: false,
-      message: 'Request ID is required.'
-    });
+    return handleErrorResponse(res, 'Request ID is required.', 400);
   }
 
   const connection = await db.getConnection();
@@ -267,10 +227,7 @@ const approveRequest = async (req, res) => {
 
     if (requests.length === 0) {
       await connection.rollback();
-      return res.status(404).json({
-        success: false,
-        message: 'Request not found.'
-      });
+      return handleErrorResponse(res, 'Request not found.', 404);
     }
 
     const request = requests[0];
@@ -278,10 +235,7 @@ const approveRequest = async (req, res) => {
     // Check if already processed
     if (request.status !== 'pending') {
       await connection.rollback();
-      return res.status(400).json({
-        success: false,
-        message: `Request has already been ${request.status}.`
-      });
+      return handleErrorResponse(res, `Request has already been ${request.status}.`, 400);
     }
 
     // Step 2: Update request status to 'approved'
@@ -306,19 +260,13 @@ const approveRequest = async (req, res) => {
     // Commit transaction
     await connection.commit();
 
-    return res.status(200).json({
-      success: true,
-      message: 'Role request approved successfully.'
-    });
+    return handleSuccessResponse(res, { message: 'Role request approved successfully.' });
 
   } catch (error) {
     // Rollback on error
     try { await connection.rollback(); } catch (_) {}
     console.error('Approve request error:', error);
-    return res.status(500).json({
-      success: false,
-      message: 'An error occurred while approving the request.'
-    });
+    return handleErrorResponse(res, 'An error occurred while approving the request.');
   } finally {
     // Always release the connection
     try { connection.release(); } catch (_) {}
@@ -335,10 +283,7 @@ const rejectRequest = async (req, res) => {
   const reviewerAdminId = req.user.legacyId; // Admin's ID from osws_admins
 
   if (!requestId) {
-    return res.status(400).json({
-      success: false,
-      message: 'Request ID is required.'
-    });
+    return handleErrorResponse(res, 'Request ID is required.', 400);
   }
 
   try {
@@ -349,17 +294,11 @@ const rejectRequest = async (req, res) => {
     );
 
     if (requests.length === 0) {
-      return res.status(404).json({
-        success: false,
-        message: 'Request not found.'
-      });
+      return handleErrorResponse(res, 'Request not found.', 404);
     }
 
     if (requests[0].status !== 'pending') {
-      return res.status(400).json({
-        success: false,
-        message: `Request has already been ${requests[0].status}.`
-      });
+      return handleErrorResponse(res, `Request has already been ${requests[0].status}.`, 400);
     }
 
     // Update request status to 'rejected'
@@ -373,17 +312,11 @@ const rejectRequest = async (req, res) => {
       [reviewerAdminId, review_notes || null, requestId]
     );
 
-    return res.status(200).json({
-      success: true,
-      message: 'Role request declined.'
-    });
+    return handleSuccessResponse(res, { message: 'Role request declined.' });
 
   } catch (error) {
     console.error('Decline request error:', error);
-    return res.status(500).json({
-      success: false,
-      message: 'An error occurred while declining the request.'
-    });
+    return handleErrorResponse(res, 'An error occurred while declining the request.');
   }
 };
 
@@ -395,10 +328,7 @@ const getMyRequests = async (req, res) => {
   const studentId = req.user.studentId;
 
   if (!studentId) {
-    return res.status(403).json({
-      success: false,
-      message: 'Only students can view role requests.'
-    });
+    return handleErrorResponse(res, 'Only students can view role requests.', 403);
   }
 
   try {
@@ -423,17 +353,11 @@ const getMyRequests = async (req, res) => {
       [studentId]
     );
 
-    return res.status(200).json({
-      success: true,
-      requests: requests
-    });
+    return handleSuccessResponse(res, { requests });
 
   } catch (error) {
     console.error('Get my requests error:', error);
-    return res.status(500).json({
-      success: false,
-      message: 'An error occurred while fetching your requests.'
-    });
+    return handleErrorResponse(res, 'An error occurred while fetching your requests.');
   }
 };
 

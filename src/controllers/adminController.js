@@ -1,3 +1,8 @@
+/**
+ * Admin Controller
+ * Handles OSWS admin management operations
+ */
+
 const db = require('../config/db');
 const bcrypt = require('bcrypt');
 const { handleSuccessResponse, handleErrorResponse } = require('../utils/errorHandler');
@@ -25,13 +30,21 @@ exports.addAdmin = async (req, res) => {
     }
 };
 
-// Delete OSWS Admin
+// Delete OSWS Admin (soft delete - moves to archive/trash)
 exports.deleteAdmin = async (req, res) => {
     try {
         const { id } = req.params;
         if (!id) return handleErrorResponse(res, 'Admin ID is required.', 400);
-        await db.query('DELETE FROM osws_admins WHERE id = ?', [id]);
-        return handleSuccessResponse(res, { message: 'Admin account deleted.' });
+        
+        const user = req.user;
+        const deletedBy = user?.legacyId || user?.id || null;
+        
+        // Soft delete - set deleted_at timestamp and deleted_by
+        await db.query(
+            'UPDATE osws_admins SET deleted_at = UTC_TIMESTAMP(), deleted_by = ? WHERE id = ?',
+            [deletedBy, id]
+        );
+        return handleSuccessResponse(res, { message: 'Admin account moved to archive.' });
     } catch (error) {
         return handleErrorResponse(res, error.message);
     }
@@ -39,10 +52,14 @@ exports.deleteAdmin = async (req, res) => {
 
 exports.getManageUsers = async (req, res) => {
     try {
-        // Get all OSWS admins
-        const [admins] = await db.query('SELECT id, email, name FROM osws_admins');
-        // Get all student organizations
-        const [organizations] = await db.query('SELECT id, email, org_name AS name, department FROM student_organizations');
+        // Get all OSWS admins (exclude deleted/archived)
+        const [admins] = await db.query(
+            'SELECT id, email, name FROM osws_admins WHERE deleted_at IS NULL'
+        );
+        // Get all student organizations (exclude deleted/archived)
+        const [organizations] = await db.query(
+            'SELECT id, email, org_name AS name, department FROM student_organizations WHERE deleted_at IS NULL'
+        );
         return handleSuccessResponse(res, { admins, organizations });
     } catch (error) {
         return handleErrorResponse(res, error.message);

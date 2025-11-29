@@ -16,7 +16,7 @@ const getUserById = async (id) => {
     return null;
 };
 
-// Fetch organization members
+// Fetch organization members (exclude deleted/archived)
 const getOrganizationMembers = async (orgId) => {
     const [members] = await db.query(
         `SELECT 
@@ -34,18 +34,18 @@ const getOrganizationMembers = async (orgId) => {
             s.program
         FROM organizationmembers om
         JOIN students s ON om.student_id = s.id
-        WHERE om.org_id = ? AND om.is_active = TRUE
+        WHERE om.org_id = ? AND om.is_active = TRUE AND om.deleted_at IS NULL
         ORDER BY om.joined_at DESC`,
         [orgId]
     );
     return members;
 };
 
-// Remove organization member (soft delete)
+// Remove organization member (soft delete - moves to archive/trash)
 const removeOrganizationMember = async (orgId, memberId) => {
     await db.query(
         `UPDATE organizationmembers 
-         SET is_active = FALSE 
+         SET is_active = FALSE, deleted_at = UTC_TIMESTAMP()
          WHERE member_id = ? AND org_id = ?`,
         [memberId, orgId]
     );

@@ -1,3 +1,8 @@
+/**
+ * User Controller
+ * Handles user and organization member management operations
+ */
+
 const userService = require('../services/userService');
 const { handleErrorResponse, handleSuccessResponse } = require('../utils/errorHandler');
 
