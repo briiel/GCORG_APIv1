@@ -10,7 +10,8 @@ const checkAuth = require('../middleware/checkAuth');
 const rateLimit = require('../middleware/rateLimit');
 
 // Stricter rate limit for auth endpoints to prevent brute force
-const authLimiter = rateLimit({ windowMs: 15 * 60 * 1000, max: 10 }); // 10 requests per 15 minutes
+// Enable `logBlocked: true` so development logs show when a request is blocked.
+const authLimiter = rateLimit({ windowMs: 15 * 60 * 1000, max: 10, logBlocked: true }); // 10 requests per 15 minutes
 
 /**
  * @route   POST /api/auth/register

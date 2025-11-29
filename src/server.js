@@ -22,6 +22,10 @@ const rateLimit = require('./middleware/rateLimit');
 
 const app = express();
 
+// If the app is behind a proxy (Render, Heroku, etc.), enable trust proxy
+// so `req.ip` reflects the client IP rather than the proxy address.
+app.set('trust proxy', true);
+
 // Security middleware
 app.use(helmet({
     crossOriginResourcePolicy: { policy: "cross-origin" },
