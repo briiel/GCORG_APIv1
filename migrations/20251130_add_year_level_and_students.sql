@@ -38,11 +38,3 @@ ON DUPLICATE KEY UPDATE
   `department` = VALUES(`department`),
   `program` = VALUES(`program`),
   `year_level` = VALUES(`year_level`);
-ON DUPLICATE KEY UPDATE
-  `email` = VALUES(`email`),
-  `first_name` = VALUES(`first_name`),
-  `last_name` = VALUES(`last_name`),
-  `middle_initial` = VALUES(`middle_initial`),
-  `department` = VALUES(`department`),
-  `program` = VALUES(`program`),
-  `year_level` = VALUES(`year_level`);
