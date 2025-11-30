@@ -410,6 +410,7 @@ const getAllOrgEvents = async () => {
         FROM created_events ce
         JOIN student_organizations org ON ce.created_by_org_id = org.id
         WHERE ce.created_by_org_id IS NOT NULL AND ce.deleted_at IS NULL
+        ORDER BY ce.created_at DESC
     `;
     try {
         const [rows] = await db.query(query);
@@ -427,6 +428,7 @@ const getAllOswsEvents = async () => {
         FROM created_events ce
         JOIN osws_admins a ON ce.created_by_osws_id = a.id
         WHERE ce.created_by_osws_id IS NOT NULL AND ce.deleted_at IS NULL
+        ORDER BY ce.created_at DESC
     `;
     const [rows] = await db.query(query);
     return rows;
