@@ -1269,8 +1269,7 @@ exports.approveRegistration = async (req, res) => {
         );
         // Notify student
         try {
-            const msg = `Your registration for "${rec.title}" has been approved. You can now access your QR code for check-in.`;
-            await notificationService.createNotification({ user_id: String(rec.student_id), event_id: rec.event_id, message: msg, panel: 'student' });
+            await notificationService.createNotification({ user_id: String(rec.student_id), event_id: rec.event_id, type: require('../services/notificationTypes').REGISTRATION_APPROVED, templateVars: { title: rec.title }, panel: 'student' });
         } catch (_) {}
         return handleSuccessResponse(res, { message: 'Registration approved' });
     } catch (error) {
@@ -1316,8 +1315,7 @@ exports.rejectRegistration = async (req, res) => {
         }
         await db.query(`UPDATE event_registrations SET status = 'rejected' WHERE id = ?`, [registration_id]);
         try {
-            const msg = `Your registration for "${rec.title}" was not approved. Please contact the organizer if you have questions.`;
-            await notificationService.createNotification({ user_id: String(rec.student_id), event_id: rec.event_id, message: msg, panel: 'student' });
+            await notificationService.createNotification({ user_id: String(rec.student_id), event_id: rec.event_id, type: require('../services/notificationTypes').REGISTRATION_REJECTED, templateVars: { title: rec.title }, panel: 'student' });
         } catch (_) {}
         return handleSuccessResponse(res, { message: 'Registration declined' });
     } catch (error) {
@@ -1545,12 +1543,13 @@ exports.requestCertificate = async (req, res) => {
 
         // Create notification to organizer account
         try {
-            const msg = `New certificate request from ${studentName} for "${ev.title}"`;
+            const nt = require('../services/notificationTypes');
+            const payload = { type: nt.CERTIFICATE_REQUEST, templateVars: { studentName, title: ev.title }, event_id: ev.event_id };
             if (toOrgId) {
-                await notificationService.createNotification({ user_id: toOrgId, event_id: ev.event_id, message: msg, panel: 'organization', org_id: toOrgId, type: 'certificate_request' });
+                await notificationService.createNotification({ user_id: toOrgId, panel: 'organization', org_id: toOrgId, ...payload });
             } else {
                 // Notify OSWS admin panel
-                await notificationService.createNotification({ user_id: toOswsId, event_id: ev.event_id, message: msg, panel: 'admin', type: 'certificate_request' });
+                await notificationService.createNotification({ user_id: toOswsId, panel: 'admin', ...payload });
             }
         } catch (nerr) {
             console.warn('Notification create failed (requestCertificate):', nerr?.message || nerr);

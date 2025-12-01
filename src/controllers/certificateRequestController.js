@@ -115,8 +115,7 @@ exports.approveCertificateRequest = async (req, res) => {
 
 		// Send notification to student (best-effort)
 		try {
-			const msg = `Your certificate request for "${event.title}" has been approved. View it in your E-Certificates.`;
-			await notificationService.createNotification({ user_id: request.student_id, event_id: request.event_id, message: msg, panel: 'student' });
+			await notificationService.createNotification({ user_id: request.student_id, event_id: request.event_id, type: require('../services/notificationTypes').CERTIFICATE_APPROVED, templateVars: { title: event.title }, panel: 'student' });
 		} catch (nerr) {
 			console.warn('Notification create failed (approveCertificate):', nerr?.message || nerr);
 		}
@@ -165,8 +164,7 @@ exports.rejectCertificateRequest = async (req, res) => {
 		// Notify student (best-effort)
 		try {
 			const reasonText = rejection_reason ? ` Reason: ${rejection_reason}` : '';
-			const msg = `Your certificate request for "${request.event_title}" was not approved.${reasonText}`;
-			await notificationService.createNotification({ user_id: request.student_id, event_id: request.event_id, message: msg, panel: 'student' });
+			await notificationService.createNotification({ user_id: request.student_id, event_id: request.event_id, type: require('../services/notificationTypes').CERTIFICATE_REJECTED, templateVars: { title: request.event_title, reason: reasonText }, panel: 'student' });
 		} catch (nerr) {
 			console.warn('Notification create failed (rejectCertificate):', nerr?.message || nerr);
 		}
@@ -202,12 +200,14 @@ exports.updateCertificateRequestStatus = async (req, res) => {
 
 		// Notify student (best-effort)
 		try {
-			let message = '';
-			if (status === 'processing') message = `Your certificate request for "${request.event_title}" is now being processed.`;
-			else if (status === 'sent') message = `Your certificate for "${request.event_title}" has been sent. Please check your email.`;
-			else if (status === 'pending') message = `Your certificate request for "${request.event_title}" is pending review.`;
-
-			if (message) await notificationService.createNotification({ user_id: request.student_id, event_id: request.event_id, message, panel: 'student' });
+			const nt = require('../services/notificationTypes');
+			if (status === 'processing') {
+				await notificationService.createNotification({ user_id: request.student_id, event_id: request.event_id, type: nt.CERTIFICATE_PROCESSING, templateVars: { title: request.event_title }, panel: 'student' });
+			} else if (status === 'sent') {
+				await notificationService.createNotification({ user_id: request.student_id, event_id: request.event_id, type: nt.CERTIFICATE_SENT, templateVars: { title: request.event_title }, panel: 'student' });
+			} else if (status === 'pending') {
+				await notificationService.createNotification({ user_id: request.student_id, event_id: request.event_id, type: nt.CERTIFICATE_PENDING, templateVars: { title: request.event_title }, panel: 'student' });
+			}
 		} catch (nerr) {
 			console.warn('Notification create failed (updateStatus):', nerr?.message || nerr);
 		}

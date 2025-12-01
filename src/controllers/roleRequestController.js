@@ -98,9 +98,9 @@ const submitRoleRequest = async (req, res) => {
       const [orgRows] = await db.query(`SELECT org_name FROM student_organizations WHERE id = ? LIMIT 1`, [org_id]);
       const orgName = orgRows[0]?.org_name || String(org_id);
 
-      const msg = `New role request submitted by ${studentName} for ${orgName}`;
+      const nt = require('../services/notificationTypes');
       // user_id is NULL so it is visible as a global/admin notification; panel='admin' scopes it to admin panel
-      await notificationService.createNotification({ user_id: null, message: msg, panel: 'admin', type: 'role_request' });
+      await notificationService.createNotification({ user_id: null, type: nt.ROLE_REQUEST, templateVars: { studentName, orgName }, panel: 'admin' });
     } catch (nerr) {
       console.warn('Notification create failed (roleRequest):', nerr?.message || nerr);
     }

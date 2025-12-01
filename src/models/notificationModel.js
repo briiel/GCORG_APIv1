@@ -45,6 +45,30 @@ async function ensureSchema() {
 		if (!(err && (err.code === 'ER_DUP_FIELDNAME' || err.errno === 1060))) throw err;
 	}
 
+	// Add metadata JSON column for structured payloads
+	try {
+		await db.query(`ALTER TABLE notifications ADD COLUMN IF NOT EXISTS metadata JSON NULL`);
+	} catch (err) {
+		// Some MySQL versions may not accept JSON type; ignore duplicate column errors
+		if (!(err && (err.code === 'ER_DUP_FIELDNAME' || err.errno === 1060))) {
+			// If JSON not supported, try TEXT as fallback
+			try { await db.query(`ALTER TABLE notifications ADD COLUMN IF NOT EXISTS metadata TEXT NULL`); } catch (_) { }
+		}
+	}
+
+	// Add priority and read_at columns for future features
+	try {
+		await db.query(`ALTER TABLE notifications ADD COLUMN IF NOT EXISTS priority TINYINT NOT NULL DEFAULT 1`);
+	} catch (err) {
+		if (!(err && (err.code === 'ER_DUP_FIELDNAME' || err.errno === 1060))) throw err;
+	}
+
+	try {
+		await db.query(`ALTER TABLE notifications ADD COLUMN IF NOT EXISTS read_at DATETIME NULL`);
+	} catch (err) {
+		if (!(err && (err.code === 'ER_DUP_FIELDNAME' || err.errno === 1060))) throw err;
+	}
+
 	// Ensure an index for panel/org exists; ignore if it already exists.
 	try {
 		await db.query(`ALTER TABLE notifications ADD INDEX idx_panel_org (panel, org_id)`);
@@ -55,12 +79,15 @@ async function ensureSchema() {
 }
 
 // Create notification
-const createNotification = async ({ user_id = null, message, event_id = null, panel = null, org_id = null, type = null }) => {
+const createNotification = async ({ user_id = null, message, event_id = null, panel = null, org_id = null, type = null, metadata = null, priority = 1 }) => {
 	await ensureSchema();
 	// default to global panel when no panel specified so messages are broadly visible
 	if (!panel) panel = 'global';
-	const query = `INSERT INTO notifications (user_id, message, event_id, panel, org_id, type) VALUES (?, ?, ?, ?, ?, ?)`;
-	await db.query(query, [user_id, message, event_id, panel, org_id, type]);
+
+	const query = `INSERT INTO notifications (user_id, message, event_id, panel, org_id, type, metadata, priority) VALUES (?, ?, ?, ?, ?, ?, ?, ?)`;
+	// Store metadata as JSON string when object provided
+	const metaToStore = (metadata && typeof metadata === 'object') ? JSON.stringify(metadata) : metadata;
+	await db.query(query, [user_id, message, event_id, panel, org_id, type, metaToStore, priority]);
 };
 
 // Get notifications for a user with optional panel/org filtering
@@ -131,10 +158,16 @@ const getNotificationsForUser = async (user_id, options = {}) => {
 	// from misinterpreting the DATETIME as UTC and shifting displayed times.
 	const mapped = (rows || []).map(r => {
 		try {
+			const out = { ...r };
 			if (r.created_at) {
 				const d = parseMysqlLocalStringToDate(r.created_at, SERVER_TZ_OFFSET);
-				return { ...r, created_at: d ? d.toISOString() : null };
+				out.created_at = d ? d.toISOString() : null;
 			}
+			if (r.read_at) {
+				const rd = parseMysqlLocalStringToDate(r.read_at, SERVER_TZ_OFFSET);
+				out.read_at = rd ? rd.toISOString() : null;
+			}
+			return out;
 		} catch (_) {}
 		return r;
 	});
@@ -147,7 +180,7 @@ const getNotificationsForUser = async (user_id, options = {}) => {
 // Mark notification as read
 const markAsRead = async (notification_id) => {
 	await ensureSchema();
-	const query = `UPDATE notifications SET is_read = TRUE WHERE id = ?`;
+	const query = `UPDATE notifications SET is_read = TRUE, read_at = UTC_TIMESTAMP() WHERE id = ?`;
 	await db.query(query, [notification_id]);
 };
 
@@ -157,7 +190,7 @@ const markAllAsRead = async (user_id, options = {}) => {
 
 	const { panel = null, org_id = null } = options;
 
-	let sql = `UPDATE notifications n SET n.is_read = TRUE WHERE (n.user_id IS NULL OR n.user_id = ?)`;
+	let sql = `UPDATE notifications n SET n.is_read = TRUE, n.read_at = UTC_TIMESTAMP() WHERE (n.user_id IS NULL OR n.user_id = ?)`;
 	const params = [user_id];
 
 	if (panel === 'student') {

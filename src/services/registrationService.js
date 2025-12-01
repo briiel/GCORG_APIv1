@@ -114,12 +114,25 @@ const registerParticipant = async ({
                         [event_id]
                     );
                     const eventTitle2 = eventRows?.[0]?.title;
-                    if (eventTitle2) {
-                        const msg2 = initialStatus === 'approved'
-                            ? `Registration confirmed for "${eventTitle2}". Your QR code is ready for check-in.`
-                            : `Registration submitted for "${eventTitle2}" and is pending approval. You will be notified once it's processed.`;
-                        await notificationService.createNotification({ user_id: String(student_id), event_id, message: msg2, panel: 'student' });
-                    }
+                        if (eventTitle2) {
+                            if (initialStatus === 'approved') {
+                                await notificationService.createNotification({
+                                    user_id: String(student_id),
+                                    event_id,
+                                    type: require('./notificationTypes').REGISTRATION_RECEIVED,
+                                    templateVars: { title: eventTitle2 },
+                                    panel: 'student'
+                                });
+                            } else {
+                                await notificationService.createNotification({
+                                    user_id: String(student_id),
+                                    event_id,
+                                    type: require('./notificationTypes').REGISTRATION_SUBMITTED,
+                                    templateVars: { title: eventTitle2 },
+                                    panel: 'student'
+                                });
+                            }
+                        }
                 } catch (_) {}
 
                 await conn.commit();
@@ -261,10 +274,11 @@ const registerParticipant = async ({
         // Create in-app notification for the student
         if (studentIdStr && eventTitle) {
             try {
-                const msg = initialStatus === 'approved'
-                    ? `Registration successful for "${eventTitle}". Your QR code is ready for check-in.`
-                    : `Registration received for "${eventTitle}" and is being reviewed. You will be notified once approved.`;
-                await notificationService.createNotification({ user_id: studentIdStr, event_id, message: msg, panel: 'student' });
+                if (initialStatus === 'approved') {
+                    await notificationService.createNotification({ user_id: studentIdStr, event_id, type: require('./notificationTypes').REGISTRATION_RECEIVED, templateVars: { title: eventTitle }, panel: 'student' });
+                } else {
+                    await notificationService.createNotification({ user_id: studentIdStr, event_id, type: require('./notificationTypes').REGISTRATION_SUBMITTED, templateVars: { title: eventTitle }, panel: 'student' });
+                }
             } catch (nerr) {
                 console.warn('Notification create failed (registration):', nerr?.message || nerr);
             }
