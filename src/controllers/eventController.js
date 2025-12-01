@@ -29,7 +29,7 @@ exports.getAttendanceRecordsByEvent = async (req, res) => {
             return handleErrorResponse(res, 'Event ID is required', 400);
         }
         const records = await eventService.getAttendanceRecordsByEvent(eventId);
-        return handleSuccessResponse(res, records);
+        return handleSuccessResponse(res, { items: records });
     } catch (error) {
         return handleErrorResponse(res, error.message);
     }
@@ -112,7 +112,10 @@ exports.createEvent = async (req, res) => {
 
 exports.getEvents = async (req, res) => {
     try {
-        let events = await eventService.fetchAllEvents();
+        const page = req.query.page ? parseInt(req.query.page, 10) : undefined;
+        const per_page = req.query.per_page ? parseInt(req.query.per_page, 10) : undefined;
+        let eventsResult = await eventService.fetchAllEvents({ page, per_page });
+        let events = eventsResult && eventsResult.items ? eventsResult.items : eventsResult;
         const now = new Date();
 
         const computeAutoStatus = (ev) => {
@@ -145,7 +148,12 @@ exports.getEvents = async (req, res) => {
             };
         });
 
-        return handleSuccessResponse(res, events);
+        if (eventsResult && eventsResult.items) {
+            // return standardized paginated object
+            return handleSuccessResponse(res, { items: events, total: eventsResult.total, page: eventsResult.page, per_page: eventsResult.per_page, total_pages: eventsResult.total_pages });
+        }
+
+        return handleSuccessResponse(res, { items: events });
     } catch (error) {
         return handleErrorResponse(res, error.message);
     }
@@ -193,7 +201,7 @@ exports.registerParticipant = [
             return handleSuccessResponse(res, result, 201);
         } catch (error) {
             if (error.message === 'You have already registered for this event.') {
-                return res.status(409).json({ success: false, message: error.message });
+                return handleErrorResponse(res, error.message, 409);
             }
             // Log the error concisely and return a generic error response
             console.error('Registration error:', error && error.message ? error.message : error);
@@ -213,7 +221,7 @@ exports.getEventsByParticipant = async (req, res) => {
             registration_status: event.registration_status || 'approved'
         }));
 
-        return handleSuccessResponse(res, eventsWithQrUrl);
+        return handleSuccessResponse(res, { items: eventsWithQrUrl });
     } catch (error) {
         return handleErrorResponse(res, error.message);
     }
@@ -247,7 +255,7 @@ exports.getAttendedEventsByStudent = async (req, res) => {
                 ? ev.event_poster
                 : (ev.event_poster ? `${host}/${String(ev.event_poster).replace(/\\/g, '/')}` : null)
         }));
-        return handleSuccessResponse(res, data);
+        return handleSuccessResponse(res, { items: data });
     } catch (error) {
         return handleErrorResponse(res, error.message);
     }
@@ -291,7 +299,7 @@ exports.getEventsByCreator = async (req, res) => {
                 auto_mismatch
             };
         });
-        return handleSuccessResponse(res, eventsWithPosterUrl);
+        return handleSuccessResponse(res, { items: eventsWithPosterUrl });
     } catch (error) {
         return handleErrorResponse(res, error.message);
     }
@@ -802,7 +810,7 @@ exports.getAllAttendanceRecords = async (req, res) => {
             records = [];
         }
 
-        return handleSuccessResponse(res, records);
+        return handleSuccessResponse(res, { items: records });
     } catch (error) {
         return handleErrorResponse(res, error.message);
     }
@@ -838,7 +846,7 @@ exports.getTrashedEvents = async (req, res) => {
         } else {
             return handleErrorResponse(res, 'Forbidden', 403);
         }
-        return handleSuccessResponse(res, rows);
+        return handleSuccessResponse(res, { items: rows });
     } catch (error) {
         return handleErrorResponse(res, error.message);
     }
@@ -932,7 +940,7 @@ exports.getOswsDashboardStats = async (req, res) => {
 exports.getCertificatesByStudent = async (req, res) => {
     try {
         const { student_id } = req.query;
-        if (!student_id) return res.status(400).json({ success: false, message: 'student_id required' });
+        if (!student_id) return handleErrorResponse(res, 'student_id required', 400);
 
         // Authorization: only the student themselves, an OrgOfficer for that student's org, or an OSWS admin may view certificates
         const user = req.user;
@@ -1037,9 +1045,9 @@ exports.getCertificatesByStudent = async (req, res) => {
             };
         });
 
-        res.json({ success: true, data });
+        return handleSuccessResponse(res, { items: data });
     } catch (err) {
-        res.status(500).json({ success: false, message: err.message });
+        return handleErrorResponse(res, err.message);
     }
 };
 
@@ -1081,7 +1089,7 @@ exports.getEventsByAdmin = async (req, res) => {
                 auto_mismatch
             };
         });
-        return handleSuccessResponse(res, eventsWithPosterUrl);
+        return handleSuccessResponse(res, { items: eventsWithPosterUrl });
     } catch (error) {
         return handleErrorResponse(res, error.message);
     }
@@ -1124,9 +1132,9 @@ exports.getAllOrgEvents = async (req, res) => {
                 auto_mismatch
             };
         });
-        return res.status(200).json({ success: true, data: eventsWithPosterUrl });
+        return handleSuccessResponse(res, { items: eventsWithPosterUrl });
     } catch (error) {
-        return res.status(500).json({ success: false, message: error.message });
+        return handleErrorResponse(res, error.message);
     }
 };
 
@@ -1167,7 +1175,7 @@ exports.getAllOswsEvents = async (req, res) => {
                 auto_mismatch
             };
         });
-        return handleSuccessResponse(res, eventsWithPosterUrl);
+        return handleSuccessResponse(res, { items: eventsWithPosterUrl });
     } catch (error) {
         return handleErrorResponse(res, error.message);
     }
@@ -1205,10 +1213,10 @@ exports.getEventParticipants = async (req, res) => {
                 : null
         }));
 
-        res.json({ success: true, data });
+        return handleSuccessResponse(res, { items: data });
     } catch (error) {
         console.error('getEventParticipants error:', error);
-        res.status(500).json({ success: false, message: error.message });
+        return handleErrorResponse(res, error.message);
     }
 };
 
@@ -1319,7 +1327,7 @@ exports.rejectRegistration = async (req, res) => {
 
 exports.getAttendanceRecords = async (req, res) => {
     try {
-        const [rows] = await db.query(
+                const [rows] = await db.query(
             `SELECT 
          ar.event_id,
          e.title AS event_title,
@@ -1333,10 +1341,10 @@ exports.getAttendanceRecords = async (req, res) => {
        JOIN events e ON ar.event_id = e.event_id
        JOIN students s ON ar.student_id = s.id`
         );
-        res.json({ success: true, data: rows });
+                return handleSuccessResponse(res, { items: rows });
     } catch (error) {
         console.error('getAttendanceRecords error:', error);
-        res.status(500).json({ success: false, message: error.message });
+        return handleErrorResponse(res, error.message);
     }
 };
 
@@ -1419,11 +1427,11 @@ exports.getEventById = async (req, res) => {
     try {
         const event = await eventService.getEventById(req.params.id);
         if (!event) {
-            return res.status(404).json({ success: false, message: 'Event not found' });
+            return handleErrorResponse(res, 'Event not found', 404);
         }
-        res.json({ success: true, data: event });
+        return handleSuccessResponse(res, event);
     } catch (error) {
-        res.status(500).json({ success: false, message: error.message });
+        return handleErrorResponse(res, error.message);
     }
 };
 

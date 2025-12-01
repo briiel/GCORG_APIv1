@@ -119,6 +119,15 @@ const submitRoleRequest = async (req, res) => {
  */
 const getPendingRequests = async (req, res) => {
   try {
+    // Server-side pagination parameters
+    const page = Math.max(1, parseInt(req.query.page || '1', 10) || 1);
+    const per_page = Math.max(1, parseInt(req.query.per_page || '10', 10) || 10);
+    const offset = (page - 1) * per_page;
+
+    // Total count (from requests table)
+    const [countRows] = await db.query(`SELECT COUNT(*) AS total FROM organization_role_requests WHERE status = 'pending'`);
+    const total = (countRows[0] && countRows[0].total) ? Number(countRows[0].total) : 0;
+
     const [requests] = await db.query(
       `SELECT 
         orr.request_id,
@@ -137,10 +146,14 @@ const getPendingRequests = async (req, res) => {
        JOIN students s ON orr.student_id = s.id
        JOIN student_organizations o ON orr.org_id = o.id
        WHERE orr.status = 'pending'
-       ORDER BY orr.requested_at ASC`
+       ORDER BY orr.requested_at ASC
+       LIMIT ? OFFSET ?`,
+      [per_page, offset]
     );
 
-    return handleSuccessResponse(res, { requests });
+    const total_pages = Math.max(1, Math.ceil(total / per_page));
+
+    return handleSuccessResponse(res, { items: requests, total, page, per_page, total_pages });
 
   } catch (error) {
     console.error('Get pending requests error:', error);
@@ -156,7 +169,26 @@ const getAllRequests = async (req, res) => {
   const { status } = req.query;
 
   try {
-    let query = `
+    // Pagination params
+    const page = Math.max(1, parseInt(req.query.page || '1', 10) || 1);
+    const per_page = Math.max(1, parseInt(req.query.per_page || '10', 10) || 10);
+    const offset = (page - 1) * per_page;
+
+    // Build where clause
+    const params = [];
+    let where = '';
+    if (status) {
+      where = ' WHERE orr.status = ? ';
+      params.push(status);
+    }
+
+    // Total count with same filter
+    const countSql = `SELECT COUNT(*) AS total FROM organization_role_requests orr ${where}`;
+    const [countRows] = await db.query(countSql, params);
+    const total = (countRows[0] && countRows[0].total) ? Number(countRows[0].total) : 0;
+
+    // Main query with pagination
+    const query = `
       SELECT 
         orr.request_id,
         orr.student_id,
@@ -178,20 +210,19 @@ const getAllRequests = async (req, res) => {
        JOIN students s ON orr.student_id = s.id
        JOIN student_organizations o ON orr.org_id = o.id
        LEFT JOIN osws_admins ra ON orr.reviewed_by_admin_id = ra.id
+       ${where}
+       ORDER BY orr.requested_at DESC
+       LIMIT ? OFFSET ?
     `;
 
-    const params = [];
-
-    if (status) {
-      query += ` WHERE orr.status = ?`;
-      params.push(status);
-    }
-
-    query += ` ORDER BY orr.requested_at DESC`;
+    // append pagination params
+    params.push(per_page, offset);
 
     const [requests] = await db.query(query, params);
 
-    return handleSuccessResponse(res, { requests });
+    const total_pages = Math.max(1, Math.ceil(total / per_page));
+
+    return handleSuccessResponse(res, { items: requests, total, page, per_page, total_pages });
 
   } catch (error) {
     console.error('Get all requests error:', error);
@@ -353,7 +384,7 @@ const getMyRequests = async (req, res) => {
       [studentId]
     );
 
-    return handleSuccessResponse(res, { requests });
+    return handleSuccessResponse(res, { items: requests });
 
   } catch (error) {
     console.error('Get my requests error:', error);

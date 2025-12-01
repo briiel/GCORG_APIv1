@@ -8,8 +8,14 @@ const { handleErrorResponse, handleSuccessResponse } = require('../utils/errorHa
 
 exports.getUsers = async (req, res) => {
     try {
-        const users = await userService.fetchAllusers();
-        return handleSuccessResponse(res, users);
+        const page = req.query.page ? parseInt(req.query.page, 10) : undefined;
+        const per_page = req.query.per_page ? parseInt(req.query.per_page, 10) : undefined;
+        const result = await userService.fetchAllusers({ page, per_page });
+        // If service returned paginated object, forward it; otherwise wrap legacy array
+        if (result && result.items && Array.isArray(result.items)) {
+            return handleSuccessResponse(res, result);
+        }
+        return handleSuccessResponse(res, { items: Array.isArray(result) ? result : [] });
     } catch (error) {
         return handleErrorResponse(res, error.message);
     }
@@ -31,8 +37,13 @@ exports.getUserById = async (req, res) => {
 exports.getOrganizationMembers = async (req, res) => {
     try {
         const orgId = parseInt(req.params.orgId);
-        const members = await userService.fetchOrganizationMembers(orgId);
-        return handleSuccessResponse(res, members);
+        const page = req.query.page ? parseInt(req.query.page, 10) : undefined;
+        const per_page = req.query.per_page ? parseInt(req.query.per_page, 10) : undefined;
+        const result = await userService.fetchOrganizationMembers(orgId, { page, per_page });
+        if (result && result.items && Array.isArray(result.items)) {
+            return handleSuccessResponse(res, result);
+        }
+        return handleSuccessResponse(res, { items: Array.isArray(result) ? result : [] });
     } catch (error) {
         return handleErrorResponse(res, error.message);
     }

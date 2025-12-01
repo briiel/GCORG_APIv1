@@ -37,7 +37,7 @@ exports.getTrash = async (req, res) => {
             }
         }
         
-        return handleSuccessResponse(res, trashedData);
+        return handleSuccessResponse(res, { items: trashedData });
     } catch (error) {
         return handleErrorResponse(res, error.message);
     }

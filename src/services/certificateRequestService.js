@@ -4,8 +4,10 @@ const createCertificateRequest = async (data) => {
 	return certificateRequestModel.createCertificateRequest(data);
 };
 
-const getCertificateRequestsByOrg = async (org_id) => {
-	return certificateRequestModel.getCertificateRequestsByOrg(org_id);
+const getCertificateRequestsByOrg = async (org_id, opts = {}) => {
+	const page = opts.page;
+	const per_page = opts.per_page || opts.perPage;
+	return certificateRequestModel.getCertificateRequestsByOrg(org_id, page, per_page);
 };
 
 const getCertificateRequestById = async (request_id) => {

@@ -6,7 +6,7 @@ const createNotification = async (data) => {
 };
 
 const getNotificationsForUser = async (user_id, options = {}) => {
-	// options may include panel and org_id
+	// options may include panel, org_id, page, per_page
 	return notificationModel.getNotificationsForUser(user_id, options);
 };
 

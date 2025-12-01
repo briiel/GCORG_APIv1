@@ -105,7 +105,27 @@ const getNotificationsForUser = async (user_id, options = {}) => {
 
 	sql += ` ORDER BY n.created_at DESC, n.id DESC`;
 
-	const [rows] = await db.query(sql, params);
+	// Pagination support
+	const page = options.page ? Math.max(1, parseInt(options.page, 10)) : undefined;
+	const per_page = options.per_page ? Math.max(1, Math.min(100, parseInt(options.per_page, 10))) : undefined;
+
+	let rows = [];
+	let total = 0;
+	if (page && per_page) {
+		// Count with same WHERE clause
+		const countSql = `SELECT COUNT(*) AS cnt FROM notifications n LEFT JOIN created_events e ON n.event_id = e.event_id WHERE (n.user_id IS NULL OR n.user_id = ?)` + (sql.includes('AND (n.panel') ? sql.split('WHERE (n.user_id IS NULL OR n.user_id = ?)')[1].replace(/^\s+/, ' WHERE ') : '');
+		const [[cnt]] = await db.query(countSql, params);
+		total = Number(cnt?.cnt || 0);
+		const offset = (page - 1) * per_page;
+		const pagedSql = sql + ' LIMIT ? OFFSET ?';
+		const pagedParams = params.concat([per_page, offset]);
+		const [qrows] = await db.query(pagedSql, pagedParams);
+		rows = qrows;
+	} else {
+		const [qrows] = await db.query(sql, params);
+		rows = qrows;
+		total = rows.length;
+	}
 	// Normalize created_at (DATETIME without timezone) into an ISO UTC instant
 	// using the server-configured timezone offset. This prevents the frontend
 	// from misinterpreting the DATETIME as UTC and shifting displayed times.
@@ -118,6 +138,9 @@ const getNotificationsForUser = async (user_id, options = {}) => {
 		} catch (_) {}
 		return r;
 	});
+	if (page && per_page) {
+		return { items: mapped, total, page, per_page, total_pages: Math.ceil(total / per_page) };
+	}
 	return mapped;
 };
 

@@ -88,8 +88,8 @@ exports.getEventEvaluations = async (req, res) => {
     const { event_id } = req.params;
     
     const data = await evaluationService.getEventEvaluations(event_id, user);
-    
-    return handleSuccessResponse(res, data);
+
+    return handleSuccessResponse(res, { items: Array.isArray(data) ? data : [] });
   } catch (error) {
     return handleErrorResponse(res, error.message);
   }
@@ -106,7 +106,7 @@ exports.getRawEvaluations = async (req, res) => {
 
     const { event_id } = req.params;
     const data = await evaluationService.getRawEvaluations(event_id);
-    return handleSuccessResponse(res, data || []);
+    return handleSuccessResponse(res, { items: Array.isArray(data) ? data : [] });
   } catch (error) {
     return handleErrorResponse(res, error.message);
   }

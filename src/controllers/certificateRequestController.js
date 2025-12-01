@@ -43,8 +43,13 @@ exports.getCertificateRequests = async (req, res) => {
 		const orgId = getOrgIdFromUser(user);
 		if (!orgId) return handleErrorResponse(res, 'Organization ID not found.', 400);
 
-		const requests = await certificateRequestService.getCertificateRequestsByOrg(orgId);
-		return handleSuccessResponse(res, requests);
+		const page = req.query.page ? parseInt(req.query.page, 10) : undefined;
+		const per_page = req.query.per_page ? parseInt(req.query.per_page, 10) : undefined;
+		const result = await certificateRequestService.getCertificateRequestsByOrg(orgId, { page, per_page });
+		if (result && result.items && Array.isArray(result.items)) {
+			return handleSuccessResponse(res, result);
+		}
+		return handleSuccessResponse(res, { items: Array.isArray(result) ? result : [] });
 	} catch (error) {
 		console.error('getCertificateRequests error:', error);
 		return handleErrorResponse(res, error.message);

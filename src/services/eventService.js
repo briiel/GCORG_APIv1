@@ -30,10 +30,11 @@ const createNewEvent = async (eventData) => {
     }
 };
 
-const fetchAllEvents = async () => {
+const fetchAllEvents = async (opts = {}) => {
     try {
-        const events = await eventModel.getAllEvents();
-        return events;
+        const page = opts.page;
+        const per_page = opts.per_page || opts.perPage;
+        return await eventModel.getAllEvents(page, per_page);
     } catch (error) {
         console.error('Error fetching events in service:', error);
         throw error;
@@ -121,12 +122,16 @@ const getEventsByAdmin = async (admin_id) => {
     }
 };
 
-const getAllOrgEvents = async () => {
-    return await eventModel.getAllOrgEvents();
+const getAllOrgEvents = async (opts = {}) => {
+    const page = opts.page;
+    const per_page = opts.per_page || opts.perPage;
+    return await eventModel.getAllOrgEvents(page, per_page);
 };
 
-const getAllOswsEvents = async () => {
-    return await eventModel.getAllOswsEvents();
+const getAllOswsEvents = async (opts = {}) => {
+    const page = opts.page;
+    const per_page = opts.per_page || opts.perPage;
+    return await eventModel.getAllOswsEvents(page, per_page);
 };
 
 const updateEvent = async (eventId, eventData) => {

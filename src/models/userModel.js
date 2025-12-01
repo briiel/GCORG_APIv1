@@ -1,10 +1,34 @@
 const db = require('../config/db');
 
-// Fetch all users from both tables
+// Fetch all users from both tables (legacy - returns full array)
 const getAllUsers = async () => {
     const [students] = await db.query('SELECT id, email, first_name, last_name, middle_initial, suffix, department, program, COALESCE(year_level, 4) AS year_level, "student" as userType, NULL as org_name FROM students');
     const [organizations] = await db.query('SELECT id, email, org_name as name, "organization" as userType, department FROM student_organizations');
     return [...students, ...organizations];
+};
+
+// New: Paginated users across students + organizations using UNION ALL
+const getAllUsersPaginated = async (page = 1, per_page = 20) => {
+    const p = Math.max(1, parseInt(page || 1, 10));
+    const pp = Math.max(1, Math.min(100, parseInt(per_page || 20, 10)));
+    const offset = (p - 1) * pp;
+
+    // Use UNION ALL to combine both tables into one selectable dataset
+    const countSql = `SELECT COUNT(*) AS cnt FROM (SELECT id FROM students UNION ALL SELECT id FROM student_organizations) AS u`;
+    const dataSql = `
+        SELECT * FROM (
+            SELECT id, email, first_name, last_name, middle_initial, suffix, department, program, COALESCE(year_level, 4) AS year_level, 'student' as userType, NULL as org_name, NULL as name FROM students WHERE deleted_at IS NULL
+            UNION ALL
+            SELECT id, email, NULL AS first_name, NULL AS last_name, NULL AS middle_initial, NULL AS suffix, department, NULL AS program, NULL AS year_level, 'organization' as userType, org_name as name FROM student_organizations
+        ) AS u
+        ORDER BY COALESCE(u.last_name, u.name) ASC
+        LIMIT ? OFFSET ?
+    `;
+
+    const [[countRows]] = await db.query(countSql);
+    const total = Number(countRows?.cnt || 0);
+    const [rows] = await db.query(dataSql, [pp, offset]);
+    return { items: rows, total, page: p, per_page: pp, total_pages: Math.ceil(total / pp) };
 };
 
 // Fetch user by ID from both tables
@@ -42,6 +66,40 @@ const getOrganizationMembers = async (orgId) => {
     return members;
 };
 
+// New: paginated organization members
+const getOrganizationMembersPaginated = async (orgId, page = 1, per_page = 20) => {
+    const p = Math.max(1, parseInt(page || 1, 10));
+    const pp = Math.max(1, Math.min(100, parseInt(per_page || 20, 10)));
+    const offset = (p - 1) * pp;
+
+    const countSql = `SELECT COUNT(*) AS cnt FROM organizationmembers WHERE org_id = ? AND is_active = TRUE AND deleted_at IS NULL`;
+    const dataSql = `
+        SELECT 
+            om.member_id,
+            om.student_id,
+            om.position,
+            om.joined_at,
+            om.is_active,
+            s.first_name,
+            s.last_name,
+            s.middle_initial,
+            s.suffix,
+            s.email,
+            s.department,
+            s.program,
+            COALESCE(s.year_level, 4) AS year_level
+        FROM organizationmembers om
+        JOIN students s ON om.student_id = s.id
+        WHERE om.org_id = ? AND om.is_active = TRUE AND om.deleted_at IS NULL
+        ORDER BY om.joined_at DESC
+        LIMIT ? OFFSET ?`;
+
+    const [[countRows]] = await db.query(countSql, [orgId]);
+    const total = Number(countRows?.cnt || 0);
+    const [rows] = await db.query(dataSql, [orgId, pp, offset]);
+    return { items: rows, total, page: p, per_page: pp, total_pages: Math.ceil(total / pp) };
+};
+
 // Remove organization member (soft delete - moves to archive/trash)
 const removeOrganizationMember = async (orgId, memberId) => {
     await db.query(
@@ -52,4 +110,4 @@ const removeOrganizationMember = async (orgId, memberId) => {
     );
 };
 
-module.exports = { getAllUsers, getUserById, getOrganizationMembers, removeOrganizationMember };
+module.exports = { getAllUsers, getAllUsersPaginated, getUserById, getOrganizationMembers, getOrganizationMembersPaginated, removeOrganizationMember };

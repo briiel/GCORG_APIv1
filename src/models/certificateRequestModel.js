@@ -75,9 +75,19 @@ function formatDateToOffsetStrings(dateObj, offset = '+00:00') {
 	return { local: localStr, iso_with_offset: iso };
 }
 
-const getCertificateRequestsByOrg = async (org_id) => {
+const getCertificateRequestsByOrg = async (org_id, page = undefined, per_page = undefined) => {
 	await ensureSchema();
-	const query = `
+	const baseWhere = `e.created_by_org_id = ? AND e.created_by_osws_id IS NULL`;
+	const countSql = `SELECT COUNT(*) AS cnt FROM certificate_requests cr INNER JOIN created_events e ON cr.event_id = e.event_id WHERE ${baseWhere}`;
+	const pageNum = page ? Math.max(1, parseInt(page, 10)) : undefined;
+	const pp = per_page ? Math.max(1, Math.min(100, parseInt(per_page, 10))) : undefined;
+	let rows = [];
+	let total = 0;
+	if (pageNum && pp) {
+		const [[countRows]] = await db.query(countSql, [org_id]);
+		total = Number(countRows?.cnt || 0);
+		const offset = (pageNum - 1) * pp;
+		const query = `
 		SELECT 
 			cr.id, cr.event_id, cr.student_id, cr.status, 
 			cr.requested_at, cr.processed_at, cr.rejection_reason, cr.certificate_url,
@@ -88,10 +98,31 @@ const getCertificateRequestsByOrg = async (org_id) => {
 		FROM certificate_requests cr
 		INNER JOIN created_events e ON cr.event_id = e.event_id
 		INNER JOIN students s ON cr.student_id = s.id
-		WHERE e.created_by_org_id = ? AND e.created_by_osws_id IS NULL
+		WHERE ${baseWhere}
 		ORDER BY cr.requested_at DESC
+		LIMIT ? OFFSET ?
 	`;
-	const [rows] = await db.query(query, [org_id]);
+		const [qrows] = await db.query(query, [org_id, pp, offset]);
+		rows = qrows;
+	} else {
+		const query = `
+		SELECT 
+			cr.id, cr.event_id, cr.student_id, cr.status, 
+			cr.requested_at, cr.processed_at, cr.rejection_reason, cr.certificate_url,
+			e.title AS event_title, e.location AS event_location, 
+			e.start_date AS event_start_date, e.end_date AS event_end_date,
+			s.first_name, s.middle_initial, s.last_name, s.suffix, s.email AS student_email,
+			s.department, s.program, COALESCE(s.year_level, 4) AS year_level
+		FROM certificate_requests cr
+		INNER JOIN created_events e ON cr.event_id = e.event_id
+		INNER JOIN students s ON cr.student_id = s.id
+		WHERE ${baseWhere}
+		ORDER BY cr.requested_at DESC
+		`;
+		const [qrows] = await db.query(query, [org_id]);
+		rows = qrows;
+		total = rows.length;
+	}
 	// Convert DATETIME strings (returned as strings by dateStrings: true) into
 	// explicit ISO UTC strings and event-local formatted strings so the frontend
 	// can display either UTC or event-local times without ambiguity.
@@ -119,6 +150,9 @@ const getCertificateRequestsByOrg = async (org_id) => {
 		} catch (_) { /* keep originals on error */ }
 		return out;
 	});
+	if (pageNum && pp) {
+		return { items: mapped, total, page: pageNum, per_page: pp, total_pages: Math.ceil(total / pp) };
+	}
 	return mapped;
 };
 

@@ -142,8 +142,8 @@ const createEvent = async (eventData) => {
     }
 };
 
-const getAllEvents = async () => {
-    const query = `
+const getAllEvents = async (page = undefined, per_page = undefined) => {
+    const baseSql = `
             SELECT ce.*, org.department, org.org_name, osws.name AS osws_name,
                    CONCAT(s_creator.first_name, ' ', IFNULL(s_creator.last_name, '')) AS created_by_name
             FROM created_events ce
@@ -153,7 +153,17 @@ const getAllEvents = async () => {
             WHERE ce.deleted_at IS NULL
         `;
     try {
-        const [rows] = await db.query(query);
+        if (page && per_page) {
+            const p = Math.max(1, parseInt(page, 10));
+            const pp = Math.max(1, Math.min(200, parseInt(per_page, 10)));
+            const [[countRow]] = await db.query('SELECT COUNT(*) AS cnt FROM created_events WHERE deleted_at IS NULL');
+            const total = Number(countRow?.cnt || 0);
+            const offset = (p - 1) * pp;
+            const pagedSql = baseSql + ' ORDER BY ce.created_at DESC LIMIT ? OFFSET ?';
+            const [rows] = await db.query(pagedSql, [pp, offset]);
+            return { items: rows, total, page: p, per_page: pp, total_pages: Math.ceil(total / pp) };
+        }
+        const [rows] = await db.query(baseSql + ' ORDER BY ce.created_at DESC');
         return rows;
     } catch (error) {
         console.error('Error fetching all events:', error.stack);
@@ -404,16 +414,25 @@ const getEventsByAdmin = async (admin_id) => {
     }
 };
 
-const getAllOrgEvents = async () => {
-    const query = `
+const getAllOrgEvents = async (page = undefined, per_page = undefined) => {
+    const baseSql = `
         SELECT ce.*, org.department, org.org_name
         FROM created_events ce
         JOIN student_organizations org ON ce.created_by_org_id = org.id
         WHERE ce.created_by_org_id IS NOT NULL AND ce.deleted_at IS NULL
-        ORDER BY ce.created_at DESC
     `;
     try {
-        const [rows] = await db.query(query);
+        if (page && per_page) {
+            const p = Math.max(1, parseInt(page, 10));
+            const pp = Math.max(1, Math.min(200, parseInt(per_page, 10)));
+            const [[countRow]] = await db.query('SELECT COUNT(*) AS cnt FROM created_events WHERE created_by_org_id IS NOT NULL AND deleted_at IS NULL');
+            const total = Number(countRow?.cnt || 0);
+            const offset = (p - 1) * pp;
+            const pagedSql = baseSql + ' ORDER BY ce.created_at DESC LIMIT ? OFFSET ?';
+            const [rows] = await db.query(pagedSql, [pp, offset]);
+            return { items: rows, total, page: p, per_page: pp, total_pages: Math.ceil(total / pp) };
+        }
+        const [rows] = await db.query(baseSql + ' ORDER BY ce.created_at DESC');
         return rows;
     } catch (error) {
         console.error('Error fetching org events:', error.stack);
@@ -422,16 +441,30 @@ const getAllOrgEvents = async () => {
 };
 
 // Fetch all OSWS-created events
-const getAllOswsEvents = async () => {
-    const query = `
+const getAllOswsEvents = async (page = undefined, per_page = undefined) => {
+    const baseSql = `
         SELECT ce.*, a.name AS admin_name
         FROM created_events ce
         JOIN osws_admins a ON ce.created_by_osws_id = a.id
         WHERE ce.created_by_osws_id IS NOT NULL AND ce.deleted_at IS NULL
-        ORDER BY ce.created_at DESC
     `;
-    const [rows] = await db.query(query);
-    return rows;
+    try {
+        if (page && per_page) {
+            const p = Math.max(1, parseInt(page, 10));
+            const pp = Math.max(1, Math.min(200, parseInt(per_page, 10)));
+            const [[countRow]] = await db.query('SELECT COUNT(*) AS cnt FROM created_events WHERE created_by_osws_id IS NOT NULL AND deleted_at IS NULL');
+            const total = Number(countRow?.cnt || 0);
+            const offset = (p - 1) * pp;
+            const pagedSql = baseSql + ' ORDER BY ce.created_at DESC LIMIT ? OFFSET ?';
+            const [rows] = await db.query(pagedSql, [pp, offset]);
+            return { items: rows, total, page: p, per_page: pp, total_pages: Math.ceil(total / pp) };
+        }
+        const [rows] = await db.query(baseSql + ' ORDER BY ce.created_at DESC');
+        return rows;
+    } catch (error) {
+        console.error('Error fetching osws events:', error.stack);
+        throw error;
+    }
 };
 
 const updateEvent = async (eventId, eventData) => {

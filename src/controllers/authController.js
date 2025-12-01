@@ -140,9 +140,8 @@ const login = async (req, res) => {
       { expiresIn: process.env.JWT_EXPIRES_IN || '24h' }
     );
 
-    // Step 7: Return success response
-    return res.status(200).json({
-      success: true,
+    // Step 7: Return success response (use standard helper)
+    return handleSuccessResponse(res, {
       message: 'Login successful.',
       token: token,
       user: {
@@ -158,7 +157,7 @@ const login = async (req, res) => {
         organization: organization,
         userType: userType || null
       }
-    });
+    }, 200);
 
   } catch (error) {
     console.error('Login error:', error);
