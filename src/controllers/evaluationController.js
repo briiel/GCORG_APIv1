@@ -89,7 +89,8 @@ exports.getEventEvaluations = async (req, res) => {
     
     const data = await evaluationService.getEventEvaluations(event_id, user);
 
-    return handleSuccessResponse(res, { items: Array.isArray(data) ? data : [] });
+    // Return the data object which contains { evaluations, stats }
+    return handleSuccessResponse(res, data);
   } catch (error) {
     return handleErrorResponse(res, error.message);
   }
