@@ -34,4 +34,11 @@ router.post('/login', authLimiter, authController.login);
  */
 router.get('/verify', checkAuth, authController.verifyToken);
 
+/**
+ * @route   POST /api/auth/accept-privacy-policy
+ * @desc    Accept data privacy policy
+ * @access  Protected
+ */
+router.post('/accept-privacy-policy', checkAuth, authLimiter, authController.acceptPrivacyPolicy);
+
 module.exports = router;

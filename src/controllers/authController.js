@@ -247,8 +247,46 @@ const verifyToken = async (req, res) => {
   return handleSuccessResponse(res, { message: 'Token is valid.', user: req.user });
 };
 
+/**
+ * Accept data privacy policy
+ * Records that the student has accepted the privacy policy
+ */
+const acceptPrivacyPolicy = async (req, res) => {
+  try {
+    const user = req.user;
+    
+    if (!user) {
+      return handleErrorResponse(res, 'Authentication required', 401);
+    }
+
+    // Only students can accept privacy policy
+    const studentId = user.studentId || user.legacyId || user.id;
+    if (!studentId) {
+      return handleErrorResponse(res, 'Student ID not found', 400);
+    }
+
+    // Update student record to mark privacy policy as accepted
+    await db.query(
+      `UPDATE students 
+       SET privacy_policy_accepted = 1, 
+           privacy_policy_accepted_at = UTC_TIMESTAMP()
+       WHERE id = ?`,
+      [studentId]
+    );
+
+    return handleSuccessResponse(res, { 
+      message: 'Privacy policy acceptance recorded successfully.' 
+    });
+
+  } catch (error) {
+    console.error('Accept privacy policy error:', error);
+    return handleErrorResponse(res, 'An error occurred while recording privacy policy acceptance.');
+  }
+};
+
 module.exports = {
   login,
   register,
-  verifyToken
+  verifyToken,
+  acceptPrivacyPolicy
 };
