@@ -40,6 +40,11 @@ const createCertificateRequest = async ({ event_id, student_id }) => {
 
 // Get all certificate requests for an organization
 const { parseMysqlLocalStringToDate } = require('../utils/dbDate');
+// Use SERVER_TZ_OFFSET to correctly interpret DATETIME values stored by MySQL.
+// The MySQL server timezone determines what CURRENT_TIMESTAMP() produces.
+// For AlwaysData servers in CET (Central European Time), this should be '+01:00'.
+// Fall back to EVENT_TZ_OFFSET (event-local) only if SERVER_TZ_OFFSET is not set.
+const SERVER_TZ_OFFSET = process.env.SERVER_TZ_OFFSET || process.env.EVENT_TZ_OFFSET || '+08:00';
 const EVENT_TZ_OFFSET = process.env.EVENT_TZ_OFFSET || '+08:00';
 
 // Convert a JS Date (assumed UTC) to a local datetime string using an offset like '+08:00'.
@@ -130,10 +135,12 @@ const getCertificateRequestsByOrg = async (org_id, page = undefined, per_page = 
 		const out = { ...r };
 		try {
 			if (out.requested_at) {
-					// Interpret the MySQL DATETIME as occurring in the event timezone (EVENT_TZ_OFFSET)
-					// and convert it to a UTC JS Date so the frontend gets a correct ISO instant.
-					const d = parseMysqlLocalStringToDate(out.requested_at, EVENT_TZ_OFFSET);
+					// Interpret the MySQL DATETIME as occurring in the SERVER timezone (SERVER_TZ_OFFSET)
+					// because CURRENT_TIMESTAMP() stores time in the server's timezone.
+					// Convert it to a UTC JS Date so the frontend gets a correct ISO instant.
+					const d = parseMysqlLocalStringToDate(out.requested_at, SERVER_TZ_OFFSET);
 					out.requested_at = d ? d.toISOString() : null;
+					// Also provide event-local formatted strings for display in the event's timezone
 					const f = d ? formatDateToOffsetStrings(d, EVENT_TZ_OFFSET) : { local: null, iso_with_offset: null };
 					out.requested_at_local = f.local;
 					out.requested_at_local_iso = f.iso_with_offset;
@@ -141,7 +148,7 @@ const getCertificateRequestsByOrg = async (org_id, page = undefined, per_page = 
 		} catch (_) { /* keep originals on error */ }
 		try {
 			if (out.processed_at) {
-					const d2 = parseMysqlLocalStringToDate(out.processed_at, EVENT_TZ_OFFSET);
+					const d2 = parseMysqlLocalStringToDate(out.processed_at, SERVER_TZ_OFFSET);
 					out.processed_at = d2 ? d2.toISOString() : null;
 					const f2 = d2 ? formatDateToOffsetStrings(d2, EVENT_TZ_OFFSET) : { local: null, iso_with_offset: null };
 					out.processed_at_local = f2.local;
@@ -176,8 +183,10 @@ const getCertificateRequestById = async (request_id) => {
 	// Normalize timestamps to ISO UTC and add event-local formatted strings
 	try {
 		if (row.requested_at) {
-				const d = parseMysqlLocalStringToDate(row.requested_at, EVENT_TZ_OFFSET);
+				// Parse using SERVER_TZ_OFFSET (the timezone of the MySQL server)
+				const d = parseMysqlLocalStringToDate(row.requested_at, SERVER_TZ_OFFSET);
 				row.requested_at = d ? d.toISOString() : null;
+				// Provide event-local formatted versions for display
 				const f = d ? formatDateToOffsetStrings(d, EVENT_TZ_OFFSET) : { local: null, iso_with_offset: null };
 				row.requested_at_local = f.local;
 				row.requested_at_local_iso = f.iso_with_offset;
@@ -185,7 +194,7 @@ const getCertificateRequestById = async (request_id) => {
 	} catch (_) {}
 	try {
 		if (row.processed_at) {
-			const d2 = parseMysqlLocalStringToDate(row.processed_at, EVENT_TZ_OFFSET);
+			const d2 = parseMysqlLocalStringToDate(row.processed_at, SERVER_TZ_OFFSET);
 			row.processed_at = d2 ? d2.toISOString() : null;
 			const f2 = d2 ? formatDateToOffsetStrings(d2, EVENT_TZ_OFFSET) : { local: null, iso_with_offset: null };
 			row.processed_at_local = f2.local;
