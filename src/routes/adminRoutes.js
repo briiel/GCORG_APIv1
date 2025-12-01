@@ -11,4 +11,8 @@ router.get('/admin/manage-users', authenticateToken, adminLimiter, adminControll
 router.post('/admins', authenticateToken, adminLimiter, adminController.addAdmin);
 router.delete('/admins/:id', authenticateToken, adminLimiter, adminController.deleteAdmin);
 
+// Privacy policy management (admin-only)
+// Public endpoint to fetch the current privacy policy (read-only)
+router.get('/admin/privacy-policy', adminLimiter, adminController.getPrivacyPolicy);
+
 module.exports = router;

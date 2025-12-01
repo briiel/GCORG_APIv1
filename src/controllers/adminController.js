@@ -65,3 +65,16 @@ exports.getManageUsers = async (req, res) => {
         return handleErrorResponse(res, error.message);
     }
 };
+
+// Get latest active privacy policy
+exports.getPrivacyPolicy = async (req, res) => {
+    try {
+        const [rows] = await db.query(
+            'SELECT id, content, created_at, updated_at FROM privacy_policies WHERE active = 1 ORDER BY id DESC LIMIT 1'
+        );
+        const policy = rows.length > 0 ? rows[0] : { id: null, content: '' };
+        return handleSuccessResponse(res, { policy });
+    } catch (error) {
+        return handleErrorResponse(res, error.message);
+    }
+};

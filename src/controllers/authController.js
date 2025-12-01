@@ -258,21 +258,36 @@ const acceptPrivacyPolicy = async (req, res) => {
     if (!user) {
       return handleErrorResponse(res, 'Authentication required', 401);
     }
+    // Determine whether this is a student or an OSWS admin and update
+    // the corresponding table. The JWT payload sets `userType` to
+    // 'student' or 'admin' and includes `studentId` / `legacyId`.
+    const userType = user.userType || null;
 
-    // Only students can accept privacy policy
-    const studentId = user.studentId || user.legacyId || user.id;
-    if (!studentId) {
-      return handleErrorResponse(res, 'Student ID not found', 400);
+    if (userType === 'admin') {
+      // Admin user: update osws_admins table using legacyId or id
+      const adminId = user.legacyId || user.id;
+      if (!adminId) return handleErrorResponse(res, 'Admin ID not found', 400);
+
+      await db.query(
+        `UPDATE osws_admins
+         SET privacy_policy_accepted = 1,
+             privacy_policy_accepted_at = UTC_TIMESTAMP()
+         WHERE id = ?`,
+        [adminId]
+      );
+    } else {
+      // Default to student flow
+      const studentId = user.studentId || user.legacyId || user.id;
+      if (!studentId) return handleErrorResponse(res, 'Student ID not found', 400);
+
+      await db.query(
+        `UPDATE students 
+         SET privacy_policy_accepted = 1, 
+             privacy_policy_accepted_at = UTC_TIMESTAMP()
+         WHERE id = ?`,
+        [studentId]
+      );
     }
-
-    // Update student record to mark privacy policy as accepted
-    await db.query(
-      `UPDATE students 
-       SET privacy_policy_accepted = 1, 
-           privacy_policy_accepted_at = UTC_TIMESTAMP()
-       WHERE id = ?`,
-      [studentId]
-    );
 
     return handleSuccessResponse(res, { 
       message: 'Privacy policy acceptance recorded successfully.' 
