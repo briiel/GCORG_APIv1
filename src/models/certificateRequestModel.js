@@ -33,8 +33,13 @@ async function ensureSchema() {
 // Create a certificate request
 const createCertificateRequest = async ({ event_id, student_id }) => {
 	await ensureSchema();
-	const query = `INSERT INTO certificate_requests (event_id, student_id, status) VALUES (?, ?, 'pending')`;
-	const [result] = await db.query(query, [event_id, student_id]);
+	// Use CONVERT_TZ to store the current time in the server's timezone explicitly
+	// This ensures consistent behavior regardless of session timezone settings
+	const query = `
+		INSERT INTO certificate_requests (event_id, student_id, status, requested_at) 
+		VALUES (?, ?, 'pending', CONVERT_TZ(UTC_TIMESTAMP(), '+00:00', ?))
+	`;
+	const [result] = await db.query(query, [event_id, student_id, SERVER_TZ_OFFSET]);
 	return result.insertId;
 };
 
