@@ -1,3 +1,23 @@
+/**
+ * UNUSED FILE - EMAIL FUNCTIONALITY NOT IMPLEMENTED
+ * 
+ * This mailer utility was created for sending email reminders and notifications,
+ * but email functionality was never integrated into the system.
+ * 
+ * Date marked unused: January 4, 2026
+ * Status: Can be safely deleted if email features are not planned
+ * 
+ * To enable email features:
+ * 1. Uncomment this entire file
+ * 2. Set SMTP_USER and SMTP_PASS in .env file
+ * 3. Import and use in relevant services (reminderService, notificationService)
+ * 4. Test with actual email accounts
+ * 
+ * Dependencies: nodemailer (already in package.json)
+ */
+
+/* COMMENTED OUT - Email functionality disabled
+
 const nodemailer = require('nodemailer');
 const path = require('path');
 

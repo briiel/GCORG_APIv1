@@ -1,4 +1,29 @@
 /**
+ * UNUSED FILE - DATABASE RETRY LOGIC NOT INTEGRATED
+ * 
+ * This utility was created to handle transient database errors with automatic retry,
+ * but was never integrated into the database layer or models.
+ * 
+ * Date marked unused: January 4, 2026
+ * Status: Can be safely deleted if not needed in future
+ * 
+ * To integrate retry logic:
+ * 1. Uncomment this entire file
+ * 2. Import in db.js or relevant model files
+ * 3. Wrap database queries with retryQuery() function
+ * 4. Test with simulated connection failures
+ * 
+ * Example usage:
+ *   const { retryQuery } = require('./utils/dbRetry');
+ *   const result = await retryQuery(
+ *     () => db.query('SELECT * FROM users WHERE id = ?', [userId]),
+ *     { maxRetries: 3, operationName: 'Fetch user' }
+ *   );
+ */
+
+/* COMMENTED OUT - Retry logic not integrated
+
+/**
  * Database query retry utility to handle transient connection errors
  */
 

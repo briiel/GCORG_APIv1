@@ -19,6 +19,7 @@ const fs = require('fs');
 const eventService = require('./services/eventService');
 const autoCleanupService = require('./services/autoCleanupService');
 const rateLimit = require('./middleware/rateLimit');
+const { secureResponseMiddleware, securityHeadersMiddleware } = require('./middleware/secureResponse');
 
 const app = express();
 
@@ -31,6 +32,12 @@ app.use(helmet({
     crossOriginResourcePolicy: { policy: "cross-origin" },
     contentSecurityPolicy: false // Disable if causing issues with Cloudinary
 }));
+
+// Additional security headers
+app.use(securityHeadersMiddleware);
+
+// Secure response sanitization
+app.use(secureResponseMiddleware);
 
 // Compression middleware for performance
 app.use(compression());
