@@ -1,4 +1,36 @@
 const db = require('../config/db');
+const { decryptData } = require('../utils/encryption');
+
+/**
+ * Decrypt email field if it appears to be encrypted
+ */
+function decryptEmailField(record) {
+    if (!record || !record.email) return record;
+
+    try {
+        if (typeof record.email === 'string' && record.email.includes(':')) {
+            const parts = record.email.split(':');
+            if (parts.length === 3) {
+                try {
+                    record.email = decryptData(record.email);
+                } catch (err) {
+                    console.error('Failed to decrypt email in archive, using as-is:', err.message);
+                }
+            }
+        }
+    } catch (error) {
+        console.error('Error decrypting email field:', error);
+    }
+
+    return record;
+}
+
+/**
+ * Decrypt email fields in array of records
+ */
+function decryptEmailArray(records) {
+    return records.map(record => decryptEmailField(record));
+}
 
 // ============================================
 // OSWS Admins Archive Operations
@@ -13,7 +45,7 @@ const getTrashedAdmins = async () => {
         ORDER BY deleted_at DESC
     `;
     const [rows] = await db.query(query);
-    return rows;
+    return decryptEmailArray(rows);
 };
 
 // Restore a trashed OSWS admin
@@ -47,7 +79,7 @@ const getTrashedOrganizations = async () => {
         ORDER BY deleted_at DESC
     `;
     const [rows] = await db.query(query);
-    return rows;
+    return decryptEmailArray(rows);
 };
 
 // Restore a trashed student organization
@@ -98,7 +130,7 @@ const getTrashedMembersByOrg = async (orgId) => {
         ORDER BY om.deleted_at DESC
     `;
     const [rows] = await db.query(query, [orgId]);
-    return rows;
+    return decryptEmailArray(rows);
 };
 
 // Get all trashed/archived organization members (all orgs - for OSWS admin)
@@ -127,7 +159,7 @@ const getTrashedMembersAll = async () => {
         ORDER BY om.deleted_at DESC
     `;
     const [rows] = await db.query(query);
-    return rows;
+    return decryptEmailArray(rows);
 };
 
 // Restore a trashed organization member

@@ -44,7 +44,7 @@ app.use(compression());
 
 // Global rate limiter - baseline protection for all endpoints
 // Individual routes can have stricter limits
-const globalLimiter = rateLimit({ 
+const globalLimiter = rateLimit({
     windowMs: 60 * 1000, // 1 minute
     max: 200 // 200 requests per minute per IP
 });
@@ -54,21 +54,25 @@ app.use('/api', globalLimiter);
 app.use(cors());
 
 // Body parsing middleware
-app.use(express.json({ limit: '10mb' }));
+// Skip JSON parsing for multipart requests (they'll be handled by multer/upload middleware in routes)
+app.use(express.json({ 
+    limit: '10mb',
+    skip: (req) => req.is('multipart/form-data')
+}));
 app.use(express.urlencoded({ extended: true, limit: '10mb' }));
 
 // Health check endpoint for Render and monitoring services
 app.get('/', (req, res) => {
-    res.status(200).json({ 
-        success: true, 
+    res.status(200).json({
+        success: true,
         message: 'GC Organize API is running',
         timestamp: new Date().toISOString()
     });
 });
 
 app.get('/health', (req, res) => {
-    res.status(200).json({ 
-        success: true, 
+    res.status(200).json({
+        success: true,
         status: 'healthy',
         uptime: process.uptime(),
         timestamp: new Date().toISOString()
@@ -88,12 +92,12 @@ app.post('/api/cron/run-status-updates', async (req, res) => {
 
     // 3. If valid, run the job
     try {
-        
+
         const result = await eventService.autoUpdateEventStatuses();
         const total = (result.toOngoing || 0) + (result.toConcluded || 0) + (result.toNotYetStarted || 0);
 
-        
-        
+
+
         // 4. Send a success response
         res.status(200).json({ success: true, updates: total });
 
@@ -151,38 +155,79 @@ app.use((req, res) => {
 
 // Global error handler
 app.use((err, req, res, next) => {
-    console.error('Global error handler:', err);
-    
+    const { logError } = require('./utils/error-logger');
+    const { AppError } = require('./utils/error-classes');
+
+    // Log the error with request context
+    logError(err, req);
+
+    // Default error values
+    let statusCode = err.statusCode || 500;
+    let message = err.message || 'Internal server error';
+    let errors = err.errors || null;
+
+    // Handle specific error types
+
     // Multer file upload errors
     if (err.code === 'LIMIT_FILE_SIZE') {
-        return res.status(400).json({ 
-            success: false, 
-            message: 'File size too large. Maximum size is 5MB.' 
-        });
+        statusCode = 400;
+        message = 'File size too large. Maximum size is 5MB.';
     }
-    
+
     // JWT errors
     if (err.name === 'JsonWebTokenError') {
-        return res.status(401).json({ 
-            success: false, 
-            message: 'Invalid token' 
-        });
+        statusCode = 401;
+        message = 'Invalid token';
     }
-    
+
     if (err.name === 'TokenExpiredError') {
-        return res.status(401).json({ 
-            success: false, 
-            message: 'Token expired' 
-        });
+        statusCode = 401;
+        message = 'Token expired';
     }
-    
-    // Default error response
-    res.status(err.status || 500).json({ 
-        success: false, 
-        message: process.env.NODE_ENV === 'production' 
-            ? 'Internal server error' 
-            : err.message 
-    });
+
+    // MySQL/Database errors
+    if (err.code === 'ER_DUP_ENTRY') {
+        statusCode = 409;
+        message = 'A record with this information already exists';
+    }
+
+    if (err.code === 'ER_NO_REFERENCED_ROW_2') {
+        statusCode = 400;
+        message = 'Invalid reference to related data';
+    }
+
+    if (err.code === 'ECONNREFUSED' || err.code === 'PROTOCOL_CONNECTION_LOST') {
+        statusCode = 503;
+        message = 'Database connection failed. Please try again later.';
+    }
+
+    // Validation errors from express-validator or custom validation
+    if (err.name === 'ValidationError') {
+        statusCode = 400;
+        message = err.message || 'Validation failed';
+        errors = err.errors || null;
+    }
+
+    // Build error response
+    const response = {
+        success: false,
+        message: process.env.NODE_ENV === 'production' && statusCode >= 500
+            ? 'Internal server error'
+            : message
+    };
+
+    // Add validation errors if present
+    if (errors) {
+        response.errors = errors;
+    }
+
+    // Add stack trace in development
+    if (process.env.NODE_ENV !== 'production' && err.stack) {
+        response.stack = err.stack;
+    }
+
+    // Send response
+    res.status(statusCode).json(response);
 });
 
 const PORT = process.env.PORT || 5000;
@@ -261,5 +306,31 @@ server.on('error', (err) => {
         process.exit(1);
     }
     console.error('Server error:', err);
+    process.exit(1);
+});
+
+// Handle unhandled promise rejections
+process.on('unhandledRejection', (reason, promise) => {
+    const { logError } = require('./utils/error-logger');
+    console.error('⚠️  Unhandled Promise Rejection detected!');
+    logError(new Error(`Unhandled Rejection: ${reason}`));
+
+    // In production, you might want to gracefully shut down
+    if (process.env.NODE_ENV === 'production') {
+        console.error('Shutting down server due to unhandled rejection...');
+        server.close(() => {
+            process.exit(1);
+        });
+    }
+});
+
+// Handle uncaught exceptions
+process.on('uncaughtException', (err) => {
+    const { logError } = require('./utils/error-logger');
+    console.error('⚠️  Uncaught Exception detected!');
+    logError(err);
+
+    // Always exit on uncaught exception
+    console.error('Shutting down server due to uncaught exception...');
     process.exit(1);
 });

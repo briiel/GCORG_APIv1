@@ -71,9 +71,17 @@ if (shouldSetSessionTz) {
 }
 // Handle connection errors
 pool.on('error', (err) => {
+    const { logError } = require('./utils/error-logger');
+    const { DatabaseError } = require('./utils/error-classes');
+
     console.error('Database pool error:', err.code, err.message);
+
+    // Log the error with context
+    const dbError = new DatabaseError('Database pool error occurred', err);
+    logError(dbError);
+
     if (err.code === 'PROTOCOL_CONNECTION_LOST' || err.code === 'ECONNRESET') {
-        
+        console.warn('Database connection lost. Pool will attempt to reconnect.');
     }
 });
 
@@ -86,29 +94,29 @@ const originalExecute = promisePool.execute ? promisePool.execute.bind(promisePo
 // Wrapper with automatic retry logic
 const queryWithRetry = async (sql, params, maxRetries = 3) => {
     let lastError;
-    
+
     for (let attempt = 1; attempt <= maxRetries; attempt++) {
         try {
             const result = await originalQuery(sql, params);
             return result;
         } catch (err) {
             lastError = err;
-            const isRetryable = err.code === 'ECONNRESET' || 
-                               err.code === 'PROTOCOL_CONNECTION_LOST' ||
-                               err.code === 'ETIMEDOUT' ||
-                               err.code === 'ENOTFOUND' ||
-                               err.errno === -104;
-            
+            const isRetryable = err.code === 'ECONNRESET' ||
+                err.code === 'PROTOCOL_CONNECTION_LOST' ||
+                err.code === 'ETIMEDOUT' ||
+                err.code === 'ENOTFOUND' ||
+                err.errno === -104;
+
             if (isRetryable && attempt < maxRetries) {
                 const delay = Math.min(2000 * Math.pow(2, attempt - 1), 10000); // Exponential backoff, max 10s
-                
+
                 await new Promise(resolve => setTimeout(resolve, delay));
             } else {
                 throw lastError;
             }
         }
     }
-    
+
     throw lastError;
 };
 
@@ -119,29 +127,29 @@ promisePool.query = queryWithRetry;
 if (originalExecute) {
     promisePool.execute = async (sql, params, maxRetries = 3) => {
         let lastError;
-        
+
         for (let attempt = 1; attempt <= maxRetries; attempt++) {
             try {
                 const result = await originalExecute(sql, params);
                 return result;
             } catch (err) {
                 lastError = err;
-                const isRetryable = err.code === 'ECONNRESET' || 
-                                   err.code === 'PROTOCOL_CONNECTION_LOST' ||
-                                   err.code === 'ETIMEDOUT' ||
-                                   err.code === 'ENOTFOUND' ||
-                                   err.errno === -104;
-                
+                const isRetryable = err.code === 'ECONNRESET' ||
+                    err.code === 'PROTOCOL_CONNECTION_LOST' ||
+                    err.code === 'ETIMEDOUT' ||
+                    err.code === 'ENOTFOUND' ||
+                    err.errno === -104;
+
                 if (isRetryable && attempt < maxRetries) {
                     const delay = Math.min(2000 * Math.pow(2, attempt - 1), 10000);
-                    
+
                     await new Promise(resolve => setTimeout(resolve, delay));
                 } else {
                     throw lastError;
                 }
             }
         }
-        
+
         throw lastError;
     };
 }

@@ -1,10 +1,48 @@
 const db = require('../config/db');
+const { decryptData } = require('../utils/encryption');
+
+/**
+ * Decrypt sensitive fields in user object
+ */
+function decryptUserFields(user) {
+    if (!user) return null;
+
+    try {
+        // Decrypt email if it appears to be encrypted (format: iv:authTag:data)
+        if (user.email && typeof user.email === 'string' && user.email.includes(':')) {
+            const parts = user.email.split(':');
+            if (parts.length === 3) {
+                try {
+                    user.email = decryptData(user.email);
+                } catch (err) {
+                    console.error('Failed to decrypt email, using as-is:', err.message);
+                }
+            }
+        }
+    } catch (error) {
+        console.error('Error decrypting user fields:', error);
+    }
+
+    return user;
+}
+
+/**
+ * Decrypt sensitive fields in array of users
+ */
+function decryptUserArray(users) {
+    return users.map(user => decryptUserFields(user));
+}
 
 // Fetch all users from both tables (legacy - returns full array)
 const getAllUsers = async () => {
     const [students] = await db.query('SELECT id, email, first_name, last_name, middle_initial, suffix, department, program, COALESCE(year_level, 4) AS year_level, "student" as userType, NULL as org_name FROM students');
     const [organizations] = await db.query('SELECT id, email, org_name as name, "organization" as userType, department FROM student_organizations');
-    return [...students, ...organizations];
+
+    // Decrypt sensitive fields
+    const decryptedStudents = decryptUserArray(students);
+    const decryptedOrgs = decryptUserArray(organizations);
+
+    return [...decryptedStudents, ...decryptedOrgs];
 };
 
 // New: Paginated users across students + organizations using UNION ALL
@@ -28,15 +66,21 @@ const getAllUsersPaginated = async (page = 1, per_page = 20) => {
     const [[countRows]] = await db.query(countSql);
     const total = Number(countRows?.cnt || 0);
     const [rows] = await db.query(dataSql, [pp, offset]);
-    return { items: rows, total, page: p, per_page: pp, total_pages: Math.ceil(total / pp) };
+
+    // Decrypt sensitive fields
+    const decryptedRows = decryptUserArray(rows);
+
+    return { items: decryptedRows, total, page: p, per_page: pp, total_pages: Math.ceil(total / pp) };
 };
 
 // Fetch user by ID from both tables
 const getUserById = async (id) => {
     const [student] = await db.query('SELECT id, email, first_name, last_name, middle_initial, suffix, department, program, COALESCE(year_level, 4) AS year_level, "student" as userType, NULL as org_name FROM students WHERE id = ?', [id]);
-    if (student.length > 0) return student[0];
+    if (student.length > 0) return decryptUserFields(student[0]);
+
     const [organization] = await db.query('SELECT id, email, org_name as name, "organization" as userType, department FROM student_organizations WHERE id = ?', [id]);
-    if (organization.length > 0) return organization[0];
+    if (organization.length > 0) return decryptUserFields(organization[0]);
+
     return null;
 };
 
@@ -63,7 +107,9 @@ const getOrganizationMembers = async (orgId) => {
         ORDER BY om.joined_at DESC`,
         [orgId]
     );
-    return members;
+
+    // Decrypt sensitive fields
+    return decryptUserArray(members);
 };
 
 // New: paginated organization members
@@ -97,7 +143,11 @@ const getOrganizationMembersPaginated = async (orgId, page = 1, per_page = 20) =
     const [[countRows]] = await db.query(countSql, [orgId]);
     const total = Number(countRows?.cnt || 0);
     const [rows] = await db.query(dataSql, [orgId, pp, offset]);
-    return { items: rows, total, page: p, per_page: pp, total_pages: Math.ceil(total / pp) };
+
+    // Decrypt sensitive fields
+    const decryptedRows = decryptUserArray(rows);
+
+    return { items: decryptedRows, total, page: p, per_page: pp, total_pages: Math.ceil(total / pp) };
 };
 
 // Remove organization member (soft delete - moves to archive/trash)

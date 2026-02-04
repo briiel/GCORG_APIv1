@@ -41,4 +41,11 @@ router.get('/verify', checkAuth, authController.verifyToken);
  */
 router.post('/accept-privacy-policy', checkAuth, authLimiter, authController.acceptPrivacyPolicy);
 
+/**
+ * @route   GET /api/auth/privacy-policy-status
+ * @desc    Get privacy policy acceptance status for logged-in user
+ * @access  Protected
+ */
+router.get('/privacy-policy-status', checkAuth, authController.getPrivacyPolicyStatus);
+
 module.exports = router;

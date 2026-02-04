@@ -3,6 +3,7 @@ const QRCode = require('qrcode');
 const { v2: cloudinary } = require('cloudinary');
 const notificationService = require('./notificationService');
 const crypto = require('crypto');
+const { decryptData } = require('../utils/encryption');
 
 // Configure Cloudinary (it will automatically use CLOUDINARY_URL from env)
 cloudinary.config({
