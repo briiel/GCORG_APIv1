@@ -12,6 +12,18 @@ const { ValidationError, AuthenticationError, DatabaseError, ConflictError } = r
 const { encryptData, decryptData } = require('../utils/encryption');
 
 /**
+ * Safely decrypt a single encrypted field.
+ * Returns the original value if it is not in encrypted format or decryption fails.
+ * Handles legacy plaintext data gracefully.
+ */
+const safeDecrypt = (value) => {
+  if (value && typeof value === 'string' && value.includes(':') && value.split(':').length === 3) {
+    try { return decryptData(value); } catch { return value; }
+  }
+  return value;
+};
+
+/**
  * Login with personal email (RBAC-enabled)
  * Only authenticates individual users from Users table
  * Returns JWT with roles and organization info
@@ -30,7 +42,7 @@ const login = asyncHandler(async (req, res) => {
   let studentId = null;
 
   // Step 1: Check students table first
-  // Note: Email might be encrypted, so we need to fetch all and decrypt
+  // Note: Email and PII fields might be encrypted, so we need to fetch all and decrypt
   const [allStudents] = await db.query(
     `SELECT id, email, password_hash, first_name, last_name 
      FROM students 
@@ -41,13 +53,11 @@ const login = asyncHandler(async (req, res) => {
   let students = [];
   for (const student of allStudents) {
     try {
-      let studentEmail = student.email;
-      // Try to decrypt if it looks encrypted
-      if (studentEmail && studentEmail.includes(':') && studentEmail.split(':').length === 3) {
-        studentEmail = decryptData(studentEmail);
-      }
+      const studentEmail = safeDecrypt(student.email);
       if (studentEmail === email) {
-        student.email = studentEmail; // Use decrypted email
+        student.email = studentEmail;
+        student.first_name = safeDecrypt(student.first_name);
+        student.last_name = safeDecrypt(student.last_name);
         students.push(student);
         break;
       }
@@ -75,11 +85,7 @@ const login = asyncHandler(async (req, res) => {
     let admins = [];
     for (const admin of allAdmins) {
       try {
-        let adminEmail = admin.email;
-        // Try to decrypt if it looks encrypted
-        if (adminEmail && adminEmail.includes(':') && adminEmail.split(':').length === 3) {
-          adminEmail = decryptData(adminEmail);
-        }
+        const adminEmail = safeDecrypt(admin.email);
         if (adminEmail === email) {
           admin.email = adminEmail; // Use decrypted email
           admins.push(admin);
@@ -249,34 +255,36 @@ const register = asyncHandler(async (req, res) => {
   );
 
   // Check against decrypted emails
+  let emailExists = false;
   for (const student of allStudents) {
-    try {
-      let studentEmail = student.email;
-      // Try to decrypt if it looks encrypted
-      if (studentEmail && studentEmail.includes(':') && studentEmail.split(':').length === 3) {
-        studentEmail = decryptData(studentEmail);
-      }
-      if (studentEmail === email) {
-        throw new ConflictError('This email is already registered.');
-      }
-    } catch (err) {
-      // Skip if decryption fails
-      continue;
+    const studentEmail = safeDecrypt(student.email);
+    if (studentEmail === email) {
+      emailExists = true;
+      break;
     }
+  }
+  if (emailExists) {
+    throw new ConflictError('This email is already registered.');
   }
 
   // Hash password
   const hashedPassword = await bcrypt.hash(password, 10);
 
-  // Encrypt sensitive data
+  // Encrypt all sensitive PII fields
   const encryptedEmail = encryptData(email);
+  const encryptedFirstName = encryptData(first_name);
+  const encryptedLastName = encryptData(last_name);
+  const encryptedMiddleInitial = middle_initial ? encryptData(middle_initial) : null;
+  const encryptedSuffix = suffix ? encryptData(suffix) : null;
+  const encryptedDepartment = department ? encryptData(department) : null;
+  const encryptedProgram = program ? encryptData(program) : null;
 
-  // Insert into students table
+  // Insert into students table with all fields encrypted
   await db.query(
     `INSERT INTO students 
        (id, email, password_hash, first_name, last_name, middle_initial, suffix, department, program) 
        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-    [student_id, encryptedEmail, hashedPassword, first_name, last_name, middle_initial || null, suffix || null, department || null, program || null]
+    [student_id, encryptedEmail, hashedPassword, encryptedFirstName, encryptedLastName, encryptedMiddleInitial, encryptedSuffix, encryptedDepartment, encryptedProgram]
   );
 
   return handleSuccessResponse(res, { message: 'Student account created successfully. You can now log in.' }, 201);

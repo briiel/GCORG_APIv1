@@ -45,7 +45,7 @@ const registerParticipant = async ({
         try {
             const [evRows] = await conn.query('SELECT is_paid, title FROM created_events WHERE event_id = ? LIMIT 1', [event_id]);
             isPaid = Number(evRows?.[0]?.is_paid || 0);
-        } catch (_) {}
+        } catch (_) { }
         const initialStatus = isPaid ? 'pending' : 'approved';
 
         // If the latest registration was rejected, update that record instead of inserting a new one
@@ -115,26 +115,26 @@ const registerParticipant = async ({
                         [event_id]
                     );
                     const eventTitle2 = eventRows?.[0]?.title;
-                        if (eventTitle2) {
-                            if (initialStatus === 'approved') {
-                                await notificationService.createNotification({
-                                    user_id: String(student_id),
-                                    event_id,
-                                    type: require('./notificationTypes').REGISTRATION_RECEIVED,
-                                    templateVars: { title: eventTitle2 },
-                                    panel: 'student'
-                                });
-                            } else {
-                                await notificationService.createNotification({
-                                    user_id: String(student_id),
-                                    event_id,
-                                    type: require('./notificationTypes').REGISTRATION_SUBMITTED,
-                                    templateVars: { title: eventTitle2 },
-                                    panel: 'student'
-                                });
-                            }
+                    if (eventTitle2) {
+                        if (initialStatus === 'approved') {
+                            await notificationService.createNotification({
+                                user_id: String(student_id),
+                                event_id,
+                                type: require('./notificationTypes').REGISTRATION_RECEIVED,
+                                templateVars: { title: eventTitle2 },
+                                panel: 'student'
+                            });
+                        } else {
+                            await notificationService.createNotification({
+                                user_id: String(student_id),
+                                event_id,
+                                type: require('./notificationTypes').REGISTRATION_SUBMITTED,
+                                templateVars: { title: eventTitle2 },
+                                panel: 'student'
+                            });
                         }
-                } catch (_) {}
+                    }
+                } catch (_) { }
 
                 await conn.commit();
                 return {
@@ -165,24 +165,24 @@ const registerParticipant = async ({
         }
 
         // Fallback for DBs/tables without AUTO_INCREMENT returning insertId
-        if (!registration_id) {
+        if (registration_id === null || registration_id === undefined || registration_id === 0) {
             try {
                 // First try to locate inserted row by our temporary public tag
                 const [rowsByTag] = await conn.query(
                     `SELECT id FROM event_registrations WHERE qr_code_public_id = ? ORDER BY id DESC LIMIT 1`,
                     [tempPublicTag]
                 );
-                if (Array.isArray(rowsByTag) && rowsByTag.length > 0 && rowsByTag[0].id) {
+                if (Array.isArray(rowsByTag) && rowsByTag.length > 0 && rowsByTag[0].id !== null && rowsByTag[0].id !== undefined) {
                     registration_id = rowsByTag[0].id;
                 }
 
                 // If still not found, fall back to previous heuristic
-                if (!registration_id) {
+                if (registration_id === null || registration_id === undefined || registration_id === 0) {
                     const [rows] = await conn.query(
                         `SELECT id FROM event_registrations WHERE event_id = ? AND student_id = ? ORDER BY id DESC LIMIT 1`,
                         [event_id, student_id]
                     );
-                    if (Array.isArray(rows) && rows.length > 0 && rows[0].id) {
+                    if (Array.isArray(rows) && rows.length > 0 && rows[0].id !== null && rows[0].id !== undefined) {
                         registration_id = rows[0].id;
                     }
                 }
@@ -191,14 +191,14 @@ const registerParticipant = async ({
             }
         }
 
-        if (!registration_id) {
+        if (!registration_id && registration_id !== 0) {
             console.error('Failed to obtain registration_id for event_id:', event_id, 'student_id:', student_id);
             throw new Error('Failed to register for the event.');
         }
 
-    // 4. Generate QR code and upload to Cloudinary
-    // Requirement: QR content should contain ONLY the student_id
-    const qrString = String(student_id);
+        // 4. Generate QR code and upload to Cloudinary
+        // Requirement: QR content should contain ONLY the student_id
+        const qrString = String(student_id);
 
         // Generate QR code as buffer
         const qrBuffer = await QRCode.toBuffer(qrString, {

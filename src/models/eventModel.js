@@ -64,10 +64,10 @@ const createEvent = async (eventData) => {
     // Ensure dates are yyyy-MM-dd strings
     const normalizeDate = (d) => {
         if (!d) return '';
-        
+
         // If already in correct format, return as-is
         if (typeof d === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(d)) return d;
-        
+
         // Parse the date string/object to extract components
         let dateObj;
         if (typeof d === 'string') {
@@ -87,10 +87,10 @@ const createEvent = async (eventData) => {
         } else {
             dateObj = new Date(d);
         }
-        
+
         // Validate the date
         if (isNaN(dateObj.getTime())) return '';
-        
+
         // Format as YYYY-MM-DD using local timezone
         const year = dateObj.getFullYear();
         const month = (dateObj.getMonth() + 1).toString().padStart(2, '0');
@@ -134,7 +134,8 @@ const createEvent = async (eventData) => {
 
         // Fallback: fetch the max event_id value which should correspond to the inserted row
         const [rows] = await db.query('SELECT MAX(event_id) AS last_id FROM created_events');
-        const lastId = rows && rows[0] && rows[0].last_id ? rows[0].last_id : 0;
+        const lastId = (rows && rows[0] && rows[0].last_id != null) ? Number(rows[0].last_id) : null;
+        if (!lastId) console.error('[createEvent] insertId was 0/null and MAX fallback also failed.');
         return lastId;
     } catch (error) {
         console.error('Error creating event:', error.stack);
@@ -479,21 +480,21 @@ const updateEvent = async (eventId, eventData) => {
         end_date,
         end_time,
         event_poster, // Optional: only update if provided
-    status,
-    is_paid,
-    registration_fee,
-    event_latitude,
-    event_longitude
+        status,
+        is_paid,
+        registration_fee,
+        event_latitude,
+        event_longitude
     } = eventData;
 
     // Ensure dates are yyyy-MM-dd strings only when provided
     const normalizeDate = (d) => {
         if (d === undefined) return null; // signal to keep existing
         if (!d) return ''; // allow clearing when explicitly empty/falsey
-        
+
         // If already in correct format, return as-is
         if (typeof d === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(d)) return d;
-        
+
         // Parse the date string/object to extract components
         let dateObj;
         if (typeof d === 'string') {
@@ -513,10 +514,10 @@ const updateEvent = async (eventId, eventData) => {
         } else {
             dateObj = new Date(d);
         }
-        
+
         // Validate the date
         if (isNaN(dateObj.getTime())) return '';
-        
+
         // Format as YYYY-MM-DD using local timezone
         const year = dateObj.getFullYear();
         const month = (dateObj.getMonth() + 1).toString().padStart(2, '0');
@@ -609,8 +610,8 @@ const updateEvent = async (eventId, eventData) => {
 };
 
 const getEventById = async (eventId) => {
-  const [rows] = await db.query('SELECT * FROM created_events WHERE event_id = ?', [eventId]);
-  return rows[0];
+    const [rows] = await db.query('SELECT * FROM created_events WHERE event_id = ?', [eventId]);
+    return rows[0];
 };
 
 // Hard delete: remove event and dependent data
@@ -687,10 +688,10 @@ const restoreEvent = async (eventId) => {
     return result.affectedRows > 0;
 };
 
-module.exports = { 
-    createEvent, 
-    getAllEvents, 
-    getEventsByParticipant, 
+module.exports = {
+    createEvent,
+    getAllEvents,
+    getEventsByParticipant,
     getEventsByCreator,
     updateEventStatus,
     getAllAttendanceRecords,
@@ -713,23 +714,23 @@ module.exports = {
         try {
             // Run all three updates in a single transaction for better performance
             await db.query('START TRANSACTION');
-            
+
             // Log what we're about to check
             const [checkResult] = await db.query(`
                 SELECT COUNT(*) as total,
                        SUM(CASE WHEN deleted_at IS NULL THEN 1 ELSE 0 END) as active
                 FROM created_events
             `);
-            
-            
+
+
             // Debug: Check database timezone and current time
             const [tzInfo] = await db.query(`
                 SELECT NOW() as db_now,
                        @@session.time_zone as session_tz,
                        @@global.time_zone as global_tz
             `);
-            
-            
+
+
             // Timezone handling:
             // - Stored event date/time values are assumed to be in the organization's local timezone
             //   (default is Philippines Time, +08:00). The DB server's NOW() may be in UTC or
@@ -744,9 +745,9 @@ module.exports = {
             const startTimeExpr = `CONVERT_TZ(TIMESTAMP(start_date, start_time), '${eventTzOffset}', '+00:00')`;
             const endTimeExpr = `CONVERT_TZ(TIMESTAMP(end_date, end_time), '${eventTzOffset}', '+00:00')`;
             const nowExpr = 'UTC_TIMESTAMP()';
-            
-            
-            
+
+
+
             // Debug: Show sample event with corrected timestamps
             const [sampleEvent] = await db.query(`
                 SELECT event_id, title, status,
@@ -767,45 +768,45 @@ module.exports = {
                 LIMIT 1
             `);
             if (sampleEvent.length > 0) {
-                
+
             }
-            
+
             // 1) Set to 'ongoing' when now between start and end, not cancelled/trashed
-                        const [ongoingRes] = await db.query(
-                                `UPDATE created_events
+            const [ongoingRes] = await db.query(
+                `UPDATE created_events
                                  SET status = 'ongoing'
                                  WHERE deleted_at IS NULL
                                      AND ${startTimeExpr} <= ${nowExpr}
                                      AND ${endTimeExpr} >= ${nowExpr}
                                      AND LOWER(COALESCE(status, '')) NOT IN ('cancelled','ongoing')`
-                        );
-            
+            );
+
             // 2) Set to 'concluded' when past end, not cancelled/trashed/already concluded
-                        const [concludedRes] = await db.query(
-                                `UPDATE created_events
+            const [concludedRes] = await db.query(
+                `UPDATE created_events
                                  SET status = 'concluded'
                                  WHERE deleted_at IS NULL
                                      AND ${endTimeExpr} < ${nowExpr}
                                      AND LOWER(COALESCE(status, '')) NOT IN ('cancelled','concluded')`
-                        );
-            
+            );
+
             // 3) Normalize future events to 'not yet started' (unless cancelled)
-                        const [notYetRes] = await db.query(
-                                `UPDATE created_events
+            const [notYetRes] = await db.query(
+                `UPDATE created_events
                                  SET status = 'not yet started'
                                  WHERE deleted_at IS NULL
                                      AND ${startTimeExpr} > ${nowExpr}
                                      AND LOWER(COALESCE(status, '')) NOT IN ('cancelled','not yet started')`
-                        );
-            
+            );
+
             await db.query('COMMIT');
-            
+
             const result = {
                 toOngoing: ongoingRes?.affectedRows || 0,
                 toConcluded: concludedRes?.affectedRows || 0,
                 toNotYetStarted: notYetRes?.affectedRows || 0
             };
-            
+
             // Log current status distribution
             const [statusDist] = await db.query(`
                 SELECT status, COUNT(*) as count
@@ -813,8 +814,8 @@ module.exports = {
                 WHERE deleted_at IS NULL
                 GROUP BY status
             `);
-            
-            
+
+
             return result;
         } catch (err) {
             await db.query('ROLLBACK');
@@ -845,7 +846,7 @@ module.exports = {
             );
             if (!Array.isArray(rows) || rows.length === 0) {
                 await db.query(`ALTER TABLE created_events ADD COLUMN registration_fee DECIMAL(10,2) NOT NULL DEFAULT 0 AFTER is_paid`);
-                try { await db.query(`UPDATE created_events SET registration_fee = 0 WHERE registration_fee IS NULL`); } catch(_) {}
+                try { await db.query(`UPDATE created_events SET registration_fee = 0 WHERE registration_fee IS NULL`); } catch (_) { }
             }
         } catch (e) {
             console.warn('[DB] ensureRegistrationFeeColumn check failed:', e.message || e);
@@ -890,22 +891,22 @@ module.exports = {
     getOrgDashboardStats: async (orgId) => {
         const nowQuery = 'UTC_TIMESTAMP()';
         // Upcoming: start after now, not trashed
-                const [up] = await db.query(
-                        `SELECT COUNT(*) AS cnt FROM created_events
+        const [up] = await db.query(
+            `SELECT COUNT(*) AS cnt FROM created_events
                          WHERE created_by_org_id = ? AND deleted_at IS NULL
                     AND CONVERT_TZ(TIMESTAMP(start_date, start_time), '${process.env.EVENT_TZ_OFFSET || '+08:00'}', '+00:00') > ${nowQuery}
                              AND LOWER(COALESCE(status, '')) NOT IN ('cancelled', 'concluded')`,
-                        [orgId]
-                );
-                // Ongoing: now between start and end, not trashed, not concluded
-                const [og] = await db.query(
-                        `SELECT COUNT(*) AS cnt FROM created_events
+            [orgId]
+        );
+        // Ongoing: now between start and end, not trashed, not concluded
+        const [og] = await db.query(
+            `SELECT COUNT(*) AS cnt FROM created_events
                          WHERE created_by_org_id = ? AND deleted_at IS NULL
                     AND CONVERT_TZ(TIMESTAMP(start_date, start_time), '${process.env.EVENT_TZ_OFFSET || '+08:00'}', '+00:00') <= ${nowQuery}
                     AND CONVERT_TZ(TIMESTAMP(end_date, end_time), '${process.env.EVENT_TZ_OFFSET || '+08:00'}', '+00:00') >= ${nowQuery}
                              AND LOWER(COALESCE(status, '')) NOT IN ('cancelled', 'concluded')`,
-                        [orgId]
-                );
+            [orgId]
+        );
         // Cancelled: not trashed
         const [cc] = await db.query(
             `SELECT COUNT(*) AS cnt FROM created_events
@@ -930,29 +931,29 @@ module.exports = {
             concluded: cm[0]?.cnt || 0,
         };
     },
-        // Aggregated chart datasets for OSWS dashboard
-        // filter: 'weekly' (last 12 weeks), 'monthly' (current year), 'yearly' (last 5 years)
-        // NOTE: Use TIMESTAMP(...) and UTC_TIMESTAMP() for comparisons to avoid
-        // relying on CONVERT_TZ / EVENT_TZ_OFFSET. This keeps chart counts
-        // consistent with `getOswsDashboardStats` which also uses UTC comparisons.
-        getOswsDashboardCharts: async (filter) => {
-            const nowExpr = 'UTC_TIMESTAMP()';
-            const startExpr = `TIMESTAMP(start_date, COALESCE(start_time, '00:00:00'))`;
-            let timeWhere = '';
-            if (filter === 'weekly') {
-                // last 12 weeks
-                timeWhere = `AND ${startExpr} >= (${nowExpr} - INTERVAL 12 WEEK)`;
-            } else if (filter === 'monthly') {
-                // current year
-                timeWhere = `AND YEAR(${startExpr}) = YEAR(${nowExpr})`;
-            } else if (filter === 'yearly') {
-                // last 5 years
-                timeWhere = `AND ${startExpr} >= (${nowExpr} - INTERVAL 5 YEAR)`;
-            }
+    // Aggregated chart datasets for OSWS dashboard
+    // filter: 'weekly' (last 12 weeks), 'monthly' (current year), 'yearly' (last 5 years)
+    // NOTE: Use TIMESTAMP(...) and UTC_TIMESTAMP() for comparisons to avoid
+    // relying on CONVERT_TZ / EVENT_TZ_OFFSET. This keeps chart counts
+    // consistent with `getOswsDashboardStats` which also uses UTC comparisons.
+    getOswsDashboardCharts: async (filter) => {
+        const nowExpr = 'UTC_TIMESTAMP()';
+        const startExpr = `TIMESTAMP(start_date, COALESCE(start_time, '00:00:00'))`;
+        let timeWhere = '';
+        if (filter === 'weekly') {
+            // last 12 weeks
+            timeWhere = `AND ${startExpr} >= (${nowExpr} - INTERVAL 12 WEEK)`;
+        } else if (filter === 'monthly') {
+            // current year
+            timeWhere = `AND YEAR(${startExpr}) = YEAR(${nowExpr})`;
+        } else if (filter === 'yearly') {
+            // last 5 years
+            timeWhere = `AND ${startExpr} >= (${nowExpr} - INTERVAL 5 YEAR)`;
+        }
 
-            // Events by department (organization-created events only)
-            const [deptRows] = await db.query(
-                `SELECT COALESCE(org.department, 'Unknown') AS department, COUNT(*) AS cnt
+        // Events by department (organization-created events only)
+        const [deptRows] = await db.query(
+            `SELECT COALESCE(org.department, 'Unknown') AS department, COUNT(*) AS cnt
                  FROM created_events ce
                  LEFT JOIN student_organizations org ON ce.created_by_org_id = org.id
                  WHERE ce.created_by_org_id IS NOT NULL
@@ -961,11 +962,11 @@ module.exports = {
                  GROUP BY department
                  ORDER BY cnt DESC
                  LIMIT 50`
-            );
+        );
 
-            // Activities per organization (organization-created events only)
-            const [orgRows] = await db.query(
-                `SELECT COALESCE(org.org_name, CONCAT('Org ', ce.created_by_org_id)) AS org_name, COUNT(*) AS cnt
+        // Activities per organization (organization-created events only)
+        const [orgRows] = await db.query(
+            `SELECT COALESCE(org.org_name, CONCAT('Org ', ce.created_by_org_id)) AS org_name, COUNT(*) AS cnt
                  FROM created_events ce
                  LEFT JOIN student_organizations org ON ce.created_by_org_id = org.id
                  WHERE ce.created_by_org_id IS NOT NULL
@@ -974,14 +975,14 @@ module.exports = {
                  GROUP BY org_name
                  ORDER BY cnt DESC
                  LIMIT 100`
-            );
+        );
 
-            return {
-                events_by_department: deptRows.map(r => ({ department: r.department || 'Unknown', count: r.cnt || 0 })),
-                activities_by_organization: orgRows.map(r => ({ org_name: r.org_name || 'Unknown', count: r.cnt || 0 }))
-            };
-        },
-        getOswsDashboardStats: async () => {
+        return {
+            events_by_department: deptRows.map(r => ({ department: r.department || 'Unknown', count: r.cnt || 0 })),
+            activities_by_organization: orgRows.map(r => ({ org_name: r.org_name || 'Unknown', count: r.cnt || 0 }))
+        };
+    },
+    getOswsDashboardStats: async () => {
         // Use UTC_TIMESTAMP() for comparisons but convert stored event local timestamps
         // to UTC using the configured EVENT_TZ_OFFSET so counts reflect the event
         // organizer's local timezone (e.g. '+08:00'). This prevents flip-flopping
@@ -992,38 +993,38 @@ module.exports = {
         const endExpr = `CONVERT_TZ(TIMESTAMP(end_date, COALESCE(end_time, '23:59:59')), '${eventTzOffset}', '+00:00')`;
 
         // Upcoming: start after now, exclude trashed
-                const [up] = await db.query(
-                        `SELECT COUNT(*) AS cnt FROM created_events
+        const [up] = await db.query(
+            `SELECT COUNT(*) AS cnt FROM created_events
                          WHERE created_by_osws_id IS NOT NULL AND deleted_at IS NULL
                              AND ${startExpr} > ${nowQuery}
                              AND LOWER(COALESCE(status, '')) NOT IN ('cancelled','concluded')`
-                );
+        );
 
-                // Ongoing: now between start and end, exclude trashed
-                const [og] = await db.query(
-                        `SELECT COUNT(*) AS cnt FROM created_events
+        // Ongoing: now between start and end, exclude trashed
+        const [og] = await db.query(
+            `SELECT COUNT(*) AS cnt FROM created_events
                          WHERE created_by_osws_id IS NOT NULL AND deleted_at IS NULL
                              AND ${startExpr} <= ${nowQuery}
                              AND ${endExpr} >= ${nowQuery}
                              AND LOWER(COALESCE(status, '')) NOT IN ('cancelled','concluded')`
-                );
+        );
 
-                // Cancelled: exclude trashed
-                const [cc] = await db.query(
-                        `SELECT COUNT(*) AS cnt FROM created_events
+        // Cancelled: exclude trashed
+        const [cc] = await db.query(
+            `SELECT COUNT(*) AS cnt FROM created_events
                          WHERE created_by_osws_id IS NOT NULL AND deleted_at IS NULL
                              AND LOWER(COALESCE(status, '')) = 'cancelled'`
-                );
+        );
 
-                // Concluded: include trashed or not (server-side rule: concluded includes trashed)
-                const [cm] = await db.query(
-                        `SELECT COUNT(*) AS cnt FROM created_events
+        // Concluded: include trashed or not (server-side rule: concluded includes trashed)
+        const [cm] = await db.query(
+            `SELECT COUNT(*) AS cnt FROM created_events
                          WHERE created_by_osws_id IS NOT NULL
                              AND (
                                      LOWER(COALESCE(status, '')) = 'concluded'
                                      OR ${endExpr} < ${nowQuery}
                              )`
-                );
+        );
 
         return {
             upcoming: up[0]?.cnt || 0,
@@ -1062,7 +1063,7 @@ module.exports = {
             // Backfill time_in from attended_at
             try {
                 await db.query(`UPDATE attendance_records SET time_in = attended_at WHERE time_in IS NULL AND attended_at IS NOT NULL`);
-            } catch (_) {}
+            } catch (_) { }
         } catch (e) {
             console.warn('[DB] ensureAttendanceColumns check failed:', e.message || e);
         }

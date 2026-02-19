@@ -2,21 +2,33 @@ const db = require('../config/db');
 const { decryptData } = require('../utils/encryption');
 
 /**
- * Decrypt sensitive fields in user object
+ * Safely decrypt a single field — returns original value if not encrypted or decryption fails
+ */
+function safeDecryptField(value) {
+    if (value && typeof value === 'string' && value.includes(':') && value.split(':').length === 3) {
+        try {
+            return decryptData(value);
+        } catch (err) {
+            // Return original if decryption fails (legacy unencrypted data)
+            return value;
+        }
+    }
+    return value;
+}
+
+/**
+ * Decrypt all sensitive PII fields in a user object
+ * Handles both newly-encrypted rows and legacy plaintext rows gracefully
  */
 function decryptUserFields(user) {
     if (!user) return null;
 
     try {
-        // Decrypt email if it appears to be encrypted (format: iv:authTag:data)
-        if (user.email && typeof user.email === 'string' && user.email.includes(':')) {
-            const parts = user.email.split(':');
-            if (parts.length === 3) {
-                try {
-                    user.email = decryptData(user.email);
-                } catch (err) {
-                    console.error('Failed to decrypt email, using as-is:', err.message);
-                }
+        // Decrypt all PII fields (email, names, department, program)
+        const piiFields = ['email', 'first_name', 'last_name', 'middle_initial', 'suffix', 'department', 'program'];
+        for (const field of piiFields) {
+            if (user[field] !== null && user[field] !== undefined) {
+                user[field] = safeDecryptField(user[field]);
             }
         }
     } catch (error) {

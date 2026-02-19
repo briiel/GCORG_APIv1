@@ -258,6 +258,7 @@ function sendRegistrationEmail(arg1, subject, text, qrUrl) {
 }
 
 // Reminder emails removed
+*/
 
 async function sendGenericEmail({ to, subject, text, html }) {
   const mailOptions = {
