@@ -623,6 +623,17 @@ const hardDeleteEvent = async (eventId) => {
         // Delete attendance records referencing this event
         await conn.query('DELETE FROM attendance_records WHERE event_id = ?', [eventId]);
 
+        // Delete evaluations for this event (FK has ON DELETE CASCADE but we're explicit)
+        await conn.query('DELETE FROM evaluations WHERE event_id = ?', [eventId]);
+
+        // Delete certificate request logs for this event (audit log - no FK cascade)
+        try {
+            await conn.query('DELETE FROM certificate_request_logs WHERE event_id = ?', [eventId]);
+        } catch (e) { /* table may not exist in older deploys */ }
+
+        // Delete certificate requests for this event
+        await conn.query('DELETE FROM certificate_requests WHERE event_id = ?', [eventId]);
+
         // For backward-compat: if a legacy table `registration_details` exists, clean it up too.
         try {
             const [tbl] = await conn.query(

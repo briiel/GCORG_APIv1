@@ -9,7 +9,7 @@ async function ensureSchema() {
 	await db.query(`
 		CREATE TABLE IF NOT EXISTS notifications (
 			id INT NOT NULL AUTO_INCREMENT PRIMARY KEY,
-			user_id VARCHAR(50) NULL,
+			user_id VARCHAR(20) NULL,
 			message VARCHAR(1000) NOT NULL,
 			event_id INT NULL,
 			panel VARCHAR(50) NULL,
@@ -168,7 +168,7 @@ const getNotificationsForUser = async (user_id, options = {}) => {
 				out.read_at = rd ? rd.toISOString() : null;
 			}
 			return out;
-		} catch (_) {}
+		} catch (_) { }
 		return r;
 	});
 	if (page && per_page) {

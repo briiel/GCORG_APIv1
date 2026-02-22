@@ -64,12 +64,14 @@ const getAllUsersPaginated = async (page = 1, per_page = 20) => {
     const offset = (p - 1) * pp;
 
     // Use UNION ALL to combine both tables into one selectable dataset
-    const countSql = `SELECT COUNT(*) AS cnt FROM (SELECT id FROM students UNION ALL SELECT id FROM student_organizations) AS u`;
+    // Note: students table has no deleted_at column, so no filter needed there.
+    // student_organizations does have deleted_at, so filter soft-deleted orgs out.
+    const countSql = `SELECT COUNT(*) AS cnt FROM (SELECT id FROM students UNION ALL SELECT id FROM student_organizations WHERE deleted_at IS NULL) AS u`;
     const dataSql = `
         SELECT * FROM (
-            SELECT id, email, first_name, last_name, middle_initial, suffix, department, program, COALESCE(year_level, 4) AS year_level, 'student' as userType, NULL as org_name, NULL as name FROM students WHERE deleted_at IS NULL
+            SELECT id, email, first_name, last_name, middle_initial, suffix, department, program, COALESCE(year_level, 4) AS year_level, 'student' as userType, NULL as org_name, NULL as name FROM students
             UNION ALL
-            SELECT id, email, NULL AS first_name, NULL AS last_name, NULL AS middle_initial, NULL AS suffix, department, NULL AS program, NULL AS year_level, 'organization' as userType, org_name as name FROM student_organizations
+            SELECT id, email, NULL AS first_name, NULL AS last_name, NULL AS middle_initial, NULL AS suffix, department, NULL AS program, NULL AS year_level, 'organization' as userType, org_name as name FROM student_organizations WHERE deleted_at IS NULL
         ) AS u
         ORDER BY COALESCE(u.last_name, u.name) ASC
         LIMIT ? OFFSET ?

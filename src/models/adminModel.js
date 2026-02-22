@@ -34,8 +34,14 @@ function decryptAdminArray(admins) {
 }
 
 const getAllAdmins = async () => {
-    const [rows] = await db.query('SELECT id, email, name FROM osws_admins');
+    // Filter out soft-deleted admins (deleted_at IS NOT NULL)
+    const [rows] = await db.query('SELECT id, email, name FROM osws_admins WHERE deleted_at IS NULL');
     return decryptAdminArray(rows);
 };
 
-module.exports = { getAllAdmins };
+const getAllAdminsIncludeDeleted = async () => {
+    const [rows] = await db.query('SELECT id, email, name, deleted_at, deleted_by FROM osws_admins');
+    return decryptAdminArray(rows);
+};
+
+module.exports = { getAllAdmins, getAllAdminsIncludeDeleted };

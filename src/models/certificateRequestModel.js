@@ -30,7 +30,6 @@ async function ensureSchema() {
 	}
 }
 
-// Create a certificate request
 const createCertificateRequest = async ({ event_id, student_id }) => {
 	await ensureSchema();
 	// Use CONVERT_TZ to store the current time in the server's timezone explicitly
@@ -40,7 +39,21 @@ const createCertificateRequest = async ({ event_id, student_id }) => {
 		VALUES (?, ?, 'pending', CONVERT_TZ(UTC_TIMESTAMP(), '+00:00', ?))
 	`;
 	const [result] = await db.query(query, [event_id, student_id, SERVER_TZ_OFFSET]);
-	return result.insertId;
+	const insertId = result.insertId;
+
+	// Write an audit log entry into certificate_request_logs
+	// This table exists in the DB schema and tracks each request for audit purposes
+	try {
+		await db.query(
+			`INSERT INTO certificate_request_logs (event_id, student_id, requested_at) VALUES (?, ?, CONVERT_TZ(UTC_TIMESTAMP(), '+00:00', ?))`,
+			[event_id, student_id, SERVER_TZ_OFFSET]
+		);
+	} catch (logErr) {
+		// Non-fatal: log the error but don't fail the main request
+		console.warn('[CertRequest] Failed to write certificate_request_logs entry:', logErr && logErr.message ? logErr.message : logErr);
+	}
+
+	return insertId;
 };
 
 // Get all certificate requests for an organization
@@ -140,25 +153,25 @@ const getCertificateRequestsByOrg = async (org_id, page = undefined, per_page = 
 		const out = { ...r };
 		try {
 			if (out.requested_at) {
-					// Interpret the MySQL DATETIME as occurring in the SERVER timezone (SERVER_TZ_OFFSET)
-					// because CURRENT_TIMESTAMP() stores time in the server's timezone.
-					// Convert it to a UTC JS Date so the frontend gets a correct ISO instant.
-					const d = parseMysqlLocalStringToDate(out.requested_at, SERVER_TZ_OFFSET);
-					out.requested_at = d ? d.toISOString() : null;
-					// Also provide event-local formatted strings for display in the event's timezone
-					const f = d ? formatDateToOffsetStrings(d, EVENT_TZ_OFFSET) : { local: null, iso_with_offset: null };
-					out.requested_at_local = f.local;
-					out.requested_at_local_iso = f.iso_with_offset;
-				}
+				// Interpret the MySQL DATETIME as occurring in the SERVER timezone (SERVER_TZ_OFFSET)
+				// because CURRENT_TIMESTAMP() stores time in the server's timezone.
+				// Convert it to a UTC JS Date so the frontend gets a correct ISO instant.
+				const d = parseMysqlLocalStringToDate(out.requested_at, SERVER_TZ_OFFSET);
+				out.requested_at = d ? d.toISOString() : null;
+				// Also provide event-local formatted strings for display in the event's timezone
+				const f = d ? formatDateToOffsetStrings(d, EVENT_TZ_OFFSET) : { local: null, iso_with_offset: null };
+				out.requested_at_local = f.local;
+				out.requested_at_local_iso = f.iso_with_offset;
+			}
 		} catch (_) { /* keep originals on error */ }
 		try {
 			if (out.processed_at) {
-					const d2 = parseMysqlLocalStringToDate(out.processed_at, SERVER_TZ_OFFSET);
-					out.processed_at = d2 ? d2.toISOString() : null;
-					const f2 = d2 ? formatDateToOffsetStrings(d2, EVENT_TZ_OFFSET) : { local: null, iso_with_offset: null };
-					out.processed_at_local = f2.local;
-					out.processed_at_local_iso = f2.iso_with_offset;
-				}
+				const d2 = parseMysqlLocalStringToDate(out.processed_at, SERVER_TZ_OFFSET);
+				out.processed_at = d2 ? d2.toISOString() : null;
+				const f2 = d2 ? formatDateToOffsetStrings(d2, EVENT_TZ_OFFSET) : { local: null, iso_with_offset: null };
+				out.processed_at_local = f2.local;
+				out.processed_at_local_iso = f2.iso_with_offset;
+			}
 		} catch (_) { /* keep originals on error */ }
 		return out;
 	});
@@ -188,15 +201,15 @@ const getCertificateRequestById = async (request_id) => {
 	// Normalize timestamps to ISO UTC and add event-local formatted strings
 	try {
 		if (row.requested_at) {
-				// Parse using SERVER_TZ_OFFSET (the timezone of the MySQL server)
-				const d = parseMysqlLocalStringToDate(row.requested_at, SERVER_TZ_OFFSET);
-				row.requested_at = d ? d.toISOString() : null;
-				// Provide event-local formatted versions for display
-				const f = d ? formatDateToOffsetStrings(d, EVENT_TZ_OFFSET) : { local: null, iso_with_offset: null };
-				row.requested_at_local = f.local;
-				row.requested_at_local_iso = f.iso_with_offset;
-			}
-	} catch (_) {}
+			// Parse using SERVER_TZ_OFFSET (the timezone of the MySQL server)
+			const d = parseMysqlLocalStringToDate(row.requested_at, SERVER_TZ_OFFSET);
+			row.requested_at = d ? d.toISOString() : null;
+			// Provide event-local formatted versions for display
+			const f = d ? formatDateToOffsetStrings(d, EVENT_TZ_OFFSET) : { local: null, iso_with_offset: null };
+			row.requested_at_local = f.local;
+			row.requested_at_local_iso = f.iso_with_offset;
+		}
+	} catch (_) { }
 	try {
 		if (row.processed_at) {
 			const d2 = parseMysqlLocalStringToDate(row.processed_at, SERVER_TZ_OFFSET);
@@ -205,7 +218,7 @@ const getCertificateRequestById = async (request_id) => {
 			row.processed_at_local = f2.local;
 			row.processed_at_local_iso = f2.iso_with_offset;
 		}
-	} catch (_) {}
+	} catch (_) { }
 	return row;
 };
 
