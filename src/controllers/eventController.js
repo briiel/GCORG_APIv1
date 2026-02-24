@@ -84,7 +84,7 @@ exports.createEvent = async (req, res) => {
                 // Prefer studentId/legacyId/id for the canonical student identifier
                 eventData.created_by_student_id = user.studentId || user.legacyId || user.id || null;
             }
-        } catch (ignore) {}
+        } catch (ignore) { }
 
         // Normalize is_paid from frontend ("paid"/"free" or boolean)
         if (eventData.is_paid !== undefined) {
@@ -234,12 +234,12 @@ exports.getAttendedEventsByStudent = async (req, res) => {
         // Allow students to fetch only their own history; org/admin can fetch any student
         const { student_id } = req.params;
         if (!student_id) return handleErrorResponse(res, 'student_id is required', 400);
-        
+
         const roles = user?.roles || [];
         const isStudent = roles.includes('student');
         const isOrgOfficer = roles.includes('orgofficer');
         const isAdmin = roles.includes('oswsadmin');
-        
+
         // Students without officer/admin role can only fetch their own history
         if (isStudent && !isOrgOfficer && !isAdmin && String(user.studentId) !== String(student_id)) {
             return handleErrorResponse(res, 'Forbidden: You can only view your own attendance history', 403);
@@ -323,13 +323,13 @@ exports.updateEventStatus = async (req, res) => {
         const ev = await eventService.getEventById(id);
         if (!ev || ev.deleted_at) return handleErrorResponse(res, 'Event not found', 404);
         if (!user) return handleErrorResponse(res, 'Unauthorized', 401);
-        
+
         const roles = user.roles || [];
         const isOrgOfficer = roles.includes('orgofficer');
         const isAdmin = roles.includes('oswsadmin');
         const orgId = isOrgOfficer && user.organization ? user.organization.org_id : null;
         const adminId = isAdmin ? user.legacyId : null;
-        
+
         if (isOrgOfficer && ev.created_by_org_id !== orgId) return handleErrorResponse(res, 'Forbidden', 403);
         if (isAdmin && ev.created_by_osws_id !== adminId) return handleErrorResponse(res, 'Forbidden', 403);
 
@@ -364,7 +364,7 @@ exports.updateEventStatus = async (req, res) => {
 
         await eventService.updateEventStatus(id, status);
 
-    if (status === 'concluded') {
+        if (status === 'concluded') {
             // Only release certificates for events created by OSWS
             const event = await eventService.getEventById(id);
             const isOswsCreated = event && event.created_by_osws_id; // truthy when created by OSWS
@@ -464,7 +464,7 @@ exports.updateEventStatus = async (req, res) => {
 
 exports.markAttendance = async (req, res) => {
     try {
-    let { registration_id, event_id, student_id, mode } = req.body;
+        let { registration_id, event_id, student_id, mode } = req.body;
         // Location fields expected from frontend for server-side enforcement
         const user_lat = req.body.user_lat !== undefined ? parseFloat(req.body.user_lat) : null;
         const user_lon = req.body.user_lon !== undefined ? parseFloat(req.body.user_lon) : null;
@@ -511,7 +511,7 @@ exports.markAttendance = async (req, res) => {
         const roles = user.roles || [];
         const isOrgOfficer = roles.includes('orgofficer');
         const isAdmin = roles.includes('oswsadmin');
-        
+
         // Only organization officers and OSWS admins are allowed to scan
         if (!isOrgOfficer && !isAdmin) {
             return handleErrorResponse(res, 'Forbidden: Only organization officers and admins can mark attendance', 403);
@@ -521,9 +521,9 @@ exports.markAttendance = async (req, res) => {
         const orgId = isOrgOfficer && user.organization ? user.organization.org_id : null;
         const adminId = isAdmin ? user.legacyId : null;
 
-    // Note: Department-based restrictions intentionally not enforced. Cross-department registrations are allowed.
+        // Note: Department-based restrictions intentionally not enforced. Cross-department registrations are allowed.
 
-    // Determine registration/event pairing when one or both are missing.
+        // Determine registration/event pairing when one or both are missing.
         // 1) If both registration_id and event_id are missing, infer the most relevant within scanner scope.
         // 2) If event_id is provided but registration_id is missing, find the student's registration for that event.
         // 3) If registration_id is provided but event_id is missing, fetch its event and validate student.
@@ -600,8 +600,8 @@ exports.markAttendance = async (req, res) => {
         }
 
         // Scope check: ensure the specified/derived event belongs to the scanner, and is currently ongoing
-                const [evRows] = await db.query(
-                        `SELECT 
+        const [evRows] = await db.query(
+            `SELECT 
                                 created_by_org_id, 
                                 created_by_osws_id,
                                 status,
@@ -614,8 +614,8 @@ exports.markAttendance = async (req, res) => {
                                     )
                                 ) AS is_ongoing
                          FROM created_events WHERE event_id = ? LIMIT 1`,
-                        [event_id]
-                );
+            [event_id]
+        );
         if (!evRows.length) {
             return handleErrorResponse(res, 'Event not found', 404);
         }
@@ -664,12 +664,12 @@ exports.markAttendance = async (req, res) => {
 
         const dist = haversineMeters(user_lat, user_lon, targetLat, targetLon);
         // Debug log to help confirm which coordinates are used for geofence
-        try { console.info('[geofence] user:', { user_lat, user_lon, user_accuracy }, 'target:', { targetLat, targetLon }, 'dist_m:', Math.round(dist), 'radius_m:', GEOFENCE_METERS); } catch (e) {}
+        try { console.info('[geofence] user:', { user_lat, user_lon, user_accuracy }, 'target:', { targetLat, targetLon }, 'dist_m:', Math.round(dist), 'radius_m:', GEOFENCE_METERS); } catch (e) { }
         if (dist > GEOFENCE_METERS) {
             return handleErrorResponse(res, `User is outside allowed area (${Math.round(dist)} m).`, 403);
         }
 
-    // Verify registration exists and belongs to provided values
+        // Verify registration exists and belongs to provided values
         const [reg] = await db.query(
             'SELECT * FROM event_registrations WHERE id = ? AND event_id = ? AND student_id = ?',
             [registration_id, event_id, student_id]
@@ -696,12 +696,15 @@ exports.markAttendance = async (req, res) => {
             [event_id, student_id]
         );
 
-        const scannedByOrgId = isOrgOfficer ? orgId : null;
+        // DB trigger requires EXACTLY ONE of the three scanner fields to be non-null.
+        // For org officers who are also students (have a studentId in token), prefer
+        // scanned_by_student_id so that the COALESCE in queries resolves to the officer's
+        // personal name (e.g., "Juan Dela Cruz") rather than the org name ("GCCCS ELITES").
+        // For legacy pure-org accounts (no studentId), fall back to scanned_by_org_id.
+        const officerStudentId = isOrgOfficer ? (user.studentId || null) : null;
+        const scannedByStudentId = officerStudentId;                          // officer's own student DB id
+        const scannedByOrgId = (isOrgOfficer && !officerStudentId) ? orgId : null; // legacy org fallback
         const scannedByOswsId = isAdmin ? adminId : null;
-        // scanned_by_student_id is reserved for future self-scan flows.
-        // DB trigger requires exactly ONE of the three scanner fields to be non-null,
-        // so this must always be null when an org officer or OSWS admin is scanning.
-        const scannedByStudentId = null;
 
         // Helper writers
         const doTimeInInsert = async () => {
@@ -796,7 +799,7 @@ exports.getAllAttendanceRecords = async (req, res) => {
         const isOrgOfficer = roles.includes('orgofficer');
         const isAdmin = roles.includes('oswsadmin');
         const isStudent = roles.includes('student');
-        
+
         let records;
         if (isOrgOfficer) {
             const orgId = user.organization ? user.organization.org_id : null;
@@ -833,11 +836,11 @@ exports.deleteEvent = async (req, res) => {
 
 exports.getTrashedEvents = async (req, res) => {
     try {
-            const user = req.user;
-            if (!user) return handleErrorResponse(res, 'Unauthorized', 401);
-            const userRoles = Array.isArray(user.roles) ? user.roles : [];
+        const user = req.user;
+        if (!user) return handleErrorResponse(res, 'Unauthorized', 401);
+        const userRoles = Array.isArray(user.roles) ? user.roles : [];
         let rows = [];
-        
+
         // Check roles array instead of userType for RBAC compatibility
         if (user.roles && user.roles.includes('orgofficer')) {
             // For OrgOfficers (including students with approved org officer role)
@@ -889,7 +892,7 @@ exports.getOrgDashboardStats = async (req, res) => {
     try {
         const user = req.user;
         if (!user) return handleErrorResponse(res, 'Unauthorized', 401);
-        
+
         // RBAC: Check if user has OrgOfficer role
         const roles = user.roles || [];
         if (!roles.includes('orgofficer')) {
@@ -912,7 +915,7 @@ exports.getOswsDashboardStats = async (req, res) => {
     try {
         const user = req.user;
         if (!user) return handleErrorResponse(res, 'Unauthorized', 401);
-        
+
         // RBAC: Check if user has OSWSAdmin role
         const roles = user.roles || [];
         if (!roles.includes('oswsadmin')) {
@@ -926,19 +929,19 @@ exports.getOswsDashboardStats = async (req, res) => {
     }
 };
 
-    // Aggregated chart datasets for OSWS dashboard: events by department, activities per organization
-    exports.getOswsDashboardCharts = async (req, res) => {
-        try {
-            // Optional query param `filter` can be 'weekly'|'monthly'|'yearly'
-            const filter = String(req.query.filter || 'monthly').toLowerCase();
-            const allowed = ['weekly', 'monthly', 'yearly'];
-            const f = allowed.includes(filter) ? filter : 'monthly';
-            const data = await eventService.getOswsDashboardCharts(f);
-            return handleSuccessResponse(res, data);
-        } catch (error) {
-            return handleErrorResponse(res, error.message);
-        }
-    };
+// Aggregated chart datasets for OSWS dashboard: events by department, activities per organization
+exports.getOswsDashboardCharts = async (req, res) => {
+    try {
+        // Optional query param `filter` can be 'weekly'|'monthly'|'yearly'
+        const filter = String(req.query.filter || 'monthly').toLowerCase();
+        const allowed = ['weekly', 'monthly', 'yearly'];
+        const f = allowed.includes(filter) ? filter : 'monthly';
+        const data = await eventService.getOswsDashboardCharts(f);
+        return handleSuccessResponse(res, data);
+    } catch (error) {
+        return handleErrorResponse(res, error.message);
+    }
+};
 
 exports.getCertificatesByStudent = async (req, res) => {
     try {
@@ -1186,9 +1189,9 @@ exports.getAllOswsEvents = async (req, res) => {
 
 exports.getEventParticipants = async (req, res) => {
     try {
-                const { event_id } = req.params;
-                const [rows] = await db.query(
-                        `SELECT 
+        const { event_id } = req.params;
+        const [rows] = await db.query(
+            `SELECT 
                  er.id AS registration_id,
                  er.student_id,
                  er.proof_of_payment,
@@ -1202,8 +1205,8 @@ exports.getEventParticipants = async (req, res) => {
              JOIN students s ON er.student_id = s.id
              WHERE er.event_id = ?
              ORDER BY FIELD(er.status, 'pending','approved','rejected'), er.id DESC`,
-                        [event_id]
-                );
+            [event_id]
+        );
 
         // Normalize proof_of_payment to absolute URL if needed
         const host = req.protocol + '://' + req.get('host');
@@ -1230,11 +1233,11 @@ exports.approveRegistration = async (req, res) => {
         const roles = user.roles || [];
         const isOrgOfficer = roles.includes('orgofficer');
         const isAdmin = roles.includes('oswsadmin');
-        
+
         if (!user || (!isOrgOfficer && !isAdmin)) {
             return handleErrorResponse(res, 'Forbidden: Only organization officers and admins can approve registrations', 403);
         }
-        
+
         const { registration_id } = req.params;
         if (!registration_id) return handleErrorResponse(res, 'registration_id required', 400);
 
@@ -1252,7 +1255,7 @@ exports.approveRegistration = async (req, res) => {
         );
         if (!rows.length) return handleErrorResponse(res, 'Registration not found', 404);
         const rec = rows[0];
-        
+
         // Check ownership
         if (isOrgOfficer && rec.created_by_org_id !== orgId) {
             return handleErrorResponse(res, 'Forbidden: You can only approve registrations for your organization events', 403);
@@ -1260,7 +1263,7 @@ exports.approveRegistration = async (req, res) => {
         if (isAdmin && rec.created_by_osws_id !== adminId) {
             return handleErrorResponse(res, 'Forbidden: You can only approve registrations for your OSWS events', 403);
         }
-        
+
         if ((rec.status || '').toLowerCase() === 'approved') {
             return handleSuccessResponse(res, { message: 'Already approved' });
         }
@@ -1273,7 +1276,7 @@ exports.approveRegistration = async (req, res) => {
         // Notify student
         try {
             await notificationService.createNotification({ user_id: String(rec.student_id), event_id: rec.event_id, type: require('../services/notificationTypes').REGISTRATION_APPROVED, templateVars: { title: rec.title }, panel: 'student' });
-        } catch (_) {}
+        } catch (_) { }
         return handleSuccessResponse(res, { message: 'Registration approved' });
     } catch (error) {
         return handleErrorResponse(res, error.message);
@@ -1287,11 +1290,11 @@ exports.rejectRegistration = async (req, res) => {
         const roles = user.roles || [];
         const isOrgOfficer = roles.includes('orgofficer');
         const isAdmin = roles.includes('oswsadmin');
-        
+
         if (!user || (!isOrgOfficer && !isAdmin)) {
             return handleErrorResponse(res, 'Forbidden: Only organization officers and admins can decline registrations', 403);
         }
-        
+
         const { registration_id } = req.params;
         if (!registration_id) return handleErrorResponse(res, 'registration_id required', 400);
 
@@ -1308,7 +1311,7 @@ exports.rejectRegistration = async (req, res) => {
         );
         if (!rows.length) return handleErrorResponse(res, 'Registration not found', 404);
         const rec = rows[0];
-        
+
         // Check ownership
         if (isOrgOfficer && rec.created_by_org_id !== orgId) {
             return handleErrorResponse(res, 'Forbidden: You can only decline registrations for your organization events', 403);
@@ -1319,7 +1322,7 @@ exports.rejectRegistration = async (req, res) => {
         await db.query(`UPDATE event_registrations SET status = 'rejected' WHERE id = ?`, [registration_id]);
         try {
             await notificationService.createNotification({ user_id: String(rec.student_id), event_id: rec.event_id, type: require('../services/notificationTypes').REGISTRATION_REJECTED, templateVars: { title: rec.title }, panel: 'student' });
-        } catch (_) {}
+        } catch (_) { }
         return handleSuccessResponse(res, { message: 'Registration declined' });
     } catch (error) {
         return handleErrorResponse(res, error.message);
@@ -1328,7 +1331,7 @@ exports.rejectRegistration = async (req, res) => {
 
 exports.getAttendanceRecords = async (req, res) => {
     try {
-                const [rows] = await db.query(
+        const [rows] = await db.query(
             `SELECT 
          ar.event_id,
          e.title AS event_title,
@@ -1342,7 +1345,7 @@ exports.getAttendanceRecords = async (req, res) => {
        JOIN events e ON ar.event_id = e.event_id
        JOIN students s ON ar.student_id = s.id`
         );
-                return handleSuccessResponse(res, { items: rows });
+        return handleSuccessResponse(res, { items: rows });
     } catch (error) {
         console.error('getAttendanceRecords error:', error);
         return handleErrorResponse(res, error.message);
@@ -1360,33 +1363,33 @@ exports.updateEvent = async (req, res) => {
                 eventData.event_poster_public_id = req.file.cloudinaryPublicId;
             }
         }
-            // Support receiving a data URL / base64 image in JSON body when the client
-            // cannot/doesn't send multipart form-data. If `event_poster` in the body is
-            // a data URL or base64 string and no `req.file` was provided, upload it
-            // to Cloudinary so users can add a poster when editing an event that
-            // originally had no poster.
-            if (!req.file && eventData && typeof eventData.event_poster === 'string') {
-                const val = eventData.event_poster.trim();
-                const looksLikeDataUrl = val.startsWith('data:image/');
-                const looksLikeBase64 = /^(?:[A-Za-z0-9+/]{4})*(?:[A-Za-z0-9+/]{2}==|[A-Za-z0-9+/]{3}=)?$/.test(val.replace(/^data:[^;]+;base64,/, ''));
-                if (looksLikeDataUrl || (val.length > 100 && looksLikeBase64)) {
-                    try {
-                        const uploadResult = await cloudinary.uploader.upload(val, {
-                            folder: 'event-posters',
-                            resource_type: 'image',
-                            quality: 'auto',
-                            fetch_format: 'auto'
-                        });
-                        if (uploadResult && uploadResult.secure_url) {
-                            eventData.event_poster = uploadResult.secure_url;
-                            eventData.event_poster_public_id = uploadResult.public_id;
-                        }
-                    } catch (e) {
-                        console.warn('Failed to upload event_poster from data URL/body:', e?.message || e);
-                        // Do not fail the whole update because of upload; proceed without setting poster
+        // Support receiving a data URL / base64 image in JSON body when the client
+        // cannot/doesn't send multipart form-data. If `event_poster` in the body is
+        // a data URL or base64 string and no `req.file` was provided, upload it
+        // to Cloudinary so users can add a poster when editing an event that
+        // originally had no poster.
+        if (!req.file && eventData && typeof eventData.event_poster === 'string') {
+            const val = eventData.event_poster.trim();
+            const looksLikeDataUrl = val.startsWith('data:image/');
+            const looksLikeBase64 = /^(?:[A-Za-z0-9+/]{4})*(?:[A-Za-z0-9+/]{2}==|[A-Za-z0-9+/]{3}=)?$/.test(val.replace(/^data:[^;]+;base64,/, ''));
+            if (looksLikeDataUrl || (val.length > 100 && looksLikeBase64)) {
+                try {
+                    const uploadResult = await cloudinary.uploader.upload(val, {
+                        folder: 'event-posters',
+                        resource_type: 'image',
+                        quality: 'auto',
+                        fetch_format: 'auto'
+                    });
+                    if (uploadResult && uploadResult.secure_url) {
+                        eventData.event_poster = uploadResult.secure_url;
+                        eventData.event_poster_public_id = uploadResult.public_id;
                     }
+                } catch (e) {
+                    console.warn('Failed to upload event_poster from data URL/body:', e?.message || e);
+                    // Do not fail the whole update because of upload; proceed without setting poster
                 }
             }
+        }
         if (eventData.is_paid !== undefined) {
             const v = eventData.is_paid;
             const s = typeof v === 'string' ? v.toLowerCase() : v;
@@ -1407,13 +1410,13 @@ exports.updateEvent = async (req, res) => {
             if (!ev || ev.deleted_at) return handleErrorResponse(res, 'Event not found', 404);
             const user = req.user;
             if (!user) return handleErrorResponse(res, 'Unauthorized', 401);
-            
+
             const roles = user.roles || [];
             const isOrgOfficer = roles.includes('orgofficer');
             const isAdmin = roles.includes('oswsadmin');
             const orgId = isOrgOfficer && user.organization ? user.organization.org_id : null;
             const adminId = isAdmin ? user.legacyId : null;
-            
+
             if (isOrgOfficer && ev.created_by_org_id !== orgId) return handleErrorResponse(res, 'Forbidden', 403);
             if (isAdmin && ev.created_by_osws_id !== adminId) return handleErrorResponse(res, 'Forbidden', 403);
         }
@@ -1466,7 +1469,7 @@ exports.requestCertificate = async (req, res) => {
         if (ev.created_by_osws_id) {
             return handleErrorResponse(res, 'Certificates are auto-generated for OSWS events.', 400);
         }
-        
+
         // NEW: Require evaluation before certificate request for organization events
         const [evalCheck] = await db.query(
             `SELECT evaluation_submitted FROM attendance_records 
@@ -1476,7 +1479,7 @@ exports.requestCertificate = async (req, res) => {
         if (!evalCheck.length || evalCheck[0].evaluation_submitted !== 1) {
             return handleErrorResponse(res, 'Please complete the evaluation form before requesting a certificate.', 400);
         }
-        
+
         const toOrgId = ev.created_by_org_id ? String(ev.created_by_org_id) : null;
         const toOswsId = ev.created_by_osws_id ? String(ev.created_by_osws_id) : null;
         if (!toOrgId && !toOswsId) return handleErrorResponse(res, 'Organizer account not available for this event.', 400);
@@ -1557,13 +1560,13 @@ exports.requestCertificate = async (req, res) => {
         } catch (nerr) {
             console.warn('Notification create failed (requestCertificate):', nerr?.message || nerr);
         }
-        
+
         // Log successful request
         await db.query(
             'INSERT INTO certificate_request_logs (event_id, student_id) VALUES (?, ?)',
             [eventId, studentIdStr]
         );
-        
+
         return handleSuccessResponse(res, { message: 'Certificate request submitted successfully.' });
     } catch (error) {
         console.error('requestCertificate error:', error);
