@@ -698,7 +698,10 @@ exports.markAttendance = async (req, res) => {
 
         const scannedByOrgId = isOrgOfficer ? orgId : null;
         const scannedByOswsId = isAdmin ? adminId : null;
-        const scannedByStudentId = isOrgOfficer ? user.studentId : null;
+        // scanned_by_student_id is reserved for future self-scan flows.
+        // DB trigger requires exactly ONE of the three scanner fields to be non-null,
+        // so this must always be null when an org officer or OSWS admin is scanning.
+        const scannedByStudentId = null;
 
         // Helper writers
         const doTimeInInsert = async () => {
