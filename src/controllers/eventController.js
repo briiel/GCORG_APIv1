@@ -701,12 +701,40 @@ exports.markAttendance = async (req, res) => {
         // scanned_by_student_id so that the COALESCE in queries resolves to the officer's
         // personal name (e.g., "Juan Dela Cruz") rather than the org name ("GCCCS ELITES").
         // For legacy pure-org accounts (no studentId), fall back to scanned_by_org_id.
-        // If user.organization is missing from the token, fall back to the event's own org id.
-        const officerStudentId = isOrgOfficer ? (user.studentId || null) : null;
-        const scannedByStudentId = officerStudentId;                          // officer's own student DB id
-        const resolvedOrgId = orgId || (isOrgOfficer ? (ev.created_by_org_id || null) : null); // fallback to event's org if token missing
-        const scannedByOrgId = (isOrgOfficer && !officerStudentId) ? resolvedOrgId : null; // legacy org fallback
+        // Use broadest possible chain to resolve officer's student DB id from token claims.
+        const officerStudentId = isOrgOfficer
+            ? (user.studentId || user.legacyId || user.id || null)
+            : null;
+        let scannedByStudentId = officerStudentId;                          // officer's personal student DB id
+        let resolvedOrgId = orgId || (isOrgOfficer ? (ev.created_by_org_id || null) : null);
+        let scannedByOrgId = (isOrgOfficer && !scannedByStudentId) ? resolvedOrgId : null;
         const scannedByOswsId = isAdmin ? adminId : null;
+
+        // Last-resort: if all three are still null for an org officer, query the DB for their membership.
+        // This handles stale JWTs that are missing organization/studentId claims.
+        if (isOrgOfficer && scannedByStudentId === null && scannedByOrgId === null && scannedByOswsId === null) {
+            try {
+                const lookupId = user.legacyId || user.id || user.userId;
+                if (lookupId) {
+                    const [memberRows] = await db.query(
+                        `SELECT om.student_id, om.org_id FROM organizationmembers om
+                         WHERE (om.student_id = ? OR om.org_id IN (
+                             SELECT org_id FROM organizationmembers WHERE student_id = ?
+                         ))
+                         AND om.is_active = TRUE LIMIT 1`,
+                        [lookupId, lookupId]
+                    );
+                    if (memberRows.length > 0) {
+                        scannedByStudentId = memberRows[0].student_id || null;
+                        if (!scannedByStudentId) {
+                            scannedByOrgId = memberRows[0].org_id || null;
+                        }
+                    }
+                }
+            } catch (dbLookupErr) {
+                console.warn('[scanner-fallback] DB lookup failed:', dbLookupErr?.message);
+            }
+        }
 
         // Helper writers
         const doTimeInInsert = async () => {
