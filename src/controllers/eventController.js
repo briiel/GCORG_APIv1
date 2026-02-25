@@ -701,9 +701,11 @@ exports.markAttendance = async (req, res) => {
         // scanned_by_student_id so that the COALESCE in queries resolves to the officer's
         // personal name (e.g., "Juan Dela Cruz") rather than the org name ("GCCCS ELITES").
         // For legacy pure-org accounts (no studentId), fall back to scanned_by_org_id.
+        // If user.organization is missing from the token, fall back to the event's own org id.
         const officerStudentId = isOrgOfficer ? (user.studentId || null) : null;
         const scannedByStudentId = officerStudentId;                          // officer's own student DB id
-        const scannedByOrgId = (isOrgOfficer && !officerStudentId) ? orgId : null; // legacy org fallback
+        const resolvedOrgId = orgId || (isOrgOfficer ? (ev.created_by_org_id || null) : null); // fallback to event's org if token missing
+        const scannedByOrgId = (isOrgOfficer && !officerStudentId) ? resolvedOrgId : null; // legacy org fallback
         const scannedByOswsId = isAdmin ? adminId : null;
 
         // Helper writers
@@ -728,16 +730,30 @@ exports.markAttendance = async (req, res) => {
             );
         };
         const doTimeOutUpdate = async (id) => {
-            await db.query(
-                `UPDATE attendance_records 
-                 SET time_out = UTC_TIMESTAMP(),
-                     scanned_by_org_id = COALESCE(scanned_by_org_id, ?),
-                     scanned_by_osws_id = COALESCE(scanned_by_osws_id, ?),
-                     scanned_by_student_id = COALESCE(scanned_by_student_id, ?),
-                     reported_lat = ?, reported_lon = ?, reported_accuracy = ?, location_consent = ?, reported_at = UTC_TIMESTAMP()
-                 WHERE id = ?`,
-                [scannedByOrgId, scannedByOswsId, scannedByStudentId, user_lat, user_lon, user_accuracy, location_consent ? 1 : 0, id]
-            );
+            // If all scanner IDs are null (e.g. token missing org), skip updating scanned_by_*
+            // columns — they were already written at time-in and must not be zeroed out.
+            const hasScanner = scannedByOrgId !== null || scannedByOswsId !== null || scannedByStudentId !== null;
+            if (hasScanner) {
+                await db.query(
+                    `UPDATE attendance_records 
+                     SET time_out = UTC_TIMESTAMP(),
+                         scanned_by_org_id = COALESCE(scanned_by_org_id, ?),
+                         scanned_by_osws_id = COALESCE(scanned_by_osws_id, ?),
+                         scanned_by_student_id = COALESCE(scanned_by_student_id, ?),
+                         reported_lat = ?, reported_lon = ?, reported_accuracy = ?, location_consent = ?, reported_at = UTC_TIMESTAMP()
+                     WHERE id = ?`,
+                    [scannedByOrgId, scannedByOswsId, scannedByStudentId, user_lat, user_lon, user_accuracy, location_consent ? 1 : 0, id]
+                );
+            } else {
+                // No scanner info available — just record the time_out without touching scanned_by_*
+                await db.query(
+                    `UPDATE attendance_records 
+                     SET time_out = UTC_TIMESTAMP(),
+                         reported_lat = ?, reported_lon = ?, reported_accuracy = ?, location_consent = ?, reported_at = UTC_TIMESTAMP()
+                     WHERE id = ?`,
+                    [user_lat, user_lon, user_accuracy, location_consent ? 1 : 0, id]
+                );
+            }
         };
 
         // If explicit mode requested

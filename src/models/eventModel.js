@@ -1,4 +1,34 @@
 const db = require('../config/db');
+const { decryptData } = require('../utils/encryption');
+
+/**
+ * Safely decrypt a single encrypted field.
+ * Returns the original value if it is not encrypted or decryption fails.
+ */
+const safeDecrypt = (value) => {
+    if (value && typeof value === 'string' && value.split(':').length === 3) {
+        try { return decryptData(value); } catch { return value; }
+    }
+    return value;
+};
+
+/**
+ * Build the scanned_by display name from a row, decrypting officer name if needed.
+ * Priority: individual officer (student) > OSWS admin > org name
+ */
+const resolveScannedBy = (row) => {
+    // Try officer (student) name first — fields are encrypted in DB
+    if (row._officer_first_name !== undefined || row._officer_last_name !== undefined) {
+        const fn = safeDecrypt(row._officer_first_name);
+        const ln = safeDecrypt(row._officer_last_name);
+        if (fn || ln) {
+            const name = [fn, ln].filter(Boolean).join(' ');
+            if (name.trim()) return name.trim();
+        }
+    }
+    // Fallback: OSWS admin name or org name (already plaintext)
+    return row._osws_name || row._org_name || null;
+};
 
 // Get attendance records for a specific event
 const getAttendanceRecordsByEvent = async (eventId) => {
@@ -16,11 +46,10 @@ const getAttendanceRecordsByEvent = async (eventId) => {
             ar.time_in,
             ar.time_out,
             COALESCE(ar.time_in, ar.attended_at) AS attended_at,
-            COALESCE(
-                CONCAT(officer.first_name, ' ', officer.last_name),
-                osws.name,
-                org.org_name
-            ) AS scanned_by,
+            officer.first_name AS _officer_first_name,
+            officer.last_name AS _officer_last_name,
+            osws.name AS _osws_name,
+            org.org_name AS _org_name,
             om.position AS scanned_by_position
         FROM attendance_records ar
         JOIN created_events ce ON ar.event_id = ce.event_id
@@ -33,7 +62,11 @@ const getAttendanceRecordsByEvent = async (eventId) => {
     `;
     try {
         const [rows] = await db.query(query, [eventId]);
-        return rows;
+        return rows.map(row => {
+            const scanned_by = resolveScannedBy(row);
+            const { _officer_first_name, _officer_last_name, _osws_name, _org_name, ...rest } = row;
+            return { ...rest, scanned_by };
+        });
     } catch (error) {
         console.error('Error fetching attendance records by event:', error.stack);
         throw error;
@@ -239,11 +272,10 @@ const getAllAttendanceRecords = async () => {
             ar.time_in,
             ar.time_out,
             COALESCE(ar.time_in, ar.attended_at) AS attended_at,
-            COALESCE(
-                CONCAT(officer.first_name, ' ', officer.last_name),
-                osws.name,
-                org.org_name
-            ) AS scanned_by,
+            officer.first_name AS _officer_first_name,
+            officer.last_name AS _officer_last_name,
+            osws.name AS _osws_name,
+            org.org_name AS _org_name,
             om.position AS scanned_by_position
         FROM attendance_records ar
         JOIN created_events ce ON ar.event_id = ce.event_id
@@ -255,7 +287,11 @@ const getAllAttendanceRecords = async () => {
     `;
     try {
         const [rows] = await db.query(query);
-        return rows;
+        return rows.map(row => {
+            const scanned_by = resolveScannedBy(row);
+            const { _officer_first_name, _officer_last_name, _osws_name, _org_name, ...rest } = row;
+            return { ...rest, scanned_by };
+        });
     } catch (error) {
         console.error('Error fetching attendance records:', error.stack);
         throw error;
@@ -277,11 +313,10 @@ const getAttendanceRecordsByOrg = async (orgId) => {
             ar.time_in,
             ar.time_out,
             COALESCE(ar.time_in, ar.attended_at) AS attended_at,
-            COALESCE(
-                CONCAT(officer.first_name, ' ', officer.last_name),
-                osws.name,
-                org.org_name
-            ) AS scanned_by,
+            officer.first_name AS _officer_first_name,
+            officer.last_name AS _officer_last_name,
+            osws.name AS _osws_name,
+            org.org_name AS _org_name,
             om.position AS scanned_by_position
         FROM attendance_records ar
         JOIN created_events ce ON ar.event_id = ce.event_id
@@ -294,7 +329,11 @@ const getAttendanceRecordsByOrg = async (orgId) => {
     `;
     try {
         const [rows] = await db.query(query, [orgId]);
-        return rows;
+        return rows.map(row => {
+            const scanned_by = resolveScannedBy(row);
+            const { _officer_first_name, _officer_last_name, _osws_name, _org_name, ...rest } = row;
+            return { ...rest, scanned_by };
+        });
     } catch (error) {
         console.error('Error fetching attendance records by org:', error.stack);
         throw error;
@@ -316,11 +355,10 @@ const getAttendanceRecordsByOsws = async (adminId) => {
             ar.time_in,
             ar.time_out,
             COALESCE(ar.time_in, ar.attended_at) AS attended_at,
-            COALESCE(
-                CONCAT(officer.first_name, ' ', officer.last_name),
-                osws.name,
-                org.org_name
-            ) AS scanned_by,
+            officer.first_name AS _officer_first_name,
+            officer.last_name AS _officer_last_name,
+            osws.name AS _osws_name,
+            org.org_name AS _org_name,
             om.position AS scanned_by_position
         FROM attendance_records ar
         JOIN created_events ce ON ar.event_id = ce.event_id
@@ -333,7 +371,11 @@ const getAttendanceRecordsByOsws = async (adminId) => {
     `;
     try {
         const [rows] = await db.query(query, [adminId]);
-        return rows;
+        return rows.map(row => {
+            const scanned_by = resolveScannedBy(row);
+            const { _officer_first_name, _officer_last_name, _osws_name, _org_name, ...rest } = row;
+            return { ...rest, scanned_by };
+        });
     } catch (error) {
         console.error('Error fetching attendance records by OSWS admin:', error.stack);
         throw error;
@@ -361,11 +403,10 @@ const getAttendanceRecordsByStudent = async (studentId) => {
             COALESCE(ar.time_in, ar.attended_at) AS attended_at,
             ar.time_in,
             ar.time_out,
-            COALESCE(
-                CONCAT(officer.first_name, ' ', officer.last_name),
-                osws_scanner.name,
-                org_scanner.org_name
-            ) AS scanned_by_name,
+            officer.first_name AS _officer_first_name,
+            officer.last_name AS _officer_last_name,
+            osws_scanner.name AS _osws_name,
+            org_scanner.org_name AS _org_name,
             om.position AS scanned_by_position
         FROM attendance_records ar
         JOIN created_events ce ON ar.event_id = ce.event_id
@@ -380,7 +421,11 @@ const getAttendanceRecordsByStudent = async (studentId) => {
     `;
     try {
         const [rows] = await db.query(query, [studentId]);
-        return rows;
+        return rows.map(row => {
+            const scanned_by_name = resolveScannedBy(row);
+            const { _officer_first_name, _officer_last_name, _osws_name, _org_name, ...rest } = row;
+            return { ...rest, scanned_by_name };
+        });
     } catch (error) {
         console.error('Error fetching attendance records by student:', error.stack);
         throw error;
