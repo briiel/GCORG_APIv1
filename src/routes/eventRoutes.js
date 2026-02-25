@@ -45,7 +45,6 @@ router.post('/registrations/:registration_id/reject', authenticateToken, strictL
 router.get('/events/:id', apiLimiter, eventController.getEventById);
 router.put('/events/:id', authenticateToken, uploadLimiter, upload.single('event_poster'), convertToWebpAndUpload, eventController.updateEvent);
 router.post('/events/:id/request-certificate', authenticateToken, strictLimiter, eventController.requestCertificate);
-router.post('/events/:id/request-certificate', authenticateToken, strictLimiter, eventController.requestCertificate);
 
 // Dashboard stats endpoints
 router.get('/stats/organization', authenticateToken, apiLimiter, eventController.getOrgDashboardStats);

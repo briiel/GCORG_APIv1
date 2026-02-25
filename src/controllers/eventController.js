@@ -1495,6 +1495,9 @@ exports.requestCertificate = async (req, res) => {
         const eventId = req.params.id;
         if (!eventId) return handleErrorResponse(res, 'Event ID is required', 400);
 
+        // Use explicit student identifier when available (tokens may carry legacy id or studentId)
+        const studentId = user.studentId || user.id;
+
         // Fetch event and organizer contact
         const [rows] = await db.query(
             `SELECT ce.event_id, ce.title, COALESCE(ce.room, ce.location) AS location, ce.start_date, ce.end_date,
@@ -1518,7 +1521,7 @@ exports.requestCertificate = async (req, res) => {
         const [evalCheck] = await db.query(
             `SELECT evaluation_submitted FROM attendance_records 
              WHERE event_id = ? AND student_id = ? LIMIT 1`,
-            [eventId, user.id]
+            [eventId, studentId]
         );
         if (!evalCheck.length || evalCheck[0].evaluation_submitted !== 1) {
             return handleErrorResponse(res, 'Please complete the evaluation form before requesting a certificate.', 400);
@@ -1529,7 +1532,7 @@ exports.requestCertificate = async (req, res) => {
         if (!toOrgId && !toOswsId) return handleErrorResponse(res, 'Organizer account not available for this event.', 400);
 
         // Check if student already has a pending or approved request
-        const hasPendingRequest = await certificateRequestService.hasPendingOrApprovedRequest(eventId, user.id);
+        const hasPendingRequest = await certificateRequestService.hasPendingOrApprovedRequest(eventId, studentId);
         if (hasPendingRequest) {
             return handleErrorResponse(res, 'You already have a pending or approved certificate request for this event.', 400);
         }
@@ -1546,7 +1549,7 @@ exports.requestCertificate = async (req, res) => {
         `);
 
         // Enforce: max 2 requests per 48 hours per (student,event)
-        const studentIdStr = String(user.id);
+        const studentIdStr = String(studentId);
         const [cntRows] = await db.query(
             `SELECT COUNT(*) AS cnt FROM certificate_request_logs
              WHERE event_id = ? AND student_id = ? AND requested_at >= (UTC_TIMESTAMP() - INTERVAL 48 HOUR)`,
@@ -1579,7 +1582,7 @@ exports.requestCertificate = async (req, res) => {
         const [srows] = await db.query(
             `SELECT id, email, first_name, last_name, middle_initial, suffix, department, program
              FROM students WHERE id = ? LIMIT 1`,
-            [user.id]
+            [studentId]
         );
         const st = srows[0] || {};
         const studentName = [st.first_name, st.middle_initial ? `${st.middle_initial}.` : '', st.last_name, st.suffix || '']
@@ -1588,7 +1591,7 @@ exports.requestCertificate = async (req, res) => {
         // Create certificate request record
         await certificateRequestService.createCertificateRequest({
             event_id: eventId,
-            student_id: user.id
+            student_id: studentId
         });
 
         // Create notification to organizer account
