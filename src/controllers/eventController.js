@@ -3,6 +3,21 @@
  * Handles all event-related operations including CRUD, attendance, and certificates
  */
 
+const eventService = require('../services/eventService');
+const { registerParticipant } = require('../services/registrationService');
+const certificateRequestService = require('../services/certificateRequestService');
+const { handleErrorResponse, handleSuccessResponse } = require('../utils/errorHandler');
+const db = require('../config/db');
+const { generateCertificate, generateCertificatePreview } = require('../utils/certificateGenerator');
+const { parseMysqlLocalStringToDate, parseMysqlUtcStringToDate } = require('../utils/dbDate');
+const EVENT_TZ_OFFSET = process.env.EVENT_TZ_OFFSET || '+08:00';
+const notificationService = require('../services/notificationService');
+const { v2: cloudinary } = require('cloudinary');
+const { upload, convertToWebpAndUpload } = require('../middleware/uploadMiddleware');
+const fs = require('fs');
+const path = require('path');
+const os = require('os');
+
 // Trash (soft-delete) multiple events
 exports.trashMultipleEvents = async (req, res) => {
     try {
@@ -34,20 +49,6 @@ exports.getAttendanceRecordsByEvent = async (req, res) => {
         return handleErrorResponse(res, error.message);
     }
 };
-const eventService = require('../services/eventService');
-const { registerParticipant } = require('../services/registrationService');
-const certificateRequestService = require('../services/certificateRequestService');
-const { handleErrorResponse, handleSuccessResponse } = require('../utils/errorHandler');
-const db = require('../config/db');
-const { generateCertificate, generateCertificatePreview } = require('../utils/certificateGenerator');
-const { parseMysqlLocalStringToDate, parseMysqlUtcStringToDate } = require('../utils/dbDate');
-const EVENT_TZ_OFFSET = process.env.EVENT_TZ_OFFSET || '+08:00';
-const notificationService = require('../services/notificationService');
-const { v2: cloudinary } = require('cloudinary');
-const { upload, convertToWebpAndUpload } = require('../middleware/uploadMiddleware');
-const fs = require('fs');
-const path = require('path');
-const os = require('os');
 
 cloudinary.config({
     secure: true
@@ -77,12 +78,19 @@ exports.createEvent = async (req, res) => {
         }
         eventData.status = eventData.status || 'not yet started';
 
-        // Record which student/officer created the event (if authenticated user present)
+        // Record which student/officer created the event (if authenticated user present).
+        // Only populate created_by_student_id when the user is actually a student or org officer
+        // (i.e. they have an explicit studentId on their token). OSWS admins are stored in
+        // osws_admins – not in students – so using user.id for them would violate the FK.
         try {
             const user = req.user;
             if (user) {
-                // Prefer studentId/legacyId/id for the canonical student identifier
-                eventData.created_by_student_id = user.studentId || user.legacyId || user.id || null;
+                const roles = user.roles || [];
+                const isOswsAdmin = roles.includes('oswsadmin');
+                // Only resolve a student-table id when the user is not a pure OSWS admin
+                eventData.created_by_student_id = isOswsAdmin
+                    ? null
+                    : (user.studentId || user.legacyId || null);
             }
         } catch (ignore) { }
 
@@ -1378,7 +1386,7 @@ exports.getAttendanceRecords = async (req, res) => {
         const [rows] = await db.query(
             `SELECT 
          ar.event_id,
-         e.title AS event_title,
+         ce.title AS event_title,
          ar.student_id,
          s.first_name,
          s.last_name,
@@ -1386,7 +1394,7 @@ exports.getAttendanceRecords = async (req, res) => {
          s.department,
          s.program
        FROM attendance_records ar
-       JOIN events e ON ar.event_id = e.event_id
+       JOIN created_events ce ON ar.event_id = ce.event_id
        JOIN students s ON ar.student_id = s.id`
         );
         return handleSuccessResponse(res, { items: rows });
@@ -1594,15 +1602,18 @@ exports.requestCertificate = async (req, res) => {
             student_id: studentId
         });
 
-        // Create notification to organizer account
+        // Create notification to organizer account.
+        // NOTE: user_id has a FK to students.id — org/admin IDs are NOT student IDs.
+        // For org/admin notifications, use user_id: null and route via panel + org_id.
         try {
             const nt = require('../services/notificationTypes');
             const payload = { type: nt.CERTIFICATE_REQUEST, templateVars: { studentName, title: ev.title }, event_id: ev.event_id };
             if (toOrgId) {
-                await notificationService.createNotification({ user_id: toOrgId, panel: 'organization', org_id: toOrgId, ...payload });
+                // Organization panel: user_id is null; recipient identified by org_id + panel
+                await notificationService.createNotification({ user_id: null, panel: 'organization', org_id: toOrgId, ...payload });
             } else {
-                // Notify OSWS admin panel
-                await notificationService.createNotification({ user_id: toOswsId, panel: 'admin', ...payload });
+                // OSWS admin panel: user_id is null; recipient identified by panel = 'admin'
+                await notificationService.createNotification({ user_id: null, panel: 'admin', ...payload });
             }
         } catch (nerr) {
             console.warn('Notification create failed (requestCertificate):', nerr?.message || nerr);

@@ -13,5 +13,7 @@ module.exports = Object.freeze({
     CERTIFICATE_SENT: 'certificate_sent',
     CERTIFICATE_PENDING: 'certificate_pending',
     ROLE_REQUEST: 'role_request',
+    ROLE_REQUEST_APPROVED: 'role_request_approved',
+    ROLE_REQUEST_REJECTED: 'role_request_rejected',
     TEST: 'test'
 });

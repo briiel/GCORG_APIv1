@@ -58,6 +58,16 @@ const templates = {
         defaultMessage: 'New role request submitted by {{studentName}} for {{orgName}}',
         channels: ['inapp', 'email']
     },
+    [types.ROLE_REQUEST_APPROVED]: {
+        panel: 'student',
+        defaultMessage: 'Your request to join {{orgName}} as {{position}} has been approved. Welcome aboard!',
+        channels: ['inapp']
+    },
+    [types.ROLE_REQUEST_REJECTED]: {
+        panel: 'student',
+        defaultMessage: 'Your request to join {{orgName}} has not been approved.{{notes}}',
+        channels: ['inapp']
+    },
     [types.TEST]: {
         panel: 'student',
         defaultMessage: 'Dummy notification created at {{iso}}',

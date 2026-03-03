@@ -7,6 +7,18 @@ const db = require('../config/db');
 const roleRequestModel = require('../models/roleRequestModel');
 const notificationService = require('../services/notificationService');
 const { handleSuccessResponse, handleErrorResponse } = require('../utils/errorHandler');
+const { decryptData } = require('../utils/encryption');
+
+/**
+ * Safely decrypt a single encrypted field.
+ * Returns the original value if it is not in encrypted format or decryption fails.
+ */
+const safeDecrypt = (value) => {
+  if (value && typeof value === 'string' && value.split(':').length === 3) {
+    try { return decryptData(value); } catch { return value; }
+  }
+  return value;
+};
 
 /**
  * Get all organizations (for dropdown in role request form)
@@ -153,7 +165,15 @@ const getPendingRequests = async (req, res) => {
 
     const total_pages = Math.max(1, Math.ceil(total / per_page));
 
-    return handleSuccessResponse(res, { items: requests, total, page, per_page, total_pages });
+    // Decrypt encrypted PII fields before returning to client
+    const decrypted = requests.map(r => ({
+      ...r,
+      first_name: safeDecrypt(r.first_name),
+      last_name: safeDecrypt(r.last_name),
+      email: safeDecrypt(r.email)
+    }));
+
+    return handleSuccessResponse(res, { items: decrypted, total, page, per_page, total_pages });
 
   } catch (error) {
     console.error('Get pending requests error:', error);
@@ -222,7 +242,15 @@ const getAllRequests = async (req, res) => {
 
     const total_pages = Math.max(1, Math.ceil(total / per_page));
 
-    return handleSuccessResponse(res, { items: requests, total, page, per_page, total_pages });
+    // Decrypt encrypted PII fields before returning to client
+    const decrypted = requests.map(r => ({
+      ...r,
+      first_name: safeDecrypt(r.first_name),
+      last_name: safeDecrypt(r.last_name),
+      email: safeDecrypt(r.email)
+    }));
+
+    return handleSuccessResponse(res, { items: decrypted, total, page, per_page, total_pages });
 
   } catch (error) {
     console.error('Get all requests error:', error);
@@ -291,16 +319,31 @@ const approveRequest = async (req, res) => {
     // Commit transaction
     await connection.commit();
 
+    // Notify the student their role request was approved (best-effort)
+    try {
+      const [orgRows] = await db.query(`SELECT org_name FROM student_organizations WHERE id = ? LIMIT 1`, [request.org_id]);
+      const orgName = orgRows[0]?.org_name || String(request.org_id);
+      const nt = require('../services/notificationTypes');
+      await notificationService.createNotification({
+        user_id: String(request.student_id),
+        type: nt.ROLE_REQUEST_APPROVED,
+        templateVars: { orgName, position: request.requested_position },
+        panel: 'student'
+      });
+    } catch (nerr) {
+      console.warn('Notification create failed (approveRoleRequest):', nerr?.message || nerr);
+    }
+
     return handleSuccessResponse(res, { message: 'Role request approved successfully.' });
 
   } catch (error) {
     // Rollback on error
-    try { await connection.rollback(); } catch (_) {}
+    try { await connection.rollback(); } catch (_) { }
     console.error('Approve request error:', error);
     return handleErrorResponse(res, 'An error occurred while approving the request.');
   } finally {
     // Always release the connection
-    try { connection.release(); } catch (_) {}
+    try { connection.release(); } catch (_) { }
   }
 };
 
@@ -342,6 +385,22 @@ const rejectRequest = async (req, res) => {
        WHERE request_id = ?`,
       [reviewerAdminId, review_notes || null, requestId]
     );
+
+    // Notify the student their role request was declined (best-effort)
+    try {
+      const [orgRows] = await db.query(`SELECT org_name FROM student_organizations WHERE id = ? LIMIT 1`, [requests[0].org_id]);
+      const orgName = orgRows[0]?.org_name || '';
+      const notesText = review_notes ? ` Reason: ${review_notes}` : '';
+      const nt = require('../services/notificationTypes');
+      await notificationService.createNotification({
+        user_id: String(requests[0].student_id),
+        type: nt.ROLE_REQUEST_REJECTED,
+        templateVars: { orgName, notes: notesText },
+        panel: 'student'
+      });
+    } catch (nerr) {
+      console.warn('Notification create failed (rejectRoleRequest):', nerr?.message || nerr);
+    }
 
     return handleSuccessResponse(res, { message: 'Role request declined.' });
 

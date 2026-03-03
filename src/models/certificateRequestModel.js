@@ -227,10 +227,10 @@ const updateCertificateRequestStatus = async (request_id, { status, processed_by
 	await ensureSchema();
 	const query = `
 		UPDATE certificate_requests 
-		SET status = ?, processed_at = UTC_TIMESTAMP(), processed_by = ?, rejection_reason = ?, certificate_url = ?
+		SET status = ?, processed_at = CONVERT_TZ(UTC_TIMESTAMP(), '+00:00', ?), processed_by = ?, rejection_reason = ?, certificate_url = ?
 		WHERE id = ?
 	`;
-	await db.query(query, [status, processed_by, rejection_reason, certificate_url, request_id]);
+	await db.query(query, [status, SERVER_TZ_OFFSET, processed_by, rejection_reason, certificate_url, request_id]);
 };
 
 // Check if student already has a pending or approved request for an event

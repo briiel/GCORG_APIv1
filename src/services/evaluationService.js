@@ -5,11 +5,23 @@ const { v2: cloudinary } = require('cloudinary');
 const fs = require('fs');
 const path = require('path');
 const os = require('os');
+const { decryptData } = require('../utils/encryption');
 
 // Configure Cloudinary (it will automatically use CLOUDINARY_URL from env)
 cloudinary.config({
   secure: true
 });
+
+/**
+ * Safely decrypt a single encrypted field.
+ * Returns the original value if it is not in encrypted format or decryption fails.
+ */
+const safeDecrypt = (value) => {
+  if (value && typeof value === 'string' && value.split(':').length === 3) {
+    try { return decryptData(value); } catch { return value; }
+  }
+  return value;
+};
 
 /**
  * Evaluation Service
@@ -29,13 +41,13 @@ async function submitEvaluation({ event_id, student_id, responses }) {
   if (attendance.length === 0) {
     throw new Error('You must attend the event before submitting an evaluation.');
   }
-  
+
   // Check if already submitted
   const hasSubmitted = await evaluationModel.hasSubmittedEvaluation(event_id, student_id);
   if (hasSubmitted) {
     throw new Error('You have already submitted an evaluation for this event.');
   }
-  
+
   // Validate event exists and get event details (including creator info)
   const [event] = await db.query(
     `SELECT event_id, title as event_title, location as event_location, start_date, end_date,
@@ -45,79 +57,81 @@ async function submitEvaluation({ event_id, student_id, responses }) {
      LIMIT 1`,
     [event_id]
   );
-  
+
   if (event.length === 0) {
     throw new Error('Event not found.');
   }
-  
+
   const eventData = event[0];
   const isOswsEvent = !!eventData.created_by_osws_id;
-  
-  // Get student name
+
+  // Get student name — fetch raw encrypted columns and decrypt in JS
   const [student] = await db.query(
-    `SELECT CONCAT(first_name, ' ', last_name) as student_name 
+    `SELECT first_name, last_name 
      FROM students 
      WHERE id = ? 
      LIMIT 1`,
     [student_id]
   );
-  
+
   if (student.length === 0) {
     throw new Error('Student not found.');
   }
-  
-  const studentName = student[0].student_name;
-  
+
+  const studentName = [safeDecrypt(student[0].first_name), safeDecrypt(student[0].last_name)]
+    .filter(Boolean).join(' ').trim();
+
+
   // Create the evaluation
   const evaluationId = await evaluationModel.createEvaluation({
     event_id,
     student_id,
     responses
   });
-  
+
   // Generate certificate immediately ONLY for OSWS events
   // Organization events require manual certificate generation/request after evaluation
   let certificateUrl = null;
-  
+
   if (isOswsEvent) {
     try {
       // Create temporary file
       const tempDir = os.tmpdir();
       const certFilename = `certificate_${event_id}_${student_id}.png`;
       const tempCertPath = path.join(tempDir, certFilename);
-    
-    // Generate certificate
-    await generateCertificate({
-      studentName: studentName,
-      eventTitle: eventData.event_title,
-      eventLocation: eventData.event_location,
-      eventStartDate: eventData.start_date,
-      eventEndDate: eventData.end_date,
-      certificatePath: tempCertPath
-    });
-    
-    // Upload to Cloudinary
-    const uploadResult = await cloudinary.uploader.upload(tempCertPath, {
-      folder: 'certificates',
-      public_id: `cert_${event_id}_${student_id}`,
-      overwrite: true,
-      invalidate: true,
-      resource_type: 'image',
-      format: 'png'
-    });
-    
-    certificateUrl = uploadResult.secure_url;
-    
-    // Save certificate to database
-    await db.query(
-      `INSERT INTO certificates (student_id, event_id, certificate_url, certificate_public_id)
+
+      // Generate certificate
+      await generateCertificate({
+        studentName: studentName,
+        eventTitle: eventData.event_title,
+        eventLocation: eventData.event_location,
+        eventStartDate: eventData.start_date,
+        eventEndDate: eventData.end_date,
+        certificatePath: tempCertPath
+      });
+
+      // Upload to Cloudinary
+      const uploadResult = await cloudinary.uploader.upload(tempCertPath, {
+        folder: 'certificates',
+        public_id: `cert_${event_id}_${student_id}`,
+        overwrite: true,
+        invalidate: true,
+        resource_type: 'image',
+        format: 'png'
+      });
+
+      certificateUrl = uploadResult.secure_url;
+
+      // Save certificate to database
+      await db.query(
+        `INSERT INTO certificates (student_id, event_id, certificate_url, certificate_public_id)
        VALUES (?, ?, ?, ?)
        ON DUPLICATE KEY UPDATE 
        certificate_url = VALUES(certificate_url),
        certificate_public_id = VALUES(certificate_public_id)`,
-      [student_id, event_id, uploadResult.secure_url, uploadResult.public_id]
-    );
-    
+        [student_id, event_id, uploadResult.secure_url, uploadResult.public_id]
+      );
+
       // Clean up temporary file
       try {
         if (fs.existsSync(tempCertPath)) {
@@ -133,12 +147,12 @@ async function submitEvaluation({ event_id, student_id, responses }) {
       throw new Error(`Evaluation submitted but certificate generation failed: ${certError.message}`);
     }
   }
-  
+
   // Return appropriate message based on event type
-  const message = isOswsEvent 
+  const message = isOswsEvent
     ? 'Evaluation submitted successfully. Your certificate is ready for download!'
     : 'Evaluation submitted successfully. You can now request your certificate from the organizer.';
-  
+
   return {
     success: true,
     evaluation_id: evaluationId,
@@ -158,10 +172,10 @@ async function getEvaluationStatus(event_id, student_id) {
      LIMIT 1`,
     [event_id, student_id]
   );
-  
+
   const hasAttended = attendance.length > 0;
   const hasEvaluated = hasAttended && attendance[0].evaluation_submitted === 1;
-  
+
   return {
     has_attended: hasAttended,
     has_evaluated: hasEvaluated,
@@ -173,11 +187,11 @@ async function getEvaluationStatus(event_id, student_id) {
 // Get student's submitted evaluation
 async function getStudentEvaluation(event_id, student_id) {
   const evaluation = await evaluationModel.getEvaluationByStudentAndEvent(event_id, student_id);
-  
+
   if (!evaluation) {
     throw new Error('No evaluation found for this event.');
   }
-  
+
   return evaluation;
 }
 
@@ -191,13 +205,13 @@ async function getEventEvaluations(event_id, user) {
      LIMIT 1`,
     [event_id]
   );
-  
+
   if (event.length === 0) {
     throw new Error('Event not found.');
   }
-  
+
   const eventData = event[0];
-  
+
   // Check authorization: support normalized roles array (orgofficer, oswsadmin)
   const userRoles = Array.isArray(user.roles) ? user.roles : [];
   let isAuthorized = false;
@@ -220,10 +234,10 @@ async function getEventEvaluations(event_id, user) {
   if (!isAuthorized) {
     throw new Error('You are not authorized to view evaluations for this event.');
   }
-  
+
   const evaluations = await evaluationModel.getEvaluationsByEvent(event_id);
   const stats = await evaluationModel.getEvaluationStats(event_id);
-  
+
   return {
     evaluations,
     stats
