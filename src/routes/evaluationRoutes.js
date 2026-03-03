@@ -16,16 +16,17 @@ const apiLimiter = rateLimit({ windowMs: 60 * 1000, max: 60 }); // 60 requests p
 // Submit evaluation for an event (students only)
 router.post('/events/:event_id/evaluations', authenticateToken, submitLimiter, evaluationController.submitEvaluation);
 
+// --- Specific sub-paths MUST come before the generic GET /:event_id/evaluations ---
 // Get evaluation status for current student and event
 router.get('/events/:event_id/evaluations/status', authenticateToken, apiLimiter, evaluationController.getEvaluationStatus);
 
 // Get student's submitted evaluation
 router.get('/events/:event_id/evaluations/me', authenticateToken, apiLimiter, evaluationController.getMyEvaluation);
 
-// Get all evaluations for an event (organizers/admins only)
-router.get('/events/:event_id/evaluations', authenticateToken, apiLimiter, evaluationController.getEventEvaluations);
-
 // Debug route: raw evaluation rows (admin/orgofficer only)
 router.get('/events/:event_id/evaluations/raw', authenticateToken, apiLimiter, evaluationController.getRawEvaluations);
+
+// Get all evaluations for an event (organizers/admins only) — most general, must be last
+router.get('/events/:event_id/evaluations', authenticateToken, apiLimiter, evaluationController.getEventEvaluations);
 
 module.exports = router;

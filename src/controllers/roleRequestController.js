@@ -363,7 +363,7 @@ const rejectRequest = async (req, res) => {
   try {
     // Check if request exists and is pending
     const [requests] = await db.query(
-      `SELECT status FROM organization_role_requests WHERE request_id = ?`,
+      `SELECT status, org_id, student_id FROM organization_role_requests WHERE request_id = ?`,
       [requestId]
     );
 

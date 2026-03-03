@@ -8,7 +8,8 @@ const rateLimit = require('../middleware/rateLimit');
 const notificationLimiter = rateLimit({ windowMs: 60 * 1000, max: 60 }); // 60 requests per minute
 
 router.get('/', authenticateToken, notificationLimiter, notificationController.getNotifications);
-router.patch('/:id/read', authenticateToken, notificationLimiter, notificationController.markAsRead);
+// Static route MUST come before /:id/read to prevent Express from capturing 'read-all' as :id
 router.patch('/read-all', authenticateToken, notificationLimiter, notificationController.markAllAsRead);
+router.patch('/:id/read', authenticateToken, notificationLimiter, notificationController.markAsRead);
 
 module.exports = router;

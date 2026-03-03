@@ -8,7 +8,9 @@ const { handleSuccessResponse, handleErrorResponse } = require('../utils/errorHa
 
 exports.getNotifications = async (req, res) => {
 	try {
-		const user_id = String(req.user.id);
+		// Resolve user ID using the same priority as other controllers:
+		// students use `studentId`, admins use `legacyId`, fallback to `id`
+		const user_id = String(req.user.studentId || req.user.legacyId || req.user.id);
 		// Panel may be provided by frontend: 'student' | 'organization' | 'admin' | 'osws_admin'
 		let panel = req.query.panel || null;
 		// Normalize frontend panel names to backend model expectations
@@ -26,6 +28,7 @@ exports.getNotifications = async (req, res) => {
 	}
 };
 
+
 exports.markAsRead = async (req, res) => {
 	try {
 		const { id } = req.params;
@@ -38,7 +41,7 @@ exports.markAsRead = async (req, res) => {
 
 exports.markAllAsRead = async (req, res) => {
 	try {
-		const user_id = String(req.user.id);
+		const user_id = String(req.user.studentId || req.user.legacyId || req.user.id);
 		let panel = req.query.panel || null;
 		if (panel === 'osws_admin') panel = 'osws';
 		const org_id = req.user.organization?.org_id || req.user.organization_id || req.user.orgId || null;

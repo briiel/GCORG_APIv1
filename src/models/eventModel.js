@@ -671,11 +671,6 @@ const hardDeleteEvent = async (eventId) => {
         // Delete evaluations for this event (FK has ON DELETE CASCADE but we're explicit)
         await conn.query('DELETE FROM evaluations WHERE event_id = ?', [eventId]);
 
-        // Delete certificate request logs for this event (audit log - no FK cascade)
-        try {
-            await conn.query('DELETE FROM certificate_request_logs WHERE event_id = ?', [eventId]);
-        } catch (e) { /* table may not exist in older deploys */ }
-
         // Delete certificate requests for this event
         await conn.query('DELETE FROM certificate_requests WHERE event_id = ?', [eventId]);
 
@@ -1114,7 +1109,7 @@ module.exports = {
                 `SELECT 1 FROM information_schema.COLUMNS WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'attendance_records' AND COLUMN_NAME = 'scanned_by_student_id'`
             );
             if (!Array.isArray(sbs) || sbs.length === 0) {
-                await db.query(`ALTER TABLE attendance_records ADD COLUMN scanned_by_student_id INT(11) NULL AFTER scanned_by_osws_id`);
+                await db.query(`ALTER TABLE attendance_records ADD COLUMN scanned_by_student_id VARCHAR(20) NULL AFTER scanned_by_osws_id`);
             }
             // Backfill time_in from attended_at
             try {

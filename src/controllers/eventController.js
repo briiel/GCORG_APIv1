@@ -339,7 +339,7 @@ exports.updateEventStatus = async (req, res) => {
         const adminId = isAdmin ? user.legacyId : null;
 
         if (isOrgOfficer && ev.created_by_org_id !== orgId) return handleErrorResponse(res, 'Forbidden', 403);
-        if (isAdmin && ev.created_by_osws_id !== adminId) return handleErrorResponse(res, 'Forbidden', 403);
+        // OSWS admins can manage any event (not restricted to events they personally created)
 
         // Compute auto status (as of now); never auto-override 'cancelled'
         const now = new Date();
@@ -1547,28 +1547,18 @@ exports.requestCertificate = async (req, res) => {
             return handleErrorResponse(res, 'You already have a pending or approved certificate request for this event.', 400);
         }
 
-        // Ensure log table exists (idempotent) - for rate limiting
-        await db.query(`
-            CREATE TABLE IF NOT EXISTS certificate_request_logs (
-                id INT NOT NULL AUTO_INCREMENT PRIMARY KEY,
-                event_id INT NOT NULL,
-                student_id VARCHAR(20) NOT NULL,
-                requested_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
-                KEY idx_event_student_time (event_id, student_id, requested_at)
-            ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci;
-        `);
-
-        // Enforce: max 2 requests per 48 hours per (student,event)
+        // Enforce: max 2 requests per 48 hours per (student, event)
+        // Rate limiting uses certificate_requests directly (same requested_at data, no redundant log table needed)
         const studentIdStr = String(studentId);
         const [cntRows] = await db.query(
-            `SELECT COUNT(*) AS cnt FROM certificate_request_logs
+            `SELECT COUNT(*) AS cnt FROM certificate_requests
              WHERE event_id = ? AND student_id = ? AND requested_at >= (UTC_TIMESTAMP() - INTERVAL 48 HOUR)`,
             [eventId, studentIdStr]
         );
         const recentCount = Number(cntRows?.[0]?.cnt || 0);
         if (recentCount >= 2) {
             const [firstRows] = await db.query(
-                `SELECT MIN(requested_at) AS first_in_window FROM certificate_request_logs
+                `SELECT MIN(requested_at) AS first_in_window FROM certificate_requests
                  WHERE event_id = ? AND student_id = ? AND requested_at >= (UTC_TIMESTAMP() - INTERVAL 48 HOUR)`,
                 [eventId, studentIdStr]
             );
@@ -1620,12 +1610,6 @@ exports.requestCertificate = async (req, res) => {
         } catch (nerr) {
             console.warn('Notification create failed (requestCertificate):', nerr?.message || nerr);
         }
-
-        // Log successful request
-        await db.query(
-            'INSERT INTO certificate_request_logs (event_id, student_id) VALUES (?, ?)',
-            [eventId, studentIdStr]
-        );
 
         return handleSuccessResponse(res, { message: 'Certificate request submitted successfully.' });
     } catch (error) {

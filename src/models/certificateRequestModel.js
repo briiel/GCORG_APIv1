@@ -1,4 +1,12 @@
 const db = require('../config/db');
+const { parseMysqlLocalStringToDate } = require('../utils/dbDate');
+
+// Use SERVER_TZ_OFFSET to correctly interpret DATETIME values stored by MySQL.
+// The MySQL server timezone determines what CURRENT_TIMESTAMP() produces.
+// For AlwaysData servers in CET (Central European Time), this should be '+01:00'.
+// Fall back to EVENT_TZ_OFFSET (event-local) only if SERVER_TZ_OFFSET is not set.
+const SERVER_TZ_OFFSET = process.env.SERVER_TZ_OFFSET || process.env.EVENT_TZ_OFFSET || '+08:00';
+const EVENT_TZ_OFFSET = process.env.EVENT_TZ_OFFSET || '+08:00';
 
 // Ensure certificate_requests table exists (idempotent)
 async function ensureSchema() {
@@ -10,7 +18,7 @@ async function ensureSchema() {
 			status ENUM('pending', 'approved', 'rejected') NOT NULL DEFAULT 'pending',
 			requested_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
 			processed_at DATETIME NULL,
-			processed_by VARCHAR(20) NULL,
+			processed_by INT NULL,
 			rejection_reason VARCHAR(500) NULL,
 			certificate_url VARCHAR(500) NULL,
 			KEY idx_event_student (event_id, student_id),
@@ -41,29 +49,10 @@ const createCertificateRequest = async ({ event_id, student_id }) => {
 	const [result] = await db.query(query, [event_id, student_id, SERVER_TZ_OFFSET]);
 	const insertId = result.insertId;
 
-	// Write an audit log entry into certificate_request_logs
-	// This table exists in the DB schema and tracks each request for audit purposes
-	try {
-		await db.query(
-			`INSERT INTO certificate_request_logs (event_id, student_id, requested_at) VALUES (?, ?, CONVERT_TZ(UTC_TIMESTAMP(), '+00:00', ?))`,
-			[event_id, student_id, SERVER_TZ_OFFSET]
-		);
-	} catch (logErr) {
-		// Non-fatal: log the error but don't fail the main request
-		console.warn('[CertRequest] Failed to write certificate_request_logs entry:', logErr && logErr.message ? logErr.message : logErr);
-	}
-
 	return insertId;
 };
 
 // Get all certificate requests for an organization
-const { parseMysqlLocalStringToDate } = require('../utils/dbDate');
-// Use SERVER_TZ_OFFSET to correctly interpret DATETIME values stored by MySQL.
-// The MySQL server timezone determines what CURRENT_TIMESTAMP() produces.
-// For AlwaysData servers in CET (Central European Time), this should be '+01:00'.
-// Fall back to EVENT_TZ_OFFSET (event-local) only if SERVER_TZ_OFFSET is not set.
-const SERVER_TZ_OFFSET = process.env.SERVER_TZ_OFFSET || process.env.EVENT_TZ_OFFSET || '+08:00';
-const EVENT_TZ_OFFSET = process.env.EVENT_TZ_OFFSET || '+08:00';
 
 // Convert a JS Date (assumed UTC) to a local datetime string using an offset like '+08:00'.
 // Returns 'YYYY-MM-DD HH:mm:ss' and an ISO with offset 'YYYY-MM-DDTHH:mm:ss+08:00'.

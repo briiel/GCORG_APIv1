@@ -31,25 +31,29 @@ router.get('/attendance-records/event/:eventId', authenticateToken, apiLimiter, 
 router.delete('/events/:id', authenticateToken, strictLimiter, eventController.deleteEvent); // Soft-delete an event
 // Bulk trash (soft-delete) multiple events
 router.post('/events/trash-multiple', authenticateToken, strictLimiter, eventController.trashMultipleEvents); // Trash multiple events
+
+// --- Static named routes MUST come before parameterized /events/:id ---
 router.get('/events/trash', authenticateToken, apiLimiter, eventController.getTrashedEvents); // List trashed events for current user
-router.post('/events/:id/restore', authenticateToken, strictLimiter, eventController.restoreEvent); // Restore trashed event
-router.delete('/events/:id/permanent', authenticateToken, strictLimiter, eventController.permanentDeleteEvent); // Permanently delete a trashed event
 router.get('/certificates', authenticateToken, apiLimiter, eventController.getCertificatesByStudent); // Get certificates by student (requires auth)
 router.get('/events/admin/:admin_id', authenticateToken, checkRole(['OSWSAdmin']), apiLimiter, eventController.getEventsByAdmin); // Get events by admin (OSWSAdmin only)
 router.get('/events/organizations', apiLimiter, eventController.getAllOrgEvents); // Get all events by organizations (public)
 router.get('/events/osws', apiLimiter, eventController.getAllOswsEvents); // Route for all OSWS-created events (public)
-router.get('/:event_id/participants', authenticateToken, apiLimiter, eventController.getEventParticipants); // Get participants of an event (requires auth)
-// Registration approval endpoints
-router.post('/registrations/:registration_id/approve', authenticateToken, strictLimiter, eventController.approveRegistration);
-router.post('/registrations/:registration_id/reject', authenticateToken, strictLimiter, eventController.rejectRegistration);
-router.get('/events/:id', apiLimiter, eventController.getEventById);
-router.put('/events/:id', authenticateToken, uploadLimiter, upload.single('event_poster'), convertToWebpAndUpload, eventController.updateEvent);
-router.post('/events/:id/request-certificate', authenticateToken, strictLimiter, eventController.requestCertificate);
 
-// Dashboard stats endpoints
+// Dashboard stats endpoints (static - must be before /events/:id)
 router.get('/stats/organization', authenticateToken, apiLimiter, eventController.getOrgDashboardStats);
 router.get('/stats/osws', authenticateToken, apiLimiter, eventController.getOswsDashboardStats);
 // Charts/aggregation for OSWS dashboard (events by department, activities per org)
 router.get('/stats/osws/charts', authenticateToken, apiLimiter, eventController.getOswsDashboardCharts);
+
+// --- Parameterized routes (must be after all static named routes) ---
+router.get('/events/:id', apiLimiter, eventController.getEventById);
+router.put('/events/:id', authenticateToken, uploadLimiter, upload.single('event_poster'), convertToWebpAndUpload, eventController.updateEvent);
+router.post('/events/:id/restore', authenticateToken, strictLimiter, eventController.restoreEvent); // Restore trashed event
+router.delete('/events/:id/permanent', authenticateToken, strictLimiter, eventController.permanentDeleteEvent); // Permanently delete a trashed event
+router.post('/events/:id/request-certificate', authenticateToken, strictLimiter, eventController.requestCertificate);
+// Registration approval endpoints
+router.post('/registrations/:registration_id/approve', authenticateToken, strictLimiter, eventController.approveRegistration);
+router.post('/registrations/:registration_id/reject', authenticateToken, strictLimiter, eventController.rejectRegistration);
+router.get('/:event_id/participants', authenticateToken, apiLimiter, eventController.getEventParticipants); // Get participants of an event (requires auth)
 
 module.exports = router;

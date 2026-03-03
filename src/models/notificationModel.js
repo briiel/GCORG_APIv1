@@ -13,7 +13,7 @@ async function ensureSchema() {
 			message VARCHAR(1000) NOT NULL,
 			event_id INT NULL,
 			panel VARCHAR(50) NULL,
-			org_id VARCHAR(50) NULL,
+			org_id INT NULL,
 			type VARCHAR(50) NULL,
 			is_read TINYINT(1) NOT NULL DEFAULT 0,
 			created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
@@ -34,7 +34,7 @@ async function ensureSchema() {
 	}
 
 	try {
-		await db.query(`ALTER TABLE notifications ADD COLUMN IF NOT EXISTS org_id VARCHAR(50) NULL`);
+		await db.query(`ALTER TABLE notifications ADD COLUMN IF NOT EXISTS org_id INT NULL`);
 	} catch (err) {
 		if (!(err && (err.code === 'ER_DUP_FIELDNAME' || err.errno === 1060))) throw err;
 	}

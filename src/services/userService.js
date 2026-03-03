@@ -2,9 +2,9 @@ const userModel = require('../models/userModel');
 
 const fetchAllusers = async (opts = {}) => {
     try {
-        const page = opts.page || opts.page === 0 ? opts.page : undefined;
-        const per_page = opts.per_page || opts.perPage || opts.perPage === 0 ? opts.per_page || opts.perPage : undefined;
-        if (page !== undefined || per_page !== undefined) {
+        const page = opts.page !== undefined ? opts.page : undefined;
+        const per_page = opts.per_page !== undefined ? opts.per_page : (opts.perPage !== undefined ? opts.perPage : undefined);
+        if (page !== undefined && per_page !== undefined) {
             return await userModel.getAllUsersPaginated(page, per_page);
         }
         const users = await userModel.getAllUsers();
@@ -15,7 +15,7 @@ const fetchAllusers = async (opts = {}) => {
     }
 }
 
-const fetchUserById = async(id) => {
+const fetchUserById = async (id) => {
     try {
         const user = await userModel.getUserById(id);
         if (!user) {
@@ -28,7 +28,7 @@ const fetchUserById = async(id) => {
     }
 }
 
-const fetchOrganizationMembers = async(orgId, opts = {}) => {
+const fetchOrganizationMembers = async (orgId, opts = {}) => {
     try {
         const page = opts.page || undefined;
         const per_page = opts.per_page || opts.perPage || undefined;
@@ -43,7 +43,7 @@ const fetchOrganizationMembers = async(orgId, opts = {}) => {
     }
 }
 
-const removeOrganizationMember = async(orgId, memberId) => {
+const removeOrganizationMember = async (orgId, memberId) => {
     try {
         await userModel.removeOrganizationMember(orgId, memberId);
     } catch (error) {
