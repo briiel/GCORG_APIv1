@@ -42,6 +42,21 @@ async function submitEvaluation({ event_id, student_id, responses }) {
     throw new Error('You must attend the event before submitting an evaluation.');
   }
 
+  // Check if the event has concluded
+  const [eventStatusRows] = await db.query(
+    `SELECT status FROM created_events WHERE event_id = ? AND deleted_at IS NULL LIMIT 1`,
+    [event_id]
+  );
+
+  if (eventStatusRows.length === 0) {
+    throw new Error('Event not found.');
+  }
+
+  const currentStatus = (eventStatusRows[0].status || '').toLowerCase();
+  if (currentStatus !== 'concluded') {
+    throw new Error('The evaluation form is only available after the event has concluded.');
+  }
+
   // Check if already submitted
   const hasSubmitted = await evaluationModel.hasSubmittedEvaluation(event_id, student_id);
   if (hasSubmitted) {
@@ -164,6 +179,19 @@ async function submitEvaluation({ event_id, student_id, responses }) {
 
 // Get student's evaluation status for an event
 async function getEvaluationStatus(event_id, student_id) {
+  // Check if the event has concluded
+  const [eventRows] = await db.query(
+    `SELECT status FROM created_events WHERE event_id = ? AND deleted_at IS NULL LIMIT 1`,
+    [event_id]
+  );
+
+  if (eventRows.length === 0) {
+    throw new Error('Event not found.');
+  }
+
+  const eventStatus = (eventRows[0].status || '').toLowerCase();
+  const eventConcluded = eventStatus === 'concluded';
+
   // Check attendance first
   const [attendance] = await db.query(
     `SELECT id, evaluation_submitted, evaluation_submitted_at 
@@ -177,6 +205,7 @@ async function getEvaluationStatus(event_id, student_id) {
   const hasEvaluated = hasAttended && attendance[0].evaluation_submitted === 1;
 
   return {
+    event_concluded: eventConcluded,
     has_attended: hasAttended,
     has_evaluated: hasEvaluated,
     evaluation_submitted_at: hasAttended ? attendance[0].evaluation_submitted_at : null,

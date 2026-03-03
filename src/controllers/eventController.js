@@ -1026,6 +1026,7 @@ exports.getCertificatesByStudent = async (req, res) => {
                     ce.end_date,
                     ce.start_time,
                     ce.end_time,
+                    ce.status AS event_status,
                     ce.created_by_osws_id,
                     ar.evaluation_submitted,
                     ar.evaluation_submitted_at,
@@ -1098,6 +1099,7 @@ exports.getCertificatesByStudent = async (req, res) => {
                 evaluation_required: true, // All events now require evaluation
                 evaluation_submitted: hasEvaluated,
                 evaluation_submitted_at: event.evaluation_submitted_at,
+                event_concluded: (event.event_status || '').toLowerCase() === 'concluded',
                 can_download_certificate: hasEvaluated && hasCertificate,
                 is_osws_event: isOswsEvent
             };
