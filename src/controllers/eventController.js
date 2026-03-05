@@ -1,7 +1,4 @@
-/**
- * Event Controller
- * Handles all event-related operations including CRUD, attendance, and certificates
- */
+// Event Controller — CRUD, attendance, QR scanning, certificates, and dashboard stats
 
 const eventService = require('../services/eventService');
 const { registerParticipant } = require('../services/registrationService');
@@ -18,7 +15,7 @@ const fs = require('fs');
 const path = require('path');
 const os = require('os');
 
-// Trash (soft-delete) multiple events
+// Soft-delete multiple events
 exports.trashMultipleEvents = async (req, res) => {
     try {
         const user = req.user;
@@ -78,35 +75,28 @@ exports.createEvent = async (req, res) => {
         }
         eventData.status = eventData.status || 'not yet started';
 
-        // Record which student/officer created the event (if authenticated user present).
-        // Only populate created_by_student_id when the user is actually a student or org officer
-        // (i.e. they have an explicit studentId on their token). OSWS admins are stored in
-        // osws_admins – not in students – so using user.id for them would violate the FK.
+        // Set created_by_student_id only for students/officers — OSWS admins are not in the students table
         try {
             const user = req.user;
             if (user) {
                 const roles = user.roles || [];
                 const isOswsAdmin = roles.includes('oswsadmin');
-                // Only resolve a student-table id when the user is not a pure OSWS admin
-                eventData.created_by_student_id = isOswsAdmin
-                    ? null
-                    : (user.studentId || user.legacyId || null);
+                eventData.created_by_student_id = isOswsAdmin ? null : (user.studentId || user.legacyId || null);
             }
         } catch (ignore) { }
 
-        // Normalize is_paid from frontend ("paid"/"free" or boolean)
+        // Normalize is_paid and registration_fee values
         if (eventData.is_paid !== undefined) {
             const v = eventData.is_paid;
             const s = typeof v === 'string' ? v.toLowerCase() : v;
             eventData.is_paid = (s === true || s === 1 || s === '1' || s === 'true' || s === 'paid' || s === 'yes') ? 1 : 0;
         }
-        // Normalize registration_fee
         if (eventData.registration_fee !== undefined) {
             const n = parseFloat(eventData.registration_fee);
             eventData.registration_fee = isNaN(n) || n < 0 ? 0 : Number(n.toFixed(2));
         }
 
-        // Service returns either a numeric id or an object { id, ...eventData }
+        // Service returns numeric id or { id, ...eventData }
         const created = await eventService.createNewEvent(eventData);
         const newEventId = (created && typeof created === 'object' && 'id' in created)
             ? created.id
@@ -157,7 +147,6 @@ exports.getEvents = async (req, res) => {
         });
 
         if (eventsResult && eventsResult.items) {
-            // return standardized paginated object
             return handleSuccessResponse(res, { items: events, total: eventsResult.total, page: eventsResult.page, per_page: eventsResult.per_page, total_pages: eventsResult.total_pages });
         }
 
@@ -178,22 +167,20 @@ exports.registerParticipant = [
                 student_id: bodyStudentId
             } = req.body;
 
-            // Prefer explicit student_id from the request body, but fall back to authenticated user's student id
+            // Prefer body student_id, fall back to authenticated user
             const student_id = bodyStudentId || req.user?.studentId || req.user?.student_id || req.user?.id || req.user?.userId;
             if (!student_id) {
                 return handleErrorResponse(res, 'student_id is required', 400);
             }
 
-            // If event is marked as paid, require proof_of_payment
+            // Require proof of payment for paid events
             try {
                 const ev = await eventService.getEventById(event_id);
                 const isPaid = !!(ev && (ev.is_paid === 1 || ev.is_paid === true));
                 if (isPaid && !req.file) {
                     return handleErrorResponse(res, 'Proof of payment is required for paid events.', 400);
                 }
-            } catch (e) {
-                // If lookup fails, continue; registration may fail later on foreign key
-            }
+            } catch (e) { }
 
             // Get proof of payment URL from uploaded file
             const proof_of_payment = req.file ? req.file.cloudinaryUrl : null;
@@ -211,7 +198,6 @@ exports.registerParticipant = [
             if (error.message === 'You have already registered for this event.') {
                 return handleErrorResponse(res, error.message, 409);
             }
-            // Log the error concisely and return a generic error response
             console.error('Registration error:', error && error.message ? error.message : error);
             return handleErrorResponse(res, error.message);
         }
@@ -235,11 +221,10 @@ exports.getEventsByParticipant = async (req, res) => {
     }
 };
 
-// Get attended events (history) for a student
+// Get attended events for a student — students can only view their own history
 exports.getAttendedEventsByStudent = async (req, res) => {
     try {
         const user = req.user;
-        // Allow students to fetch only their own history; org/admin can fetch any student
         const { student_id } = req.params;
         if (!student_id) return handleErrorResponse(res, 'student_id is required', 400);
 
@@ -248,14 +233,13 @@ exports.getAttendedEventsByStudent = async (req, res) => {
         const isOrgOfficer = roles.includes('orgofficer');
         const isAdmin = roles.includes('oswsadmin');
 
-        // Students without officer/admin role can only fetch their own history
         if (isStudent && !isOrgOfficer && !isAdmin && String(user.studentId) !== String(student_id)) {
             return handleErrorResponse(res, 'Forbidden: You can only view your own attendance history', 403);
         }
 
         const events = await eventService.getAttendanceRecordsByStudent(student_id);
 
-        // Normalize poster URLs when relative
+        // Normalize relative poster URLs
         const host = req.protocol + '://' + req.get('host');
         const data = events.map(ev => ({
             ...ev,
@@ -302,7 +286,7 @@ exports.getEventsByCreator = async (req, res) => {
             return {
                 ...event,
                 event_poster: normalizedPoster,
-                department: event.department, // Now included from the join
+                department: event.department,
                 auto_status,
                 auto_mismatch
             };
@@ -339,9 +323,8 @@ exports.updateEventStatus = async (req, res) => {
         const adminId = isAdmin ? user.legacyId : null;
 
         if (isOrgOfficer && ev.created_by_org_id !== orgId) return handleErrorResponse(res, 'Forbidden', 403);
-        // OSWS admins can manage any event (not restricted to events they personally created)
 
-        // Compute auto status (as of now); never auto-override 'cancelled'
+        // Compute current auto status — 'cancelled' is never auto-overridden
         const now = new Date();
         const computeAutoStatus = (e) => {
             const statusStr = (e.status || '').toString().toLowerCase();
@@ -359,9 +342,7 @@ exports.updateEventStatus = async (req, res) => {
         };
         const autoStatus = computeAutoStatus(ev);
 
-        // Manual status change rules:
-        // - Always allow setting to 'cancelled'.
-        // - Otherwise, allow only if desired equals computed auto status AND current stored differs (i.e., auto didn't update).
+        // Only allow 'cancelled' or syncing to the computed auto-status when it hasn't been applied yet
         const desired = status;
         const current = (ev.status || '').toString().toLowerCase();
         const desiredLower = desired.toString().toLowerCase();
@@ -373,19 +354,10 @@ exports.updateEventStatus = async (req, res) => {
         await eventService.updateEventStatus(id, status);
 
         if (status === 'concluded') {
-            // Only release certificates for events created by OSWS
+            // Certificates are auto-generated only for OSWS-created events
             const event = await eventService.getEventById(id);
-            const isOswsCreated = event && event.created_by_osws_id; // truthy when created by OSWS
+            const isOswsCreated = event && event.created_by_osws_id;
             if (!isOswsCreated) {
-                // Auto-trash concluded events regardless of creator per requirement
-                /*
-                try {
-                    await eventService.deleteEvent(id, null);
-                } catch (e) {
-                    console.warn('Auto-trash on completion (non-OSWS) failed or already trashed:', e?.message || e);
-                }
-                return handleSuccessResponse(res, { message: 'Event concluded and moved to trash (certificates are only released for OSWS-created events).' });
-                */
                 return handleSuccessResponse(res, { message: 'Event concluded (certificates are only released for OSWS-created events).' });
             }
             const [attendees] = await db.query(
@@ -409,15 +381,13 @@ exports.updateEventStatus = async (req, res) => {
                 [id]
             );
 
-            // Process certificates for each attendee
+            // Generate and upload certificates for each attendee
             for (const attendee of attendees) {
                 try {
-                    // Create temporary file in system temp directory
                     const tempDir = os.tmpdir();
                     const certFilename = `certificate_${id}_${attendee.student_id}.png`;
                     const tempCertPath = path.join(tempDir, certFilename);
 
-                    // Generate certificate to temporary file
                     await generateCertificate({
                         studentName: attendee.student_name,
                         eventTitle: attendee.event_title,
@@ -427,10 +397,8 @@ exports.updateEventStatus = async (req, res) => {
                         certificatePath: tempCertPath
                     });
 
-                    // Upload certificate to Cloudinary with corrected settings
                     const uploadResult = await uploadCertificateToCloudinary(tempCertPath, id, attendee.student_id);
 
-                    // Save Cloudinary URL and public_id in database
                     await db.query(
                         `INSERT INTO certificates (student_id, event_id, certificate_url, certificate_public_id)
                          VALUES (?, ?, ?, ?)
@@ -440,27 +408,17 @@ exports.updateEventStatus = async (req, res) => {
                         [attendee.student_id, id, uploadResult.secure_url, uploadResult.public_id]
                     );
 
-                    // Clean up temporary file
+                    // Clean up temp file
                     try {
-                        if (fs.existsSync(tempCertPath)) {
-                            fs.unlinkSync(tempCertPath);
-                        }
+                        if (fs.existsSync(tempCertPath)) fs.unlinkSync(tempCertPath);
                     } catch (cleanupError) {
                         console.warn(`Failed to cleanup temp file: ${tempCertPath}`, cleanupError);
                     }
 
                 } catch (certError) {
                     console.error(`Failed to generate/upload certificate for student ${attendee.student_id}:`, certError);
-                    // Continue processing other certificates even if one fails
                 }
             }
-
-            // Auto-trash disabled - events will remain visible after completion
-            // try {
-            //     await eventService.deleteEvent(id, null);
-            // } catch (e) {
-            //     console.warn('Auto-trash on completion failed or already trashed:', e?.message || e);
-            // }
         }
 
         return handleSuccessResponse(res, { message: 'Event status updated successfully' });
@@ -479,9 +437,9 @@ exports.markAttendance = async (req, res) => {
         const user_accuracy = req.body.user_accuracy !== undefined ? parseFloat(req.body.user_accuracy) : null;
         const location_consent = req.body.location_consent === true || req.body.location_consent === 'true' || req.body.location_consent === 1 || req.body.location_consent === '1';
 
-        // Default geofence: set to 200m (can be overridden by env `GEOFENCE_METERS`).
-        const GEOFENCE_METERS = process.env.GEOFENCE_METERS ? Number(process.env.GEOFENCE_METERS) : 200; // default 200m
-        const ACCURACY_THRESHOLD_METERS = process.env.ACCURACY_THRESHOLD_METERS ? Number(process.env.ACCURACY_THRESHOLD_METERS) : 100; // reject coarse fixes
+        // Geofence radius and accuracy threshold (configurable via env)
+        const GEOFENCE_METERS = process.env.GEOFENCE_METERS ? Number(process.env.GEOFENCE_METERS) : 200;
+        const ACCURACY_THRESHOLD_METERS = process.env.ACCURACY_THRESHOLD_METERS ? Number(process.env.ACCURACY_THRESHOLD_METERS) : 100;
         const user = req.user;
 
         if (!student_id || !user) {
@@ -500,7 +458,7 @@ exports.markAttendance = async (req, res) => {
             return handleErrorResponse(res, `Location accuracy too low (${Math.round(user_accuracy)} m). Use a GPS-capable device.`, 400);
         }
 
-        // Haversine distance
+        // Haversine formula for distance between two GPS coordinates
         const toRad = v => (v * Math.PI) / 180;
         const haversineMeters = (aLat, aLon, bLat, bLon) => {
             const R = 6371000;
@@ -514,27 +472,20 @@ exports.markAttendance = async (req, res) => {
             const c = 2 * Math.atan2(Math.sqrt(aa), Math.sqrt(1 - aa));
             return R * c;
         };
-        // Note: geofence check deferred until event_id is resolved and event coordinates fetched
 
         const roles = user.roles || [];
         const isOrgOfficer = roles.includes('orgofficer');
         const isAdmin = roles.includes('oswsadmin');
 
-        // Only organization officers and OSWS admins are allowed to scan
+        // Only org officers and OSWS admins can mark attendance
         if (!isOrgOfficer && !isAdmin) {
             return handleErrorResponse(res, 'Forbidden: Only organization officers and admins can mark attendance', 403);
         }
 
-        // Get IDs based on role
         const orgId = isOrgOfficer && user.organization ? user.organization.org_id : null;
         const adminId = isAdmin ? user.legacyId : null;
 
-        // Note: Department-based restrictions intentionally not enforced. Cross-department registrations are allowed.
-
-        // Determine registration/event pairing when one or both are missing.
-        // 1) If both registration_id and event_id are missing, infer the most relevant within scanner scope.
-        // 2) If event_id is provided but registration_id is missing, find the student's registration for that event.
-        // 3) If registration_id is provided but event_id is missing, fetch its event and validate student.
+        // Resolve registration/event pairing when one or both IDs are missing
         if (!registration_id && !event_id) {
             let query;
             let params;
@@ -577,7 +528,6 @@ exports.markAttendance = async (req, res) => {
 
             const [rows] = await db.query(query, params);
             if (!rows.length) {
-                // Keep existing message to avoid frontend changes
                 return handleErrorResponse(res, 'No matching registration found for this student under your organization. Please specify event.', 404);
             }
             registration_id = rows[0].registration_id;
@@ -704,22 +654,14 @@ exports.markAttendance = async (req, res) => {
             [event_id, student_id]
         );
 
-        // DB trigger requires EXACTLY ONE of the three scanner fields to be non-null.
-        // For org officers who are also students (have a studentId in token), prefer
-        // scanned_by_student_id so that the COALESCE in queries resolves to the officer's
-        // personal name (e.g., "Juan Dela Cruz") rather than the org name ("GCCCS ELITES").
-        // For legacy pure-org accounts (no studentId), fall back to scanned_by_org_id.
-        // Use broadest possible chain to resolve officer's student DB id from token claims.
-        const officerStudentId = isOrgOfficer
-            ? (user.studentId || user.legacyId || user.id || null)
-            : null;
-        let scannedByStudentId = officerStudentId;                          // officer's personal student DB id
+        // Resolve who is scanning — prefer student ID for org officers (shows officer name, not org name)
+        const officerStudentId = isOrgOfficer ? (user.studentId || user.legacyId || user.id || null) : null;
+        let scannedByStudentId = officerStudentId;
         let resolvedOrgId = orgId || (isOrgOfficer ? (ev.created_by_org_id || null) : null);
         let scannedByOrgId = (isOrgOfficer && !scannedByStudentId) ? resolvedOrgId : null;
         const scannedByOswsId = isAdmin ? adminId : null;
 
-        // Last-resort: if all three are still null for an org officer, query the DB for their membership.
-        // This handles stale JWTs that are missing organization/studentId claims.
+        // Fallback for stale JWTs missing org/student claims — look up from DB
         if (isOrgOfficer && scannedByStudentId === null && scannedByOrgId === null && scannedByOswsId === null) {
             try {
                 const lookupId = user.legacyId || user.id || user.userId;
@@ -744,9 +686,8 @@ exports.markAttendance = async (req, res) => {
             }
         }
 
-        // Helper writers
+        // Time-in/out DB write helpers
         const doTimeInInsert = async () => {
-            // Store timestamps in UTC to avoid DB server timezone differences.
             await db.query(
                 `INSERT INTO attendance_records (event_id, student_id, attended_at, time_in, scanned_by_org_id, scanned_by_osws_id, scanned_by_student_id, reported_lat, reported_lon, reported_accuracy, location_consent, reported_at)
                  VALUES (?, ?, UTC_TIMESTAMP(), UTC_TIMESTAMP(), ?, ?, ?, ?, ?, ?, ?, UTC_TIMESTAMP())`,
@@ -766,8 +707,7 @@ exports.markAttendance = async (req, res) => {
             );
         };
         const doTimeOutUpdate = async (id) => {
-            // If all scanner IDs are null (e.g. token missing org), skip updating scanned_by_*
-            // columns — they were already written at time-in and must not be zeroed out.
+            // Skip updating scanned_by_* if null — already written at time-in
             const hasScanner = scannedByOrgId !== null || scannedByOswsId !== null || scannedByStudentId !== null;
             if (hasScanner) {
                 await db.query(
@@ -781,7 +721,6 @@ exports.markAttendance = async (req, res) => {
                     [scannedByOrgId, scannedByOswsId, scannedByStudentId, user_lat, user_lon, user_accuracy, location_consent ? 1 : 0, id]
                 );
             } else {
-                // No scanner info available — just record the time_out without touching scanned_by_*
                 await db.query(
                     `UPDATE attendance_records 
                      SET time_out = UTC_TIMESTAMP(),
@@ -792,7 +731,7 @@ exports.markAttendance = async (req, res) => {
             }
         };
 
-        // If explicit mode requested
+        // Handle explicit mode or auto mode (first scan = time-in, second = time-out)
         if (desired === 'time_in') {
             if (!existing.length) {
                 await doTimeInInsert();
@@ -805,7 +744,6 @@ exports.markAttendance = async (req, res) => {
             if (rec.time_in && rec.time_out) {
                 return handleErrorResponse(res, 'Attendance already recorded', 409);
             }
-            // No time_in yet on existing row (edge case) -> set it
             await doTimeInUpdate(rec.id);
             return handleSuccessResponse(res, { message: 'Time-in recorded' });
         }
@@ -824,7 +762,7 @@ exports.markAttendance = async (req, res) => {
             return handleSuccessResponse(res, { message: 'Time-out recorded' });
         }
 
-        // Auto mode (legacy behavior): first scan -> time-in; second -> time-out
+        // Auto mode: first scan = time-in, second = time-out
         if (!existing.length) {
             await doTimeInInsert();
             return handleSuccessResponse(res, { message: 'Time-in recorded' });
@@ -861,10 +799,8 @@ exports.getAllAttendanceRecords = async (req, res) => {
             const adminId = user.legacyId;
             records = await eventService.getAttendanceRecordsByOsws(adminId);
         } else if (isStudent && !isOrgOfficer && !isAdmin) {
-            // Students without officer/admin role should not access all attendance records
             return handleErrorResponse(res, 'Forbidden', 403);
         } else {
-            // default fallback: return none
             records = [];
         }
 
@@ -893,10 +829,7 @@ exports.getTrashedEvents = async (req, res) => {
         const userRoles = Array.isArray(user.roles) ? user.roles : [];
         let rows = [];
 
-        // Check roles array instead of userType for RBAC compatibility
         if (user.roles && user.roles.includes('orgofficer')) {
-            // For OrgOfficers (including students with approved org officer role)
-            // Use organization.org_id for students, or legacyId for legacy org accounts
             const orgId = user.organization?.org_id || user.legacyId;
             rows = await eventService.getTrashedOrgEvents(orgId);
         } else if (user.roles && user.roles.includes('oswsadmin')) {
@@ -921,7 +854,7 @@ exports.restoreEvent = async (req, res) => {
     }
 };
 
-// Permanently delete a trashed event (hard delete). Only allowed for the owner (org or OSWS) based on token.
+// Permanently delete a trashed event (owner only)
 exports.permanentDeleteEvent = async (req, res) => {
     try {
         const { id } = req.params;
@@ -939,19 +872,15 @@ exports.permanentDeleteEvent = async (req, res) => {
     }
 };
 
-// Dashboard stats for organizations: include concluded even if trashed; others exclude trashed
+// Dashboard stats for the org officer's organization
 exports.getOrgDashboardStats = async (req, res) => {
     try {
         const user = req.user;
         if (!user) return handleErrorResponse(res, 'Unauthorized', 401);
 
-        // RBAC: Check if user has OrgOfficer role
         const roles = user.roles || [];
-        if (!roles.includes('orgofficer')) {
-            return handleErrorResponse(res, 'Forbidden', 403);
-        }
+        if (!roles.includes('orgofficer')) return handleErrorResponse(res, 'Forbidden', 403);
 
-        // Use organization ID from JWT
         const orgId = user.organization?.org_id;
         if (!orgId) return handleErrorResponse(res, 'Organization ID not found', 400);
 
@@ -962,17 +891,14 @@ exports.getOrgDashboardStats = async (req, res) => {
     }
 };
 
-// Dashboard stats for OSWS admin: counts across all OSWS-created events; include concluded even if trashed
+// Dashboard stats for OSWS admin across all OSWS-created events
 exports.getOswsDashboardStats = async (req, res) => {
     try {
         const user = req.user;
         if (!user) return handleErrorResponse(res, 'Unauthorized', 401);
 
-        // RBAC: Check if user has OSWSAdmin role
         const roles = user.roles || [];
-        if (!roles.includes('oswsadmin')) {
-            return handleErrorResponse(res, 'Forbidden', 403);
-        }
+        if (!roles.includes('oswsadmin')) return handleErrorResponse(res, 'Forbidden', 403);
 
         const stats = await eventService.getOswsDashboardStats();
         return handleSuccessResponse(res, stats);
@@ -981,10 +907,9 @@ exports.getOswsDashboardStats = async (req, res) => {
     }
 };
 
-// Aggregated chart datasets for OSWS dashboard: events by department, activities per organization
+// Chart datasets for OSWS dashboard — supports weekly/monthly/yearly filter
 exports.getOswsDashboardCharts = async (req, res) => {
     try {
-        // Optional query param `filter` can be 'weekly'|'monthly'|'yearly'
         const filter = String(req.query.filter || 'monthly').toLowerCase();
         const allowed = ['weekly', 'monthly', 'yearly'];
         const f = allowed.includes(filter) ? filter : 'monthly';
@@ -1000,7 +925,6 @@ exports.getCertificatesByStudent = async (req, res) => {
         const { student_id } = req.query;
         if (!student_id) return handleErrorResponse(res, 'student_id required', 400);
 
-        // Authorization: only the student themselves, an OrgOfficer for that student's org, or an OSWS admin may view certificates
         const user = req.user;
         if (!user) return handleErrorResponse(res, 'Authentication required', 401);
         const userRoles = Array.isArray(user.roles) ? user.roles : [];
@@ -1009,7 +933,6 @@ exports.getCertificatesByStudent = async (req, res) => {
         const isAdmin = userRoles.includes('oswsadmin');
 
         if (isStudent) {
-            // students can only request their own certificates
             const studentIdFromToken = user.studentId || user.id || user.legacyId || null;
             if (String(studentIdFromToken) !== String(student_id)) {
                 return handleErrorResponse(res, 'Forbidden', 403);
@@ -1018,7 +941,7 @@ exports.getCertificatesByStudent = async (req, res) => {
             return handleErrorResponse(res, 'Forbidden', 403);
         }
 
-        // Get all attended events with evaluation status and include latest certificate request info
+        // Get attended events with evaluation status and latest certificate request
         const [attendedEvents] = await db.query(
             `SELECT ar.event_id,
                     ce.title AS event_title,
@@ -1050,7 +973,6 @@ exports.getCertificatesByStudent = async (req, res) => {
              JOIN created_events ce ON ar.event_id = ce.event_id
              JOIN students s ON ar.student_id = s.id
              LEFT JOIN certificates c ON c.event_id = ar.event_id AND c.student_id = ar.student_id
-             -- Left join the most recent certificate_request for this student+event (if exists)
              LEFT JOIN (
                  SELECT cr_inner.* FROM certificate_requests cr_inner
                  JOIN (
@@ -1065,7 +987,7 @@ exports.getCertificatesByStudent = async (req, res) => {
             [student_id, student_id]
         );
 
-        // Build response with evaluation gate logic
+        // Map events — certificate download requires evaluation completion
         const data = attendedEvents.map(event => {
             const isOswsEvent = !!event.created_by_osws_id;
             const hasEvaluated = event.evaluation_submitted === 1;
@@ -1084,19 +1006,16 @@ exports.getCertificatesByStudent = async (req, res) => {
                 suffix: event.suffix,
                 department: event.department,
                 program: event.program,
-                // Certificate availability
                 id: event.cert_id,
                 certificate_url: event.certificate_url,
                 certificate_public_id: event.certificate_public_id,
                 generated_at: event.generated_at,
-                // Latest certificate request info (may be null)
                 request_status: event.request_status || null,
                 request_requested_at: event.request_requested_at || null,
                 request_processed_at: event.request_processed_at || null,
                 request_rejection_reason: event.request_rejection_reason || null,
                 request_certificate_url: event.request_certificate_url || null,
-                // Evaluation gate
-                evaluation_required: true, // All events now require evaluation
+                evaluation_required: true,
                 evaluation_submitted: hasEvaluated,
                 evaluation_submitted_at: event.evaluation_submitted_at,
                 event_concluded: (event.event_status || '').toLowerCase() === 'concluded',
@@ -1262,7 +1181,7 @@ exports.getEventParticipants = async (req, res) => {
             [event_id]
         );
 
-        // Normalize proof_of_payment to absolute URL if needed
+        // Normalize proof_of_payment to absolute URL
         const host = req.protocol + '://' + req.get('host');
         const data = rows.map(r => ({
             ...r,
@@ -1280,7 +1199,7 @@ exports.getEventParticipants = async (req, res) => {
     }
 };
 
-// Approve a pending registration
+// Approve a pending event registration
 exports.approveRegistration = async (req, res) => {
     try {
         const user = req.user;
@@ -1295,11 +1214,9 @@ exports.approveRegistration = async (req, res) => {
         const { registration_id } = req.params;
         if (!registration_id) return handleErrorResponse(res, 'registration_id required', 400);
 
-        // Get org_id for OrgOfficer
         const orgId = isOrgOfficer && user.organization ? user.organization.org_id : null;
         const adminId = isAdmin ? user.legacyId : null;
 
-        // Load registration and event ownership
         const [rows] = await db.query(
             `SELECT er.*, ce.created_by_org_id, ce.created_by_osws_id, ce.title
              FROM event_registrations er
@@ -1327,7 +1244,7 @@ exports.approveRegistration = async (req, res) => {
              WHERE id = ?`,
             [isOrgOfficer ? orgId : null, isAdmin ? adminId : null, registration_id]
         );
-        // Notify student
+        // Notify student of approval
         try {
             await notificationService.createNotification({ user_id: String(rec.student_id), event_id: rec.event_id, type: require('../services/notificationTypes').REGISTRATION_APPROVED, templateVars: { title: rec.title }, panel: 'student' });
         } catch (_) { }
@@ -1337,7 +1254,7 @@ exports.approveRegistration = async (req, res) => {
     }
 };
 
-// Decline a pending registration
+// Decline a pending event registration
 exports.rejectRegistration = async (req, res) => {
     try {
         const user = req.user;
@@ -1352,7 +1269,6 @@ exports.rejectRegistration = async (req, res) => {
         const { registration_id } = req.params;
         if (!registration_id) return handleErrorResponse(res, 'registration_id required', 400);
 
-        // Get org_id for OrgOfficer
         const orgId = isOrgOfficer && user.organization ? user.organization.org_id : null;
         const adminId = isAdmin ? user.legacyId : null;
 
@@ -1411,17 +1327,10 @@ exports.updateEvent = async (req, res) => {
         const { id } = req.params;
         const eventData = req.body;
         if (req.file) {
-            // Keep consistency with createEvent: use Cloudinary URL when available
             eventData.event_poster = req.file.cloudinaryUrl || req.file.path;
-            if (req.file.cloudinaryPublicId) {
-                eventData.event_poster_public_id = req.file.cloudinaryPublicId;
-            }
+            if (req.file.cloudinaryPublicId) eventData.event_poster_public_id = req.file.cloudinaryPublicId;
         }
-        // Support receiving a data URL / base64 image in JSON body when the client
-        // cannot/doesn't send multipart form-data. If `event_poster` in the body is
-        // a data URL or base64 string and no `req.file` was provided, upload it
-        // to Cloudinary so users can add a poster when editing an event that
-        // originally had no poster.
+        // Support data URL / base64 image in JSON body (no multipart)
         if (!req.file && eventData && typeof eventData.event_poster === 'string') {
             const val = eventData.event_poster.trim();
             const looksLikeDataUrl = val.startsWith('data:image/');
@@ -1440,7 +1349,6 @@ exports.updateEvent = async (req, res) => {
                     }
                 } catch (e) {
                     console.warn('Failed to upload event_poster from data URL/body:', e?.message || e);
-                    // Do not fail the whole update because of upload; proceed without setting poster
                 }
             }
         }
@@ -1454,7 +1362,7 @@ exports.updateEvent = async (req, res) => {
             eventData.registration_fee = isNaN(n) || n < 0 ? 0 : Number(n.toFixed(2));
         }
 
-        // Guard: prevent manual status change through PUT unless setting to 'cancelled'
+        // Prevent manual status changes via PUT — only 'cancelled' is allowed
         if (eventData.status !== undefined && eventData.status !== null && String(eventData.status).trim() !== '') {
             const desired = String(eventData.status).trim().toLowerCase();
             if (desired !== 'cancelled') {
@@ -1493,8 +1401,7 @@ exports.getEventById = async (req, res) => {
     }
 };
 
-// POST /api/event/events/:id/request-certificate
-// Creates a certificate request record and sends notification to organization
+// Create a certificate request for a concluded org event (requires evaluation first)
 exports.requestCertificate = async (req, res) => {
     try {
         const user = req.user;
@@ -1505,10 +1412,9 @@ exports.requestCertificate = async (req, res) => {
         const eventId = req.params.id;
         if (!eventId) return handleErrorResponse(res, 'Event ID is required', 400);
 
-        // Use explicit student identifier when available (tokens may carry legacy id or studentId)
         const studentId = user.studentId || user.id;
 
-        // Fetch event and organizer contact
+        // Fetch event and organizer details
         const [rows] = await db.query(
             `SELECT ce.event_id, ce.title, COALESCE(ce.room, ce.location) AS location, ce.start_date, ce.end_date,
                     ce.created_by_org_id, ce.created_by_osws_id,
@@ -1522,12 +1428,11 @@ exports.requestCertificate = async (req, res) => {
         );
         if (!rows.length) return handleErrorResponse(res, 'Event not found', 404);
         const ev = rows[0];
-        // Server-side safety: block OSWS-created (auto-generated) certificates
         if (ev.created_by_osws_id) {
             return handleErrorResponse(res, 'Certificates are auto-generated for OSWS events.', 400);
         }
 
-        // NEW: Require evaluation before certificate request for organization events
+        // Evaluation must be submitted before requesting a certificate
         const [evalCheck] = await db.query(
             `SELECT evaluation_submitted FROM attendance_records 
              WHERE event_id = ? AND student_id = ? LIMIT 1`,
@@ -1541,14 +1446,12 @@ exports.requestCertificate = async (req, res) => {
         const toOswsId = ev.created_by_osws_id ? String(ev.created_by_osws_id) : null;
         if (!toOrgId && !toOswsId) return handleErrorResponse(res, 'Organizer account not available for this event.', 400);
 
-        // Check if student already has a pending or approved request
         const hasPendingRequest = await certificateRequestService.hasPendingOrApprovedRequest(eventId, studentId);
         if (hasPendingRequest) {
             return handleErrorResponse(res, 'You already have a pending or approved certificate request for this event.', 400);
         }
 
-        // Enforce: max 2 requests per 48 hours per (student, event)
-        // Rate limiting uses certificate_requests directly (same requested_at data, no redundant log table needed)
+        // Rate limit: max 2 requests per 48 hours per student+event
         const studentIdStr = String(studentId);
         const [cntRows] = await db.query(
             `SELECT COUNT(*) AS cnt FROM certificate_requests
@@ -1578,7 +1481,6 @@ exports.requestCertificate = async (req, res) => {
             return handleErrorResponse(res, retryMsg, 429);
         }
 
-        // Fetch student info
         const [srows] = await db.query(
             `SELECT id, email, first_name, last_name, middle_initial, suffix, department, program
              FROM students WHERE id = ? LIMIT 1`,
@@ -1588,23 +1490,18 @@ exports.requestCertificate = async (req, res) => {
         const studentName = [st.first_name, st.middle_initial ? `${st.middle_initial}.` : '', st.last_name, st.suffix || '']
             .filter(Boolean).join(' ').replace(/\s+/g, ' ');
 
-        // Create certificate request record
         await certificateRequestService.createCertificateRequest({
             event_id: eventId,
             student_id: studentId
         });
 
-        // Create notification to organizer account.
-        // NOTE: user_id has a FK to students.id — org/admin IDs are NOT student IDs.
-        // For org/admin notifications, use user_id: null and route via panel + org_id.
+        // Notify organizer panel (user_id is null — org/admin IDs are not student IDs)
         try {
             const nt = require('../services/notificationTypes');
             const payload = { type: nt.CERTIFICATE_REQUEST, templateVars: { studentName, title: ev.title }, event_id: ev.event_id };
             if (toOrgId) {
-                // Organization panel: user_id is null; recipient identified by org_id + panel
                 await notificationService.createNotification({ user_id: null, panel: 'organization', org_id: toOrgId, ...payload });
             } else {
-                // OSWS admin panel: user_id is null; recipient identified by panel = 'admin'
                 await notificationService.createNotification({ user_id: null, panel: 'admin', ...payload });
             }
         } catch (nerr) {

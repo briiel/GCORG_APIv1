@@ -1,3 +1,5 @@
+// Certificate Request Controller — approval, rejection, and status updates for org certificates
+
 const certificateRequestService = require('../services/certificateRequestService');
 const notificationService = require('../services/notificationService');
 const { handleErrorResponse, handleSuccessResponse } = require('../utils/errorHandler');
@@ -9,7 +11,7 @@ const { promises: fsPromises } = fs;
 const path = require('path');
 const os = require('os');
 
-// Upload certificate to Cloudinary
+// Upload a generated certificate PNG to Cloudinary
 const uploadCertificateToCloudinary = async (tempCertPath, eventId, studentId) => {
 	const cloudinaryPublicId = `certificate_${eventId}_${studentId}`;
 	return cloudinary.uploader.upload(tempCertPath, {
@@ -22,22 +24,20 @@ const uploadCertificateToCloudinary = async (tempCertPath, eventId, studentId) =
 	});
 };
 
-// Helpers
+// Helper: check if user has the orgofficer role
 const userIsOrgOfficer = (user) => {
 	if (!user) return false;
-	const userRoles = user && Array.isArray(user.roles) ? user.roles : [];
-	const normalizedRoles = userRoles.map(r => String(r).toLowerCase());
+	const normalizedRoles = (Array.isArray(user.roles) ? user.roles : []).map(r => String(r).toLowerCase());
 	return normalizedRoles.includes('orgofficer') || normalizedRoles.includes('organization') || normalizedRoles.includes('org_officer');
 };
 
 const getOrgIdFromUser = (user) => user?.organization?.org_id || user?.organization_id || user?.orgId;
 
-// GET /api/certificates/requests - Get all certificate requests for an organization
+// GET /api/certificates/requests — returns requests for the officer's organization
 exports.getCertificateRequests = async (req, res) => {
 	try {
 		const user = req.user;
 		if (!user) return handleErrorResponse(res, 'Unauthorized', 401);
-
 		if (!userIsOrgOfficer(user)) return handleErrorResponse(res, 'Only organization officers can view certificate requests.', 403);
 
 		const orgId = getOrgIdFromUser(user);
@@ -46,9 +46,8 @@ exports.getCertificateRequests = async (req, res) => {
 		const page = req.query.page ? parseInt(req.query.page, 10) : undefined;
 		const per_page = req.query.per_page ? parseInt(req.query.per_page, 10) : undefined;
 		const result = await certificateRequestService.getCertificateRequestsByOrg(orgId, { page, per_page });
-		if (result && result.items && Array.isArray(result.items)) {
-			return handleSuccessResponse(res, result);
-		}
+
+		if (result && result.items && Array.isArray(result.items)) return handleSuccessResponse(res, result);
 		return handleSuccessResponse(res, { items: Array.isArray(result) ? result : [] });
 	} catch (error) {
 		console.error('getCertificateRequests error:', error);
@@ -56,13 +55,12 @@ exports.getCertificateRequests = async (req, res) => {
 	}
 };
 
-// POST /api/certificates/requests/:id/approve - Approve certificate request and generate certificate
+// POST /api/certificates/requests/:id/approve — generate and upload certificate, then approve request
 exports.approveCertificateRequest = async (req, res) => {
 	let tempCertPath;
 	try {
 		const user = req.user;
 		if (!user) return handleErrorResponse(res, 'Unauthorized', 401);
-
 		if (!userIsOrgOfficer(user)) return handleErrorResponse(res, 'Only organization officers can approve certificate requests.', 403);
 
 		const requestId = req.params.id;
@@ -73,16 +71,22 @@ exports.approveCertificateRequest = async (req, res) => {
 		const orgId = getOrgIdFromUser(user);
 		if (request.created_by_org_id !== orgId) return handleErrorResponse(res, 'You do not have permission to approve this request.', 403);
 
-		// Fetch event and student
-		const [eventRows] = await db.query(`SELECT event_id, title, location, room, start_date, end_date FROM created_events WHERE event_id = ? LIMIT 1`, [request.event_id]);
+		// Fetch event and student details
+		const [eventRows] = await db.query(
+			`SELECT event_id, title, location, room, start_date, end_date FROM created_events WHERE event_id = ? LIMIT 1`,
+			[request.event_id]
+		);
 		const event = eventRows && eventRows[0];
 		if (!event) return handleErrorResponse(res, 'Event not found for this request.', 404);
 
-		const [studentRows] = await db.query(`SELECT id, first_name, middle_initial, last_name, suffix, COALESCE(year_level,4) AS year_level FROM students WHERE id = ? LIMIT 1`, [request.student_id]);
+		const [studentRows] = await db.query(
+			`SELECT id, first_name, middle_initial, last_name, suffix, COALESCE(year_level,4) AS year_level FROM students WHERE id = ? LIMIT 1`,
+			[request.student_id]
+		);
 		const student = studentRows && studentRows[0];
 		if (!student) return handleErrorResponse(res, 'Student not found for this request.', 404);
 
-		// Build student name
+		// Build full student name
 		const studentName = [
 			student.first_name,
 			student.middle_initial ? `${student.middle_initial}.` : '',
@@ -90,32 +94,29 @@ exports.approveCertificateRequest = async (req, res) => {
 			student.suffix || ''
 		].filter(Boolean).join(' ').replace(/\s+/g, ' ');
 
-		// Generate certificate to a temp file
+		// Generate certificate to a temp file, then upload to Cloudinary
 		tempCertPath = path.join(os.tmpdir(), `cert_${event.event_id}_${student.id}_${Date.now()}.png`);
 		await generateCertificate({
-			studentName,
-			eventTitle: event.title,
-			eventStartDate: event.start_date,
-			eventEndDate: event.end_date,
-			eventLocation: event.room || event.location,
+			studentName, eventTitle: event.title, eventStartDate: event.start_date,
+			eventEndDate: event.end_date, eventLocation: event.room || event.location,
 			certificatePath: tempCertPath
 		});
 
-		// Upload to Cloudinary
 		const uploadResult = await uploadCertificateToCloudinary(tempCertPath, event.event_id, student.id);
 		const secureUrl = uploadResult && uploadResult.secure_url;
 		if (!secureUrl) throw new Error('Failed to upload certificate to storage.');
 
-		// Update request status
 		await certificateRequestService.updateCertificateRequestStatus(requestId, {
-			status: 'approved',
-			processed_by: user.id,
-			certificate_url: secureUrl
+			status: 'approved', processed_by: user.id, certificate_url: secureUrl
 		});
 
-		// Send notification to student (best-effort)
+		// Notify student
 		try {
-			await notificationService.createNotification({ user_id: request.student_id, event_id: request.event_id, type: require('../services/notificationTypes').CERTIFICATE_APPROVED, templateVars: { title: event.title }, panel: 'student' });
+			await notificationService.createNotification({
+				user_id: request.student_id, event_id: request.event_id,
+				type: require('../services/notificationTypes').CERTIFICATE_APPROVED,
+				templateVars: { title: event.title }, panel: 'student'
+			});
 		} catch (nerr) {
 			console.warn('Notification create failed (approveCertificate):', nerr?.message || nerr);
 		}
@@ -125,24 +126,22 @@ exports.approveCertificateRequest = async (req, res) => {
 		console.error('approveCertificateRequest error:', error);
 		return handleErrorResponse(res, error.message);
 	} finally {
-		// Ensure temp file is removed
+		// Clean up temp file regardless of outcome
 		if (tempCertPath) {
 			try {
 				await fsPromises.unlink(tempCertPath);
 			} catch (e) {
-				// ignore missing file or unlink errors but log for debugging
 				if (e && e.code !== 'ENOENT') console.warn('Failed to remove temp certificate file:', e.message || e);
 			}
 		}
 	}
 };
 
-// POST /api/certificates/requests/:id/reject - Decline certificate request
+// POST /api/certificates/requests/:id/reject — decline a certificate request
 exports.rejectCertificateRequest = async (req, res) => {
 	try {
 		const user = req.user;
 		if (!user) return handleErrorResponse(res, 'Unauthorized', 401);
-
 		if (!userIsOrgOfficer(user)) return handleErrorResponse(res, 'Only organization officers can decline certificate requests.', 403);
 
 		const requestId = req.params.id;
@@ -156,15 +155,17 @@ exports.rejectCertificateRequest = async (req, res) => {
 		if (request.created_by_org_id !== orgId) return handleErrorResponse(res, 'You do not have permission to decline this request.', 403);
 
 		await certificateRequestService.updateCertificateRequestStatus(requestId, {
-			status: 'rejected',
-			processed_by: user.id,
-			rejection_reason: rejection_reason || 'No reason provided'
+			status: 'rejected', processed_by: user.id, rejection_reason: rejection_reason || 'No reason provided'
 		});
 
-		// Notify student (best-effort)
+		// Notify student
 		try {
 			const reasonText = rejection_reason ? ` Reason: ${rejection_reason}` : '';
-			await notificationService.createNotification({ user_id: request.student_id, event_id: request.event_id, type: require('../services/notificationTypes').CERTIFICATE_REJECTED, templateVars: { title: request.event_title, reason: reasonText }, panel: 'student' });
+			await notificationService.createNotification({
+				user_id: request.student_id, event_id: request.event_id,
+				type: require('../services/notificationTypes').CERTIFICATE_REJECTED,
+				templateVars: { title: request.event_title, reason: reasonText }, panel: 'student'
+			});
 		} catch (nerr) {
 			console.warn('Notification create failed (rejectCertificate):', nerr?.message || nerr);
 		}
@@ -176,19 +177,20 @@ exports.rejectCertificateRequest = async (req, res) => {
 	}
 };
 
-// PATCH /api/certificates/requests/:id/status - Update certificate request status (simplified)
+// PATCH /api/certificates/requests/:id/status — update request status (processing, sent, etc.)
 exports.updateCertificateRequestStatus = async (req, res) => {
 	try {
 		const user = req.user;
 		if (!user) return handleErrorResponse(res, 'Unauthorized', 401);
-
 		if (!userIsOrgOfficer(user)) return handleErrorResponse(res, 'Only organization officers can update certificate request status.', 403);
 
 		const requestId = req.params.id;
 		const { status } = req.body || {};
-
 		const allowedStatuses = ['pending', 'processing', 'sent'];
-		if (!allowedStatuses.includes(status)) return handleErrorResponse(res, `Invalid status. Allowed statuses: ${allowedStatuses.join(', ')}`, 400);
+
+		if (!allowedStatuses.includes(status)) {
+			return handleErrorResponse(res, `Invalid status. Allowed statuses: ${allowedStatuses.join(', ')}`, 400);
+		}
 
 		const request = await certificateRequestService.getCertificateRequestById(requestId);
 		if (!request) return handleErrorResponse(res, 'Certificate request not found.', 404);
@@ -198,7 +200,7 @@ exports.updateCertificateRequestStatus = async (req, res) => {
 
 		await certificateRequestService.updateCertificateRequestStatus(requestId, { status, processed_by: user.id });
 
-		// Notify student (best-effort)
+		// Notify student of status change
 		try {
 			const nt = require('../services/notificationTypes');
 			if (status === 'processing') {

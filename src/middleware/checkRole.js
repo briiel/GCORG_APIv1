@@ -1,51 +1,30 @@
-/**
- * Role-Based Access Control Middleware
- * Checks if authenticated user has required role(s)
- */
+// Role-Based Access Control middleware factory
 
-/**
- * Factory function to create role checking middleware
- * 
- * @param {Array<string>} allowedRoles - Array of role names that are allowed (e.g., ['OSWSAdmin', 'OrgOfficer'])
- * @returns {Function} Express middleware function
- * 
- * @example
- * // Allow only admins
- * router.get('/admin/dashboard', checkAuth, checkRole(['OSWSAdmin']), controller.getDashboard);
- * 
- * @example
- * // Allow admins OR org officers
- * router.post('/events', checkAuth, checkRole(['OSWSAdmin', 'OrgOfficer']), controller.createEvent);
- */
 const checkRole = (allowedRoles) => {
-  // Return middleware function
   return async (req, res, next) => {
     try {
-      // Ensure user is authenticated (checkAuth should run first)
       if (!req.user) {
-        return res.status(401).json({
-          success: false,
-          message: 'Authentication required. Please log in.'
-        });
+        return res.status(401).json({ success: false, message: 'Authentication required. Please log in.' });
       }
 
-      // Ensure user has roles (role-based checks will also consider normalized userType)
-      const userRoles = Array.isArray(req.user.roles) ? req.user.roles.map(r => String(r).toLowerCase()) : [];
+      const userRoles = Array.isArray(req.user.roles)
+        ? req.user.roles.map(r => String(r).toLowerCase())
+        : [];
+      const allowedLower = Array.isArray(allowedRoles)
+        ? allowedRoles.map(r => String(r).toLowerCase())
+        : [];
 
-      // Normalize allowedRoles to lowercase for case-insensitive comparison
-      const allowedLower = Array.isArray(allowedRoles) ? allowedRoles.map(r => String(r).toLowerCase()) : [];
+      const hasRequiredRoleToken =
+        userRoles.some(role => allowedLower.includes(role)) ||
+        (req.user.userType && allowedLower.includes(String(req.user.userType).toLowerCase()));
 
-      // Check if user has at least one of the allowed roles or matches the userType
-      const hasRequiredRoleToken = userRoles.some(role => allowedLower.includes(role)) || (req.user.userType && allowedLower.includes(String(req.user.userType).toLowerCase()));
-
-      // If OrgOfficer access is required, verify current membership in DB to avoid stale JWTs granting access after removal.
+      // For OrgOfficer access, verify live DB membership to avoid stale tokens
       const needsOrgOfficerCheck = allowedLower.includes('orgofficer');
 
       if (needsOrgOfficerCheck) {
-        // Lazy-require DB to avoid circular dependency issues
         const db = require('../config/db');
-
         const studentId = req.user.studentId;
+
         if (!studentId) {
           return res.status(403).json({
             success: false,
@@ -55,12 +34,10 @@ const checkRole = (allowedRoles) => {
         }
 
         try {
-          // Check if student currently has any active organization membership
           const [rows] = await db.query(
             `SELECT 1 FROM organizationmembers WHERE student_id = ? AND is_active = TRUE LIMIT 1`,
             [studentId]
           );
-
           const hasActiveMembership = Array.isArray(rows) ? rows.length > 0 : false;
 
           if (!hasActiveMembership) {
@@ -71,7 +48,6 @@ const checkRole = (allowedRoles) => {
             });
           }
 
-          // Membership present; allow access
           return next();
         } catch (dbErr) {
           console.error('Error verifying OrgOfficer membership:', dbErr);
@@ -87,43 +63,19 @@ const checkRole = (allowedRoles) => {
         });
       }
 
-      // User has required role (by token), proceed
       next();
 
     } catch (error) {
       console.error('Role check error:', error);
-      return res.status(500).json({
-        success: false,
-        message: 'Authorization check failed.'
-      });
+      return res.status(500).json({ success: false, message: 'Authorization check failed.' });
     }
   };
 };
 
-/**
- * Helper middleware: Check if user is a Student
- */
+// Convenience role middleware shortcuts
 const isStudent = checkRole(['Student']);
-
-/**
- * Helper middleware: Check if user is an Organization Officer
- */
 const isOrgOfficer = checkRole(['OrgOfficer']);
-
-/**
- * Helper middleware: Check if user is an OSWS Admin
- */
 const isAdmin = checkRole(['OSWSAdmin']);
-
-/**
- * Helper middleware: Check if user is an officer OR admin
- */
 const isOfficerOrAdmin = checkRole(['OrgOfficer', 'OSWSAdmin']);
 
-module.exports = {
-  checkRole,
-  isStudent,
-  isOrgOfficer,
-  isAdmin,
-  isOfficerOrAdmin
-};
+module.exports = { checkRole, isStudent, isOrgOfficer, isAdmin, isOfficerOrAdmin };

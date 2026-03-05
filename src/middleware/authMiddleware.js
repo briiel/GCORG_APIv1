@@ -4,7 +4,7 @@ require('dotenv').config();
 
 const authenticateToken = async (req, res, next) => {
     const authHeader = req.headers['authorization'];
-    const token = authHeader && authHeader.split(' ')[1]; // Extract token from "Bearer <token>"
+    const token = authHeader && authHeader.split(' ')[1]; // Extract from "Bearer <token>"
 
     if (!token) {
         return res.status(401).json({ success: false, message: 'Access denied. No token provided.' });
@@ -20,20 +20,14 @@ const authenticateToken = async (req, res, next) => {
         return res.status(401).json({ success: false, message: 'Invalid token' });
     }
 
-    // Attach the decoded user info to the request object
+    // Attach decoded user info to request
     req.user = decoded;
 
-    // Add backwards-compatible fields for old code
-    if (decoded.userType && !decoded.role) {
-        req.user.role = decoded.userType;
-    }
-    if (decoded.legacyId && !decoded.id) {
-        req.user.id = decoded.legacyId;
-    }
+    // Backwards-compatible fields for legacy code
+    if (decoded.userType && !decoded.role) req.user.role = decoded.userType;
+    if (decoded.legacyId && !decoded.id) req.user.id = decoded.legacyId;
 
-    // Refresh OrgOfficer membership from DB to avoid stale token roles.
-    // Same logic as checkAuth.js — ensures the `orgofficer` role is accurate
-    // without requiring the user to log out and back in after role approval.
+    // Refresh OrgOfficer membership from DB to avoid stale token roles
     try {
         const studentId = decoded.studentId || null;
         if (studentId) {
@@ -43,23 +37,17 @@ const authenticateToken = async (req, res, next) => {
             );
             const hasActiveMembership = Array.isArray(rows) && rows.length > 0;
 
-            // Normalise roles to lowercase array (token may carry strings or array)
             let roles = Array.isArray(decoded.roles)
                 ? decoded.roles.map(r => String(r).toLowerCase())
                 : (decoded.roles ? [String(decoded.roles).toLowerCase()] : []);
 
             const hasOrgRoleInToken = roles.includes('orgofficer');
-            if (hasActiveMembership && !hasOrgRoleInToken) {
-                roles.push('orgofficer');
-            }
-            if (!hasActiveMembership && hasOrgRoleInToken) {
-                roles = roles.filter(r => r !== 'orgofficer');
-            }
+            if (hasActiveMembership && !hasOrgRoleInToken) roles.push('orgofficer');
+            if (!hasActiveMembership && hasOrgRoleInToken) roles = roles.filter(r => r !== 'orgofficer');
 
             req.user.roles = roles;
         }
     } catch (refreshErr) {
-        // Non-fatal: log and continue with token roles
         console.warn('[authMiddleware] Failed to refresh user roles from DB:', refreshErr?.message || refreshErr);
     }
 

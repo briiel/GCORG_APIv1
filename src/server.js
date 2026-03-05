@@ -23,45 +23,34 @@ const { secureResponseMiddleware, securityHeadersMiddleware } = require('./middl
 
 const app = express();
 
-// If the app is behind a proxy (Render, Heroku, etc.), enable trust proxy
-// so `req.ip` reflects the client IP rather than the proxy address.
+// Trust proxy so req.ip reflects client IP behind Render/Heroku
 app.set('trust proxy', true);
 
 // Security middleware
 app.use(helmet({
     crossOriginResourcePolicy: { policy: "cross-origin" },
-    contentSecurityPolicy: false // Disable if causing issues with Cloudinary
+    contentSecurityPolicy: false
 }));
-
-// Additional security headers
 app.use(securityHeadersMiddleware);
-
-// Secure response sanitization
 app.use(secureResponseMiddleware);
-
-// Compression middleware for performance
 app.use(compression());
 
-// Global rate limiter - baseline protection for all endpoints
-// Individual routes can have stricter limits
+// Global rate limiter — 200 requests/minute per IP
 const globalLimiter = rateLimit({
-    windowMs: 60 * 1000, // 1 minute
-    max: 200 // 200 requests per minute per IP
+    windowMs: 60 * 1000,
+    max: 200
 });
 app.use('/api', globalLimiter);
 
-// CORS configuration
+// CORS and body parsing
 app.use(cors());
-
-// Body parsing middleware
-// Skip JSON parsing for multipart requests (they'll be handled by multer/upload middleware in routes)
-app.use(express.json({ 
+app.use(express.json({
     limit: '10mb',
-    skip: (req) => req.is('multipart/form-data')
+    skip: (req) => req.is('multipart/form-data') // Skip for multipart; handled by multer
 }));
 app.use(express.urlencoded({ extended: true, limit: '10mb' }));
 
-// Health check endpoint for Render and monitoring services
+// Health check endpoints
 app.get('/', (req, res) => {
     res.status(200).json({
         success: true,
@@ -79,34 +68,27 @@ app.get('/health', (req, res) => {
     });
 });
 
+// Cron webhook — triggered externally to auto-update event statuses
 app.post('/api/cron/run-status-updates', async (req, res) => {
-    // 1. Get the secret from the request headers
     const authHeader = req.headers['authorization'];
-    const secret = authHeader && authHeader.split(' ')[1]; // "Bearer <secret>"
+    const secret = authHeader && authHeader.split(' ')[1];
 
-    // 2. Check if the secret is valid
     if (secret !== process.env.CRON_JOB_SECRET) {
         console.warn('[AutoStatus] Unauthorized cron attempt.');
         return res.status(401).json({ success: false, message: 'Unauthorized' });
     }
 
-    // 3. If valid, run the job
     try {
-
         const result = await eventService.autoUpdateEventStatuses();
         const total = (result.toOngoing || 0) + (result.toConcluded || 0) + (result.toNotYetStarted || 0);
-
-
-
-        // 4. Send a success response
         res.status(200).json({ success: true, updates: total });
-
     } catch (err) {
         console.error('[AutoStatus] Webhook error:', err.message || err);
         res.status(500).json({ success: false, message: 'Cron job failed' });
     }
 });
 
+// API routes
 app.use('/api', userRoutes);
 app.use('/api/auth', authRoutes);
 app.use('/api/event', eventRoutes);
@@ -120,27 +102,18 @@ app.use('/api', archiveRoutes);
 
 app.use('/uploads', express.static(path.join(__dirname, '../uploads')));
 
-// If a built frontend exists in the workspace, serve it (optional).
-// This helps when the API and frontend are deployed together under the same host.
-// We avoid returning index.html for missing static assets (like .js files)
-// by only rewriting requests without an extension and when the client accepts HTML.
+// Serve built frontend if it exists in the same deployment
 try {
     const clientDist = path.join(__dirname, '..', 'GC_ORGanize', 'gc_organize', 'dist', 'gc_organize');
     if (fs.existsSync(clientDist)) {
         app.use(express.static(clientDist));
 
         app.get('*', (req, res, next) => {
-            // Skip API and uploads routes
             if (req.path.startsWith('/api') || req.path.startsWith('/uploads')) return next();
-            // Only handle GET navigation requests
             if (req.method !== 'GET') return next();
-            // If the request looks like a file (has an extension), don't rewrite
-            const ext = path.extname(req.path);
-            if (ext) return next();
-            // Only rewrite when the client expects HTML (browser navigation)
+            if (path.extname(req.path)) return next(); // Skip non-HTML file requests
             const accept = req.headers.accept || '';
             if (!accept.includes('text/html')) return next();
-
             return res.sendFile(path.join(clientDist, 'index.html'));
         });
     }
@@ -156,19 +129,14 @@ app.use((req, res) => {
 // Global error handler
 app.use((err, req, res, next) => {
     const { logError } = require('./utils/error-logger');
-    const { AppError } = require('./utils/error-classes');
 
-    // Log the error with request context
     logError(err, req);
 
-    // Default error values
     let statusCode = err.statusCode || 500;
     let message = err.message || 'Internal server error';
     let errors = err.errors || null;
 
-    // Handle specific error types
-
-    // Multer file upload errors
+    // Multer file upload error
     if (err.code === 'LIMIT_FILE_SIZE') {
         statusCode = 400;
         message = 'File size too large. Maximum size is 5MB.';
@@ -179,36 +147,32 @@ app.use((err, req, res, next) => {
         statusCode = 401;
         message = 'Invalid token';
     }
-
     if (err.name === 'TokenExpiredError') {
         statusCode = 401;
         message = 'Token expired';
     }
 
-    // MySQL/Database errors
+    // Database errors
     if (err.code === 'ER_DUP_ENTRY') {
         statusCode = 409;
         message = 'A record with this information already exists';
     }
-
     if (err.code === 'ER_NO_REFERENCED_ROW_2') {
         statusCode = 400;
         message = 'Invalid reference to related data';
     }
-
     if (err.code === 'ECONNREFUSED' || err.code === 'PROTOCOL_CONNECTION_LOST') {
         statusCode = 503;
         message = 'Database connection failed. Please try again later.';
     }
 
-    // Validation errors from express-validator or custom validation
+    // Validation errors
     if (err.name === 'ValidationError') {
         statusCode = 400;
         message = err.message || 'Validation failed';
         errors = err.errors || null;
     }
 
-    // Build error response
     const response = {
         success: false,
         message: process.env.NODE_ENV === 'production' && statusCode >= 500
@@ -216,47 +180,30 @@ app.use((err, req, res, next) => {
             : message
     };
 
-    // Add validation errors if present
-    if (errors) {
-        response.errors = errors;
-    }
+    if (errors) response.errors = errors;
+    if (process.env.NODE_ENV !== 'production' && err.stack) response.stack = err.stack;
 
-    // Add stack trace in development
-    if (process.env.NODE_ENV !== 'production' && err.stack) {
-        response.stack = err.stack;
-    }
-
-    // Send response
     res.status(statusCode).json(response);
 });
 
 const PORT = process.env.PORT || 5000;
 
 const server = app.listen(PORT, async () => {
-    // Ensure DB has latest columns
+    // Ensure DB columns exist
     try {
         const eventModel = require('./models/eventModel');
-        if (eventModel.ensureIsPaidColumn) {
-            await eventModel.ensureIsPaidColumn();
-        }
-        if (eventModel.ensureRegistrationFeeColumn) {
-            await eventModel.ensureRegistrationFeeColumn();
-        }
-        if (eventModel.ensureRegistrationStatusColumns) {
-            await eventModel.ensureRegistrationStatusColumns();
-        }
-        if (eventModel.ensureAttendanceColumns) {
-            await eventModel.ensureAttendanceColumns();
-        }
+        if (eventModel.ensureIsPaidColumn) await eventModel.ensureIsPaidColumn();
+        if (eventModel.ensureRegistrationFeeColumn) await eventModel.ensureRegistrationFeeColumn();
+        if (eventModel.ensureRegistrationStatusColumns) await eventModel.ensureRegistrationStatusColumns();
+        if (eventModel.ensureAttendanceColumns) await eventModel.ensureAttendanceColumns();
     } catch (e) {
         console.warn('Schema ensure failed:', e.message);
     }
 
-    // Optional font warm-up: pre-register Google Fonts and resolve via a tiny render
+    // Font warm-up for certificate generator
     try {
         process.env.USE_REMOTE_FONTS = process.env.USE_REMOTE_FONTS ?? 'true';
         const { createCanvas } = require('canvas');
-        const { generateCertificate } = require('./utils/certificateGenerator');
         const canvas = createCanvas(10, 10);
         const ctx = canvas.getContext('2d');
         ctx.font = "10px Lora";
@@ -267,21 +214,16 @@ const server = app.listen(PORT, async () => {
         console.warn('Font warm-up skipped or failed:', e.message);
     }
 
-    // Background task: auto-update event statuses based on schedule
+    // Auto-update event statuses every minute (non-production only)
     if (process.env.NODE_ENV !== 'production') {
         try {
             const runAutoStatus = async () => {
                 try {
-                    const res = await eventService.autoUpdateEventStatuses();
-                    const total = (res.toOngoing || 0) + (res.toConcluded || 0) + (res.toNotYetStarted || 0);
-                    if (total > 0) {
-                        // logged inside service
-                    }
+                    await eventService.autoUpdateEventStatuses();
                 } catch (err) {
                     console.error('[AutoStatus] Error:', err.message || err);
                 }
             };
-
             runAutoStatus();
             setInterval(runAutoStatus, 60 * 1000);
         } catch (e) {
@@ -289,7 +231,7 @@ const server = app.listen(PORT, async () => {
         }
     }
 
-    // Start auto-cleanup service for archived items (30-day retention)
+    // Start auto-cleanup for archived items (30-day retention)
     try {
         autoCleanupService.startAutoCleanup();
         console.log('[Auto-Cleanup] Service initialized successfully');
@@ -309,28 +251,23 @@ server.on('error', (err) => {
     process.exit(1);
 });
 
-// Handle unhandled promise rejections
+// Unhandled promise rejection
 process.on('unhandledRejection', (reason, promise) => {
     const { logError } = require('./utils/error-logger');
     console.error('⚠️  Unhandled Promise Rejection detected!');
     logError(new Error(`Unhandled Rejection: ${reason}`));
 
-    // In production, you might want to gracefully shut down
     if (process.env.NODE_ENV === 'production') {
         console.error('Shutting down server due to unhandled rejection...');
-        server.close(() => {
-            process.exit(1);
-        });
+        server.close(() => { process.exit(1); });
     }
 });
 
-// Handle uncaught exceptions
+// Uncaught exception — always exit
 process.on('uncaughtException', (err) => {
     const { logError } = require('./utils/error-logger');
     console.error('⚠️  Uncaught Exception detected!');
     logError(err);
-
-    // Always exit on uncaught exception
     console.error('Shutting down server due to uncaught exception...');
     process.exit(1);
 });
