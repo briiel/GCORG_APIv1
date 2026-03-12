@@ -96,11 +96,13 @@ const login = asyncHandler(async (req, res) => {
 
   // Assign roles based on user type
   let roles = [];
+  let organization = null;
   if (userType === 'admin') {
     roles = ['oswsadmin'];
   } else if (userType === 'student') {
     roles = ['student'];
     if (studentId) {
+      // Single query: fetch membership and reuse result for both role assignment and org info
       const [orgMemberships] = await db.query(
         `SELECT om.org_id, om.position, o.org_name
          FROM organizationmembers om
@@ -108,26 +110,14 @@ const login = asyncHandler(async (req, res) => {
          WHERE om.student_id = ? AND om.is_active = TRUE LIMIT 1`,
         [studentId]
       );
-      if (orgMemberships.length > 0) roles.push('orgofficer');
-    }
-  }
-
-  // Fetch organization info for org officers
-  let organization = null;
-  if (roles.includes('orgofficer') && studentId) {
-    const [orgMemberships] = await db.query(
-      `SELECT om.org_id, om.position, o.org_name
-       FROM organizationmembers om
-       JOIN student_organizations o ON om.org_id = o.id
-       WHERE om.student_id = ? AND om.is_active = TRUE LIMIT 1`,
-      [studentId]
-    );
-    if (orgMemberships.length > 0) {
-      organization = {
-        org_id: orgMemberships[0].org_id,
-        org_name: orgMemberships[0].org_name,
-        position: orgMemberships[0].position
-      };
+      if (orgMemberships.length > 0) {
+        roles.push('orgofficer');
+        organization = {
+          org_id: orgMemberships[0].org_id,
+          org_name: orgMemberships[0].org_name,
+          position: orgMemberships[0].position
+        };
+      }
     }
   }
 

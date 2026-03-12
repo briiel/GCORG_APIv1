@@ -15,6 +15,24 @@ const fs = require('fs');
 const path = require('path');
 const os = require('os');
 
+// Shared helper — computes the time-based auto status for an event row.
+// Returns 'not yet started' | 'ongoing' | 'concluded' | null (null = no change / cancelled).
+const computeAutoStatus = (ev) => {
+    const statusStr = (ev.status || '').toString().toLowerCase();
+    if (statusStr === 'cancelled') return null; // never auto-override cancelled
+    const sd = ev.start_date ? parseMysqlLocalStringToDate(`${ev.start_date} ${ev.start_time || '00:00:00'}`, EVENT_TZ_OFFSET) : null;
+    const ed = ev.end_date ? parseMysqlLocalStringToDate(`${ev.end_date} ${ev.end_time || '23:59:59'}`, EVENT_TZ_OFFSET) : null;
+    if (!sd) return null;
+    const start = sd;
+    const now = new Date();
+    const end = ed && !isNaN(ed.getTime()) ? ed : parseMysqlLocalStringToDate(`${ev.start_date} ${ev.end_time || '23:59:59'}`, EVENT_TZ_OFFSET);
+    if (!start || isNaN(start.getTime()) || !end || isNaN(end.getTime())) return null;
+    if (now < start) return 'not yet started';
+    if (now >= start && now <= end) return 'ongoing';
+    if (now > end) return 'concluded';
+    return null;
+};
+
 // Soft-delete multiple events
 exports.trashMultipleEvents = async (req, res) => {
     try {
@@ -114,22 +132,6 @@ exports.getEvents = async (req, res) => {
         const per_page = req.query.per_page ? parseInt(req.query.per_page, 10) : undefined;
         let eventsResult = await eventService.fetchAllEvents({ page, per_page });
         let events = eventsResult && eventsResult.items ? eventsResult.items : eventsResult;
-        const now = new Date();
-
-        const computeAutoStatus = (ev) => {
-            const statusStr = (ev.status || '').toString().toLowerCase();
-            if (statusStr === 'cancelled') return null; // never auto-override cancelled
-            const sd = ev.start_date ? parseMysqlLocalStringToDate(`${ev.start_date} ${ev.start_time || '00:00:00'}`, EVENT_TZ_OFFSET) : null;
-            const ed = ev.end_date ? parseMysqlLocalStringToDate(`${ev.end_date} ${ev.end_time || '23:59:59'}`, EVENT_TZ_OFFSET) : null;
-            if (!sd) return null;
-            const start = sd;
-            const end = ed && !isNaN(ed.getTime()) ? ed : parseMysqlLocalStringToDate(`${ev.start_date} ${ev.end_time || '23:59:59'}`, EVENT_TZ_OFFSET);
-            if (!start || isNaN(start.getTime()) || !end || isNaN(end.getTime())) return null;
-            if (now < start) return 'not yet started';
-            if (now >= start && now <= end) return 'ongoing';
-            if (now > end) return 'concluded';
-            return null;
-        };
 
         events = events.map(event => {
             const auto_status = computeAutoStatus(event);
@@ -258,21 +260,6 @@ exports.getEventsByCreator = async (req, res) => {
         const { creator_id } = req.params;
         const events = await eventService.getEventsByCreator(creator_id);
         const host = req.protocol + '://' + req.get('host');
-        const now = new Date();
-        const computeAutoStatus = (ev) => {
-            const statusStr = (ev.status || '').toString().toLowerCase();
-            if (statusStr === 'cancelled') return null;
-            const sd = ev.start_date ? parseMysqlLocalStringToDate(`${ev.start_date} ${ev.start_time || '00:00:00'}`, EVENT_TZ_OFFSET) : null;
-            const ed = ev.end_date ? parseMysqlLocalStringToDate(`${ev.end_date} ${ev.end_time || '23:59:59'}`, EVENT_TZ_OFFSET) : null;
-            if (!sd) return null;
-            const start = sd;
-            const end = ed && !isNaN(ed.getTime()) ? ed : parseMysqlLocalStringToDate(`${ev.start_date} ${ev.end_time || '23:59:59'}`, EVENT_TZ_OFFSET);
-            if (!start || isNaN(start.getTime()) || !end || isNaN(end.getTime())) return null;
-            if (now < start) return 'not yet started';
-            if (now >= start && now <= end) return 'ongoing';
-            if (now > end) return 'concluded';
-            return null;
-        };
         const eventsWithPosterUrl = events.map(event => {
             const poster = event.event_poster;
             const normalizedPoster = poster
@@ -325,21 +312,6 @@ exports.updateEventStatus = async (req, res) => {
         if (isOrgOfficer && ev.created_by_org_id !== orgId) return handleErrorResponse(res, 'Forbidden', 403);
 
         // Compute current auto status — 'cancelled' is never auto-overridden
-        const now = new Date();
-        const computeAutoStatus = (e) => {
-            const statusStr = (e.status || '').toString().toLowerCase();
-            if (statusStr === 'cancelled') return null;
-            const sd = e.start_date ? parseMysqlLocalStringToDate(`${e.start_date} ${e.start_time || '00:00:00'}`, EVENT_TZ_OFFSET) : null;
-            const ed = e.end_date ? parseMysqlLocalStringToDate(`${e.end_date} ${e.end_time || '23:59:59'}`, EVENT_TZ_OFFSET) : null;
-            if (!sd) return null;
-            const start = sd;
-            const end = ed && !isNaN(ed.getTime()) ? ed : parseMysqlLocalStringToDate(`${e.start_date} ${e.end_time || '23:59:59'}`, EVENT_TZ_OFFSET);
-            if (!start || isNaN(start.getTime()) || !end || isNaN(end.getTime())) return null;
-            if (now < start) return 'not yet started';
-            if (now >= start && now <= end) return 'ongoing';
-            if (now > end) return 'concluded';
-            return null;
-        };
         const autoStatus = computeAutoStatus(ev);
 
         // Only allow 'cancelled' or syncing to the computed auto-status when it hasn't been applied yet
@@ -565,6 +537,7 @@ exports.markAttendance = async (req, res) => {
                                 status,
                                 deleted_at,
                                 event_latitude, event_longitude,
+                                is_paid,
                                 (
                                     (
                                         (start_date < CURDATE() OR (start_date = CURDATE() AND start_time <= CURTIME()))
@@ -621,8 +594,6 @@ exports.markAttendance = async (req, res) => {
         }
 
         const dist = haversineMeters(user_lat, user_lon, targetLat, targetLon);
-        // Debug log to help confirm which coordinates are used for geofence
-        try { console.info('[geofence] user:', { user_lat, user_lon, user_accuracy }, 'target:', { targetLat, targetLon }, 'dist_m:', Math.round(dist), 'radius_m:', GEOFENCE_METERS); } catch (e) { }
         if (dist > GEOFENCE_METERS) {
             return handleErrorResponse(res, `User is outside allowed area (${Math.round(dist)} m).`, 403);
         }
@@ -636,8 +607,7 @@ exports.markAttendance = async (req, res) => {
             return handleErrorResponse(res, 'Registration not found', 404);
         }
         // Enforce approval for paid events: only approved registrations can attend
-        const [evPaidRows] = await db.query('SELECT is_paid FROM created_events WHERE event_id = ? LIMIT 1', [event_id]);
-        const isPaidEvent = !!(evPaidRows?.[0]?.is_paid);
+        const isPaidEvent = !!(ev?.is_paid);
         if (isPaidEvent) {
             const status = (reg[0].status || 'approved').toString().toLowerCase();
             if (status !== 'approved') {
@@ -1035,21 +1005,6 @@ exports.getEventsByAdmin = async (req, res) => {
         const { admin_id } = req.params;
         const events = await eventService.getEventsByAdmin(admin_id);
         const host = req.protocol + '://' + req.get('host');
-        const now = new Date();
-        const computeAutoStatus = (ev) => {
-            const statusStr = (ev.status || '').toString().toLowerCase();
-            if (statusStr === 'cancelled') return null;
-            const sd = ev.start_date ? parseMysqlLocalStringToDate(`${ev.start_date} ${ev.start_time || '00:00:00'}`, EVENT_TZ_OFFSET) : null;
-            const ed = ev.end_date ? parseMysqlLocalStringToDate(`${ev.end_date} ${ev.end_time || '23:59:59'}`, EVENT_TZ_OFFSET) : null;
-            if (!sd) return null;
-            const start = sd;
-            const end = ed && !isNaN(ed.getTime()) ? ed : parseMysqlLocalStringToDate(`${ev.start_date} ${ev.end_time || '23:59:59'}`, EVENT_TZ_OFFSET);
-            if (!start || isNaN(start.getTime()) || !end || isNaN(end.getTime())) return null;
-            if (now < start) return 'not yet started';
-            if (now >= start && now <= end) return 'ongoing';
-            if (now > end) return 'concluded';
-            return null;
-        };
         const eventsWithPosterUrl = events.map(event => {
             const poster = event.event_poster;
             const normalizedPoster = poster
@@ -1078,21 +1033,6 @@ exports.getAllOrgEvents = async (req, res) => {
     try {
         const events = await eventService.getAllOrgEvents();
         const host = req.protocol + '://' + req.get('host');
-        const now = new Date();
-        const computeAutoStatus = (ev) => {
-            const statusStr = (ev.status || '').toString().toLowerCase();
-            if (statusStr === 'cancelled') return null;
-            const sd = ev.start_date ? parseMysqlLocalStringToDate(`${ev.start_date} ${ev.start_time || '00:00:00'}`, EVENT_TZ_OFFSET) : null;
-            const ed = ev.end_date ? parseMysqlLocalStringToDate(`${ev.end_date} ${ev.end_time || '23:59:59'}`, EVENT_TZ_OFFSET) : null;
-            if (!sd) return null;
-            const start = sd;
-            const end = ed && !isNaN(ed.getTime()) ? ed : parseMysqlLocalStringToDate(`${ev.start_date} ${ev.end_time || '23:59:59'}`, EVENT_TZ_OFFSET);
-            if (!start || isNaN(start.getTime()) || !end || isNaN(end.getTime())) return null;
-            if (now < start) return 'not yet started';
-            if (now >= start && now <= end) return 'ongoing';
-            if (now > end) return 'concluded';
-            return null;
-        };
         const eventsWithPosterUrl = events.map(event => {
             const poster = event.event_poster;
             const normalizedPoster = poster
@@ -1121,21 +1061,6 @@ exports.getAllOswsEvents = async (req, res) => {
     try {
         const events = await eventService.getAllOswsEvents();
         const host = req.protocol + '://' + req.get('host');
-        const now = new Date();
-        const computeAutoStatus = (ev) => {
-            const statusStr = (ev.status || '').toString().toLowerCase();
-            if (statusStr === 'cancelled') return null;
-            const sd = ev.start_date ? parseMysqlLocalStringToDate(`${ev.start_date} ${ev.start_time || '00:00:00'}`, EVENT_TZ_OFFSET) : null;
-            const ed = ev.end_date ? parseMysqlLocalStringToDate(`${ev.end_date} ${ev.end_time || '23:59:59'}`, EVENT_TZ_OFFSET) : null;
-            if (!sd) return null;
-            const start = sd;
-            const end = ed && !isNaN(ed.getTime()) ? ed : parseMysqlLocalStringToDate(`${ev.start_date} ${ev.end_time || '23:59:59'}`, EVENT_TZ_OFFSET);
-            if (!start || isNaN(start.getTime()) || !end || isNaN(end.getTime())) return null;
-            if (now < start) return 'not yet started';
-            if (now >= start && now <= end) return 'ongoing';
-            if (now > end) return 'concluded';
-            return null;
-        };
         const eventsWithPosterUrl = events.map(event => {
             const poster = event.event_poster;
             const normalizedPoster = poster
@@ -1301,6 +1226,13 @@ exports.rejectRegistration = async (req, res) => {
 
 exports.getAttendanceRecords = async (req, res) => {
     try {
+        const user = req.user;
+        const roles = user?.roles || [];
+        const isOrgOfficer = roles.includes('orgofficer');
+        const isAdmin = roles.includes('oswsadmin');
+        if (!isOrgOfficer && !isAdmin) {
+            return handleErrorResponse(res, 'Forbidden: Only organization officers and admins can view attendance records', 403);
+        }
         const [rows] = await db.query(
             `SELECT 
          ar.event_id,

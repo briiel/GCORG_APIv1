@@ -1,3 +1,5 @@
+const eventModel = require('../models/eventModel');
+
 // Trash (soft-delete) multiple events
 const trashMultipleEvents = async (eventIds, deletedBy) => {
     if (!Array.isArray(eventIds) || eventIds.length === 0) return 0;
@@ -17,8 +19,6 @@ const trashMultipleEvents = async (eventIds, deletedBy) => {
 const getAttendanceRecordsByEvent = async (eventId) => {
     return await eventModel.getAttendanceRecordsByEvent(eventId);
 };
-
-const eventModel = require('../models/eventModel');
 
 const createNewEvent = async (eventData) => {
     try {

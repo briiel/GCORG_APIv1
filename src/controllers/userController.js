@@ -29,7 +29,7 @@ exports.getUserById = async (req, res) => {
             return handleErrorResponse(res, 'User not found');
         }
         return handleSuccessResponse(res, user);
-        } catch (error) {
+    } catch (error) {
         return handleErrorResponse(res, error.message);
     }
 };

@@ -766,22 +766,6 @@ module.exports = {
             // Run all three updates in a single transaction for better performance
             await db.query('START TRANSACTION');
 
-            // Log what we're about to check
-            const [checkResult] = await db.query(`
-                SELECT COUNT(*) as total,
-                       SUM(CASE WHEN deleted_at IS NULL THEN 1 ELSE 0 END) as active
-                FROM created_events
-            `);
-
-
-            // Debug: Check database timezone and current time
-            const [tzInfo] = await db.query(`
-                SELECT NOW() as db_now,
-                       @@session.time_zone as session_tz,
-                       @@global.time_zone as global_tz
-            `);
-
-
             // Timezone handling:
             // - Stored event date/time values are assumed to be in the organization's local timezone
             //   (default is Philippines Time, +08:00). The DB server's NOW() may be in UTC or
@@ -796,31 +780,6 @@ module.exports = {
             const startTimeExpr = `CONVERT_TZ(TIMESTAMP(start_date, start_time), '${eventTzOffset}', '+00:00')`;
             const endTimeExpr = `CONVERT_TZ(TIMESTAMP(end_date, end_time), '${eventTzOffset}', '+00:00')`;
             const nowExpr = 'UTC_TIMESTAMP()';
-
-
-
-            // Debug: Show sample event with corrected timestamps
-            const [sampleEvent] = await db.query(`
-                SELECT event_id, title, status,
-                       start_date, start_time,
-                       end_date, end_time,
-                       TIMESTAMP(start_date, start_time) as stored_start,
-                       ${startTimeExpr} as adjusted_start,
-                       ${endTimeExpr} as adjusted_end,
-                       ${nowExpr} as now_time,
-                       CASE 
-                           WHEN ${startTimeExpr} > ${nowExpr} THEN 'FUTURE'
-                           WHEN ${endTimeExpr} < ${nowExpr} THEN 'PAST'
-                           ELSE 'ONGOING'
-                       END as time_check
-                FROM created_events
-                WHERE deleted_at IS NULL
-                ORDER BY event_id DESC
-                LIMIT 1
-            `);
-            if (sampleEvent.length > 0) {
-
-            }
 
             // 1) Set to 'ongoing' when now between start and end, not cancelled/trashed
             const [ongoingRes] = await db.query(
@@ -852,22 +811,11 @@ module.exports = {
 
             await db.query('COMMIT');
 
-            const result = {
+            return {
                 toOngoing: ongoingRes?.affectedRows || 0,
                 toConcluded: concludedRes?.affectedRows || 0,
                 toNotYetStarted: notYetRes?.affectedRows || 0
             };
-
-            // Log current status distribution
-            const [statusDist] = await db.query(`
-                SELECT status, COUNT(*) as count
-                FROM created_events
-                WHERE deleted_at IS NULL
-                GROUP BY status
-            `);
-
-
-            return result;
         } catch (err) {
             await db.query('ROLLBACK');
             throw err;
