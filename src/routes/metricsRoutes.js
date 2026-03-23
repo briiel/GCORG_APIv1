@@ -2,6 +2,7 @@ const express = require('express');
 const router = express.Router();
 const db = require('../config/db');
 const rateLimit = require('../middleware/rateLimit');
+const authenticateToken = require('../middleware/authMiddleware');
 
 // Metrics rate limiters
 const metricsLimiter = rateLimit({ windowMs: 60 * 1000, max: 120 }); // 120 requests per minute
@@ -24,7 +25,7 @@ async function ensureTable() {
   `);
 }
 
-router.get('/visits', metricsLimiter, async (req, res) => {
+router.get('/visits', metricsLimiter, authenticateToken, async (req, res) => {
   try {
     await ensureTable();
     const [rows] = await db.execute(`SELECT total FROM site_visits WHERE page_key = 'global'`);
@@ -36,7 +37,7 @@ router.get('/visits', metricsLimiter, async (req, res) => {
   }
 });
 
-router.post('/visits', metricsLimiter, async (req, res) => {
+router.post('/visits', metricsLimiter, authenticateToken, async (req, res) => {
   try {
     await ensureTable();
     // Atomic upsert: increment total, or insert if not yet in the table

@@ -6,7 +6,7 @@
 const express = require('express');
 const router = express.Router();
 const authController = require('../controllers/authController');
-const checkAuth = require('../middleware/checkAuth');
+const authenticateToken = require('../middleware/authMiddleware');
 const rateLimit = require('../middleware/rateLimit');
 
 // Stricter rate limit for auth endpoints to prevent brute force
@@ -32,20 +32,20 @@ router.post('/login', authLimiter, authController.login);
  * @desc    Verify JWT token validity
  * @access  Protected
  */
-router.get('/verify', checkAuth, authController.verifyToken);
+router.get('/verify', authenticateToken, authController.verifyToken);
 
 /**
  * @route   POST /api/auth/accept-privacy-policy
  * @desc    Accept data privacy policy
  * @access  Protected
  */
-router.post('/accept-privacy-policy', checkAuth, authLimiter, authController.acceptPrivacyPolicy);
+router.post('/accept-privacy-policy', authenticateToken, authLimiter, authController.acceptPrivacyPolicy);
 
 /**
  * @route   GET /api/auth/privacy-policy-status
  * @desc    Get privacy policy acceptance status for logged-in user
  * @access  Protected
  */
-router.get('/privacy-policy-status', checkAuth, authController.getPrivacyPolicyStatus);
+router.get('/privacy-policy-status', authenticateToken, authController.getPrivacyPolicyStatus);
 
 module.exports = router;

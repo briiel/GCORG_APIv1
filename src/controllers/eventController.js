@@ -41,8 +41,22 @@ exports.trashMultipleEvents = async (req, res) => {
         if (!Array.isArray(eventIds) || eventIds.length === 0) {
             return handleErrorResponse(res, 'eventIds (array) required', 400);
         }
-        const result = await eventService.trashMultipleEvents(eventIds, user?.id);
-        return handleSuccessResponse(res, { message: 'Events moved to trash', result });
+        const result = await eventService.trashMultipleEvents(eventIds, user);
+        if (result?.code === 403) {
+            return handleErrorResponse(res, result.message, 403);
+        }
+
+        const hasUnauthorized = Array.isArray(result?.unauthorized) && result.unauthorized.length > 0;
+        const hasSkipped = Array.isArray(result?.skipped) && result.skipped.length > 0;
+
+        const message = hasUnauthorized || hasSkipped
+            ? 'Events partially moved to trash'
+            : 'Events moved to trash';
+
+        return handleSuccessResponse(res, {
+            message,
+            result
+        });
     } catch (error) {
         return handleErrorResponse(res, error.message);
     }

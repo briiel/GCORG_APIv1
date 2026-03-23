@@ -1,19 +1,62 @@
 const eventModel = require('../models/eventModel');
 
 // Trash (soft-delete) multiple events
-const trashMultipleEvents = async (eventIds, deletedBy) => {
-    if (!Array.isArray(eventIds) || eventIds.length === 0) return 0;
-    // You may want to add permission checks here
+const trashMultipleEvents = async (eventIds, user) => {
+    if (!Array.isArray(eventIds) || eventIds.length === 0) {
+        return { trashed: 0, unauthorized: [], skipped: [] };
+    }
+
+    const userRoles = Array.isArray(user?.roles)
+        ? user.roles.map((r) => String(r).toLowerCase())
+        : [];
+    const isOrgOfficer = userRoles.includes('orgofficer');
+    const isOswsAdmin = userRoles.includes('oswsadmin');
+
+    if (!isOrgOfficer && !isOswsAdmin) {
+        return {
+            trashed: 0,
+            unauthorized: eventIds,
+            skipped: [],
+            code: 403,
+            message: 'Forbidden: only OrgOfficer or OSWSAdmin can trash events'
+        };
+    }
+
+    const orgId = user?.organization?.org_id || null;
+    const adminId = user?.legacyId || user?.id || null;
+    const deletedBy = user?.id || null;
+
     let trashed = 0;
-    for (const id of eventIds) {
+    const unauthorized = [];
+    const skipped = [];
+
+    for (const eventId of eventIds) {
         try {
-            const ok = await eventModel.deleteEvent(id, deletedBy);
-            if (ok) trashed++;
+            const ev = await eventModel.getEventById(eventId);
+            if (!ev) {
+                skipped.push(eventId);
+                continue;
+            }
+
+            const orgOwned = isOrgOfficer && ev.created_by_org_id === orgId;
+            const adminOwned = isOswsAdmin && ev.created_by_osws_id === adminId;
+            if (!orgOwned && !adminOwned) {
+                unauthorized.push(eventId);
+                continue;
+            }
+
+            const ok = await eventModel.deleteEvent(eventId, deletedBy);
+            if (ok) {
+                trashed++;
+            } else {
+                skipped.push(eventId);
+            }
         } catch (e) {
-            // Optionally log error for each failed event
+            skipped.push(eventId);
         }
     }
-    return trashed;
+
+    return { trashed, unauthorized, skipped };
 };
 // Get attendance records for a specific event
 const getAttendanceRecordsByEvent = async (eventId) => {

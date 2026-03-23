@@ -3,8 +3,17 @@ const db = require('../config/db');
 require('dotenv').config();
 
 const authenticateToken = async (req, res, next) => {
-    const authHeader = req.headers['authorization'];
-    const token = authHeader && authHeader.split(' ')[1]; // Extract from "Bearer <token>"
+    const authHeader = req.headers.authorization;
+
+    if (!authHeader) {
+        return res.status(401).json({ success: false, message: 'Access denied. No token provided.' });
+    }
+
+    if (!authHeader.startsWith('Bearer ')) {
+        return res.status(401).json({ success: false, message: 'Invalid token format. Use "Bearer <token>"' });
+    }
+
+    const token = authHeader.substring(7);
 
     if (!token) {
         return res.status(401).json({ success: false, message: 'Access denied. No token provided.' });
@@ -20,12 +29,25 @@ const authenticateToken = async (req, res, next) => {
         return res.status(401).json({ success: false, message: 'Invalid token' });
     }
 
-    // Attach decoded user info to request
-    req.user = decoded;
+    // Normalize roles/IDs so all route handlers get a consistent shape.
+    const rawRoles = Array.isArray(decoded.roles) ? decoded.roles : (decoded.roles ? [decoded.roles] : []);
+    const roles = rawRoles.map((r) => String(r).toLowerCase());
+    const userTypeNorm = decoded.userType ? String(decoded.userType).toLowerCase() : '';
+    const canonicalId = decoded.id || decoded.legacyId || decoded.userId || decoded.studentId || null;
 
-    // Backwards-compatible fields for legacy code
-    if (decoded.userType && !decoded.role) req.user.role = decoded.userType;
-    if (decoded.legacyId && !decoded.id) req.user.id = decoded.legacyId;
+    req.user = {
+        ...decoded,
+        userId: decoded.userId || null,
+        email: decoded.email,
+        roles,
+        rawRoles,
+        organization: decoded.organization || null,
+        userType: userTypeNorm,
+        legacyId: decoded.legacyId || null,
+        studentId: decoded.studentId || null,
+        role: decoded.role || userTypeNorm,
+        id: canonicalId
+    };
 
     // Refresh OrgOfficer membership from DB to avoid stale token roles
     try {
@@ -37,15 +59,13 @@ const authenticateToken = async (req, res, next) => {
             );
             const hasActiveMembership = Array.isArray(rows) && rows.length > 0;
 
-            let roles = Array.isArray(decoded.roles)
-                ? decoded.roles.map(r => String(r).toLowerCase())
-                : (decoded.roles ? [String(decoded.roles).toLowerCase()] : []);
+            let updatedRoles = [...roles];
 
-            const hasOrgRoleInToken = roles.includes('orgofficer');
-            if (hasActiveMembership && !hasOrgRoleInToken) roles.push('orgofficer');
-            if (!hasActiveMembership && hasOrgRoleInToken) roles = roles.filter(r => r !== 'orgofficer');
+            const hasOrgRoleInToken = updatedRoles.includes('orgofficer');
+            if (hasActiveMembership && !hasOrgRoleInToken) updatedRoles.push('orgofficer');
+            if (!hasActiveMembership && hasOrgRoleInToken) updatedRoles = updatedRoles.filter((r) => r !== 'orgofficer');
 
-            req.user.roles = roles;
+            req.user.roles = updatedRoles;
         }
     } catch (refreshErr) {
         console.warn('[authMiddleware] Failed to refresh user roles from DB:', refreshErr?.message || refreshErr);

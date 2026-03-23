@@ -1,4 +1,5 @@
 require('dotenv').config();
+const { validateEnvironment } = require('./config/env-validator');
 const express = require('express');
 const cors = require('cors');
 const helmet = require('helmet');
@@ -20,6 +21,8 @@ const eventService = require('./services/eventService');
 const autoCleanupService = require('./services/autoCleanupService');
 const rateLimit = require('./middleware/rateLimit');
 const { secureResponseMiddleware, securityHeadersMiddleware } = require('./middleware/secureResponse');
+
+validateEnvironment();
 
 const app = express();
 
