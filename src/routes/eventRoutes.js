@@ -27,6 +27,7 @@ router.get('/events/creator/:creator_id', authenticateToken, apiLimiter, eventCo
 router.patch('/events/:id/status', authenticateToken, strictLimiter, eventController.updateEventStatus); // Update event status
 router.post('/events/attendance', authenticateToken, strictLimiter, eventController.markAttendance); // Mark attendance for an event
 router.get('/attendance-records', authenticateToken, apiLimiter, eventController.getAllAttendanceRecords); // Get all attendance records
+router.get('/attendance-records/count-by-creator/:creatorId', authenticateToken, apiLimiter, eventController.getAttendeeCountByCreator); // Lightweight total-attendee count for org dashboard
 router.get('/attendance-records/event/:eventId', authenticateToken, apiLimiter, eventController.getAttendanceRecordsByEvent); // Get attendance records for a specific event
 router.delete('/events/:id', authenticateToken, strictLimiter, eventController.deleteEvent); // Soft-delete an event
 // Bulk trash (soft-delete) multiple events
