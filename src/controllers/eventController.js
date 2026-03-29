@@ -794,6 +794,52 @@ exports.getAllAttendanceRecords = async (req, res) => {
     }
 };
 
+// Lightweight: returns total attendee count for all events created by a given org/admin
+exports.getAttendeeCountByCreator = async (req, res) => {
+    try {
+        const { creatorId } = req.params;
+        if (!creatorId) return handleErrorResponse(res, 'creatorId required', 400);
+
+        const user = req.user;
+        if (!user) return handleErrorResponse(res, 'Unauthorized', 401);
+
+        const roles = user.roles || [];
+        const isOrgOfficer = roles.includes('orgofficer');
+        const isAdmin = roles.includes('oswsadmin');
+
+        let count = 0;
+
+        if (isOrgOfficer) {
+            // Count attendees for events created by this org
+            const [rows] = await db.query(
+                `SELECT COUNT(ar.id) AS cnt
+                 FROM attendance_records ar
+                 JOIN created_events ce ON ar.event_id = ce.event_id
+                 WHERE ce.created_by_org_id = ? AND ar.deleted_at IS NULL AND ce.deleted_at IS NULL`,
+                [creatorId]
+            );
+            count = Number(rows?.[0]?.cnt || 0);
+        } else if (isAdmin) {
+            // Count attendees for events created by this OSWS admin
+            const [rows] = await db.query(
+                `SELECT COUNT(ar.id) AS cnt
+                 FROM attendance_records ar
+                 JOIN created_events ce ON ar.event_id = ce.event_id
+                 WHERE ce.created_by_osws_id = ? AND ar.deleted_at IS NULL AND ce.deleted_at IS NULL`,
+                [creatorId]
+            );
+            count = Number(rows?.[0]?.cnt || 0);
+        } else {
+            return handleErrorResponse(res, 'Forbidden', 403);
+        }
+
+        return handleSuccessResponse(res, { count });
+    } catch (error) {
+        console.error('getAttendeeCountByCreator error:', error);
+        return handleErrorResponse(res, error.message);
+    }
+};
+
 exports.deleteEvent = async (req, res) => {
     try {
         const { id } = req.params;
