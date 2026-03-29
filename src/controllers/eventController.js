@@ -794,28 +794,6 @@ exports.getAllAttendanceRecords = async (req, res) => {
     }
 };
 
-// Lightweight attendee count for the org officer dashboard — avoids full table scan
-exports.getAttendeeCountByCreator = async (req, res) => {
-    try {
-        const user = req.user;
-        if (!user) return handleErrorResponse(res, 'Unauthorized', 401);
-
-        const creatorId = parseInt(req.params.creatorId, 10);
-        if (!creatorId) return handleErrorResponse(res, 'creatorId required', 400);
-
-        const [[row]] = await db.query(
-            `SELECT COUNT(*) AS total
-             FROM attendance_records ar
-             JOIN created_events ce ON ar.event_id = ce.event_id
-             WHERE ce.created_by_org_id = ? AND ce.deleted_at IS NULL`,
-            [creatorId]
-        );
-        return handleSuccessResponse(res, { total: Number(row?.total || 0) });
-    } catch (error) {
-        return handleErrorResponse(res, error.message);
-    }
-};
-
 exports.deleteEvent = async (req, res) => {
     try {
         const { id } = req.params;
