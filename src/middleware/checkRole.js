@@ -18,7 +18,7 @@ const checkRole = (allowedRoles) => {
         userRoles.some(role => allowedLower.includes(role)) ||
         (req.user.userType && allowedLower.includes(String(req.user.userType).toLowerCase()));
 
-      // For OrgOfficer access, verify live DB membership to avoid stale tokens
+      // Verify live DB membership when OrgOfficer role is required to prevent stale-token access
       const needsOrgOfficerCheck = allowedLower.includes('orgofficer');
 
       if (needsOrgOfficerCheck) {

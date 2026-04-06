@@ -55,7 +55,7 @@ const convertToWebpAndUpload = async (req, res, next) => {
             req.file.cloudinaryPublicId = uploadResult.public_id;
             req.file.path = uploadResult.secure_url;
         } else {
-            // Dev fallback: use a base64 data URL
+            // Dev fallback: store a base64 data URL instead of a Cloudinary URL
             const dataUrl = `data:image/webp;base64,${webpBuffer.toString('base64')}`;
             req.file.cloudinaryUrl = dataUrl;
             req.file.cloudinaryPublicId = null;

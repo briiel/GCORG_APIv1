@@ -1,14 +1,8 @@
-/**
- * Role Request Model
- * Handles database operations for organization role requests
- */
+// Database operations for organization role requests
 
 const db = require('../config/db');
 
-/**
- * Get all organizations
- * @returns {Promise<Array>} List of organizations
- */
+// Fetch all non-deleted student organizations (for role request form dropdown)
 const getAllOrganizations = async () => {
   const [organizations] = await db.query(
     `SELECT id AS org_id, org_name, department 
@@ -19,11 +13,7 @@ const getAllOrganizations = async () => {
   return organizations;
 };
 
-/**
- * Get role request by ID
- * @param {number} requestId - Request ID
- * @returns {Promise<Object|null>} Role request object or null
- */
+// Fetch a single role request by its ID, or null if not found
 const getRoleRequestById = async (requestId) => {
   const [requests] = await db.query(
     `SELECT 
@@ -45,11 +35,7 @@ const getRoleRequestById = async (requestId) => {
   return requests.length > 0 ? requests[0] : null;
 };
 
-/**
- * Create a new role request
- * @param {Object} requestData - Role request data
- * @returns {Promise<Object>} Insert result
- */
+// Insert a new role request row and return the result
 const createRoleRequest = async (requestData) => {
   const { student_id, org_id, requested_position, justification } = requestData;
   
@@ -63,12 +49,7 @@ const createRoleRequest = async (requestData) => {
   return result;
 };
 
-/**
- * Check if student has pending request for organization
- * @param {number} studentId - Student ID
- * @param {number} orgId - Organization ID
- * @returns {Promise<boolean>} True if pending request exists
- */
+// Check whether the student already has a pending request for the given org
 const hasPendingRequest = async (studentId, orgId) => {
   const [requests] = await db.query(
     `SELECT request_id 
@@ -79,12 +60,7 @@ const hasPendingRequest = async (studentId, orgId) => {
   return requests.length > 0;
 };
 
-/**
- * Check if student is already an officer in organization
- * @param {number} studentId - Student ID
- * @param {number} orgId - Organization ID
- * @returns {Promise<boolean>} True if already an officer
- */
+// Check whether the student is already an active officer in the given org
 const isOfficerInOrg = async (studentId, orgId) => {
   const [memberships] = await db.query(
     `SELECT member_id 
@@ -95,10 +71,7 @@ const isOfficerInOrg = async (studentId, orgId) => {
   return memberships.length > 0;
 };
 
-/**
- * Get all pending requests
- * @returns {Promise<Array>} List of pending requests with details
- */
+// Fetch all pending role requests joined with student and org details
 const getPendingRequests = async () => {
   const [requests] = await db.query(
     `SELECT 
@@ -124,11 +97,7 @@ const getPendingRequests = async () => {
   return requests;
 };
 
-/**
- * Get all requests with optional status filter
- * @param {string|null} status - Status filter (optional)
- * @returns {Promise<Array>} List of requests
- */
+// Fetch all role requests with optional status filter
 const getAllRequests = async (status = null) => {
     let query = `
     SELECT 
@@ -169,11 +138,7 @@ const getAllRequests = async (status = null) => {
   return requests;
 };
 
-/**
- * Get student's own requests
- * @param {number} studentId - Student ID
- * @returns {Promise<Array>} List of student's requests
- */
+// Fetch a student's own role requests
 const getStudentRequests = async (studentId) => {
   const [requests] = await db.query(
     `SELECT 
@@ -198,12 +163,7 @@ const getStudentRequests = async (studentId) => {
   return requests;
 };
 
-/**
- * Update request status
- * @param {number} requestId - Request ID
- * @param {Object} updateData - Update data
- * @returns {Promise<Object>} Update result
- */
+// Update the status and review metadata of a role request
 const updateRequestStatus = async (requestId, updateData) => {
   const { status, reviewed_by_admin_id, review_notes } = updateData;
   
@@ -220,11 +180,7 @@ const updateRequestStatus = async (requestId, updateData) => {
   return result;
 };
 
-/**
- * Add student as organization member
- * @param {Object} memberData - Member data
- * @returns {Promise<Object>} Insert result
- */
+// Insert a student as an active member of an organization
 const addOrganizationMember = async (memberData) => {
   const { student_id, org_id, position, added_by_admin_id } = memberData;
   

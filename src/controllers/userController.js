@@ -1,7 +1,4 @@
-/**
- * User Controller
- * Handles user and organization member management operations
- */
+// User Controller — list students, fetch by ID, and manage organization members
 
 const userService = require('../services/userService');
 const { handleErrorResponse, handleSuccessResponse } = require('../utils/errorHandler');

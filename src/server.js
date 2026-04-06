@@ -21,6 +21,7 @@ const eventService = require('./services/eventService');
 const autoCleanupService = require('./services/autoCleanupService');
 const rateLimit = require('./middleware/rateLimit');
 const { secureResponseMiddleware, securityHeadersMiddleware } = require('./middleware/secureResponse');
+const { decryptRequestBody, encryptResponseBody } = require('./middleware/transportEncryption');
 
 validateEnvironment();
 
@@ -52,6 +53,10 @@ app.use(express.json({
     skip: (req) => req.is('multipart/form-data') // Skip for multipart; handled by multer
 }));
 app.use(express.urlencoded({ extended: true, limit: '10mb' }));
+
+// Transport-layer payload encryption: decryptRequestBody unwraps encrypted requests; encryptResponseBody wraps all JSON responses
+app.use(decryptRequestBody);
+app.use(encryptResponseBody);
 
 // Health check endpoints
 app.get('/', (req, res) => {
@@ -105,7 +110,7 @@ app.use('/api', archiveRoutes);
 
 app.use('/uploads', express.static(path.join(__dirname, '../uploads')));
 
-// Serve built frontend if it exists in the same deployment
+// Serve the built Angular client if co-deployed in the same process
 try {
     const clientDist = path.join(__dirname, '..', 'GC_ORGanize', 'gc_organize', 'dist', 'gc_organize');
     if (fs.existsSync(clientDist)) {
@@ -192,7 +197,7 @@ app.use((err, req, res, next) => {
 const PORT = process.env.PORT || 5000;
 
 const server = app.listen(PORT, async () => {
-    // Ensure DB columns exist
+    // Ensure required DB schema columns exist before serving traffic
     try {
         const eventModel = require('./models/eventModel');
         if (eventModel.ensureIsPaidColumn) await eventModel.ensureIsPaidColumn();
@@ -203,7 +208,7 @@ const server = app.listen(PORT, async () => {
         console.warn('Schema ensure failed:', e.message);
     }
 
-    // Font warm-up for certificate generator
+    // Warm up canvas fonts used by the certificate generator
     try {
         process.env.USE_REMOTE_FONTS = process.env.USE_REMOTE_FONTS ?? 'true';
         const { createCanvas } = require('canvas');
@@ -217,7 +222,7 @@ const server = app.listen(PORT, async () => {
         console.warn('Font warm-up skipped or failed:', e.message);
     }
 
-    // Auto-update event statuses every minute (non-production only)
+    // In non-production: poll event statuses every minute via an in-process timer
     if (process.env.NODE_ENV !== 'production') {
         try {
             const runAutoStatus = async () => {
@@ -257,7 +262,7 @@ server.on('error', (err) => {
 // Unhandled promise rejection
 process.on('unhandledRejection', (reason, promise) => {
     const { logError } = require('./utils/error-logger');
-    console.error('⚠️  Unhandled Promise Rejection detected!');
+    console.error('[WARN] Unhandled Promise Rejection detected!');
     logError(new Error(`Unhandled Rejection: ${reason}`));
 
     if (process.env.NODE_ENV === 'production') {
@@ -269,7 +274,7 @@ process.on('unhandledRejection', (reason, promise) => {
 // Uncaught exception — always exit
 process.on('uncaughtException', (err) => {
     const { logError } = require('./utils/error-logger');
-    console.error('⚠️  Uncaught Exception detected!');
+    console.error('[WARN] Uncaught Exception detected!');
     logError(err);
     console.error('Shutting down server due to uncaught exception...');
     process.exit(1);

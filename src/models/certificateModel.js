@@ -1,26 +1,8 @@
+// CRUD operations for the `certificates` table (stores issued e-certificates per student/event)
+
 const db = require('../config/db');
 
-/**
- * Certificate Model
- * Provides CRUD operations for the `certificates` table.
- * The certificates table stores generated/issued certificates for event participants.
- *
- * Schema:
- *   id INT AUTO_INCREMENT PK
- *   student_id VARCHAR(20)
- *   event_id INT
- *   certificate_url TEXT
- *   certificate_public_id VARCHAR(255)
- *   generated_at DATETIME DEFAULT current_timestamp()
- *   deleted_at DATETIME
- *   deleted_by INT
- */
-
-/**
- * Get all non-deleted certificates for a specific student.
- * @param {string} studentId
- * @returns {Promise<Array>}
- */
+// Fetch all non-deleted certificates for a student, joined with event and org info
 const getCertificatesByStudent = async (studentId) => {
     const [rows] = await db.query(
         `SELECT c.id, c.student_id, c.event_id, c.certificate_url,
@@ -38,11 +20,7 @@ const getCertificatesByStudent = async (studentId) => {
     return rows;
 };
 
-/**
- * Get all non-deleted certificates for a specific event.
- * @param {number} eventId
- * @returns {Promise<Array>}
- */
+// Fetch all non-deleted certificates for an event, joined with student info
 const getCertificatesByEvent = async (eventId) => {
     const [rows] = await db.query(
         `SELECT c.id, c.student_id, c.event_id, c.certificate_url,
@@ -58,12 +36,7 @@ const getCertificatesByEvent = async (eventId) => {
     return rows;
 };
 
-/**
- * Get an existing certificate for a student+event pair (or null if not found).
- * @param {number} eventId
- * @param {string} studentId
- * @returns {Promise<Object|null>}
- */
+// Fetch a single non-deleted certificate for a given student+event pair, or null
 const getCertificateByEventAndStudent = async (eventId, studentId) => {
     const [rows] = await db.query(
         `SELECT id, student_id, event_id, certificate_url, certificate_public_id, generated_at
@@ -75,11 +48,7 @@ const getCertificateByEventAndStudent = async (eventId, studentId) => {
     return rows[0] || null;
 };
 
-/**
- * Save (insert) a new certificate record.
- * @param {{ student_id: string, event_id: number, certificate_url: string, certificate_public_id: string }} certData
- * @returns {Promise<number>} insertId
- */
+// Insert a new certificate record and return its insertId
 const saveCertificate = async ({ student_id, event_id, certificate_url, certificate_public_id }) => {
     const [result] = await db.query(
         `INSERT INTO certificates (student_id, event_id, certificate_url, certificate_public_id)
@@ -89,12 +58,7 @@ const saveCertificate = async ({ student_id, event_id, certificate_url, certific
     return result.insertId;
 };
 
-/**
- * Soft-delete a certificate record.
- * @param {number} certId
- * @param {number|null} deletedBy  - admin/officer ID performing the delete
- * @returns {Promise<boolean>}
- */
+// Soft-delete a certificate by setting deleted_at/deleted_by; returns true if a row was affected
 const softDeleteCertificate = async (certId, deletedBy = null) => {
     const [result] = await db.query(
         `UPDATE certificates SET deleted_at = UTC_TIMESTAMP(), deleted_by = ? WHERE id = ? AND deleted_at IS NULL`,

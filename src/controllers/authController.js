@@ -29,7 +29,7 @@ const login = asyncHandler(async (req, res) => {
   let userId = null;
   let studentId = null;
 
-  // Check students table — email fields are encrypted, so fetch all and compare decrypted values
+  // Scan all students (email is encrypted) to find a matching decrypted email
   const [allStudents] = await db.query(
     `SELECT id, email, password_hash, first_name, last_name FROM students LIMIT 1000`
   );
@@ -56,7 +56,7 @@ const login = asyncHandler(async (req, res) => {
     userId = `S_${user.id}`;
     studentId = user.id;
   } else {
-    // Check osws_admins table
+    // Fall back to checking osws_admins table if no student matched
     const [allAdmins] = await db.query(
       `SELECT id, email, password_hash, name FROM osws_admins LIMIT 100`
     );
@@ -102,7 +102,7 @@ const login = asyncHandler(async (req, res) => {
   } else if (userType === 'student') {
     roles = ['student'];
     if (studentId) {
-      // Single query: fetch membership and reuse result for both role assignment and org info
+      // Fetch active organization membership to assign OrgOfficer role and org info
       const [orgMemberships] = await db.query(
         `SELECT om.org_id, om.position, o.org_name
          FROM organizationmembers om

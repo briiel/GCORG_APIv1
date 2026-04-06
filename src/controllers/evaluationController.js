@@ -1,11 +1,7 @@
 const evaluationService = require('../services/evaluationService');
 const { handleErrorResponse, handleSuccessResponse } = require('../utils/errorHandler');
 
-/**
- * Evaluation Controller
- * Handles HTTP requests for event evaluations
- */
-
+// Evaluation Controller — HTTP handlers for submitting and reviewing event evaluations
 // Submit evaluation for an event
 exports.submitEvaluation = async (req, res) => {
   try {

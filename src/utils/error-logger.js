@@ -1,7 +1,4 @@
-/**
- * Error Logger
- * Handles error logging with console and file output
- */
+// Error logger: colorized console output in development, file-based in production
 
 const fs = require('fs');
 const path = require('path');
@@ -17,49 +14,28 @@ const colors = {
     gray: '\x1b[90m'
 };
 
-/**
- * Format timestamp for logs
- */
-const formatTimestamp = () => {
-    return new Date().toISOString();
-};
+const formatTimestamp = () => new Date().toISOString();
 
-/**
- * Get log file path
- */
+// Resolve today's log file path, creating the logs directory if needed
 const getLogFilePath = () => {
     const logsDir = path.join(__dirname, '../../logs');
-
-    // Create logs directory if it doesn't exist
     if (!fs.existsSync(logsDir)) {
-        try {
-            fs.mkdirSync(logsDir, { recursive: true });
-        } catch (err) {
-            console.error('Failed to create logs directory:', err.message);
-        }
+        try { fs.mkdirSync(logsDir, { recursive: true }); }
+        catch (err) { console.error('Failed to create logs directory:', err.message); }
     }
-
     const date = new Date().toISOString().split('T')[0];
     return path.join(logsDir, `error-${date}.log`);
 };
 
-/**
- * Write to log file
- */
+// Append a log entry to the daily file (production only)
 const writeToFile = (logEntry) => {
     if (process.env.NODE_ENV === 'production') {
-        try {
-            const logFilePath = getLogFilePath();
-            fs.appendFileSync(logFilePath, logEntry + '\n', 'utf8');
-        } catch (err) {
-            console.error('Failed to write to log file:', err.message);
-        }
+        try { fs.appendFileSync(getLogFilePath(), logEntry + '\n', 'utf8'); }
+        catch (err) { console.error('Failed to write to log file:', err.message); }
     }
 };
 
-/**
- * Format error for logging
- */
+// Build a structured error info object, optionally enriched with request context
 const formatError = (err, req = null) => {
     const errorInfo = {
         timestamp: formatTimestamp(),
@@ -69,8 +45,6 @@ const formatError = (err, req = null) => {
         stack: err.stack,
         isOperational: err.isOperational || false
     };
-
-    // Add request context if available
     if (req) {
         errorInfo.request = {
             method: req.method,
@@ -80,13 +54,7 @@ const formatError = (err, req = null) => {
             userId: req.user?.userId || req.user?.id || null
         };
     }
-
-    // Add validation errors if present
-    if (err.errors) {
-        errorInfo.validationErrors = err.errors;
-    }
-
-    // Add original error for database errors
+    if (err.errors) errorInfo.validationErrors = err.errors;
     if (err.originalError) {
         errorInfo.originalError = {
             message: err.originalError.message,
@@ -94,113 +62,67 @@ const formatError = (err, req = null) => {
             errno: err.originalError.errno
         };
     }
-
     return errorInfo;
 };
 
-/**
- * Log error to console with colors (development)
- */
+// Print a colorized error report to the console (verbose in dev, compact in prod)
 const logToConsole = (errorInfo) => {
     const isDev = process.env.NODE_ENV !== 'production';
-
     if (isDev) {
         console.error('\n' + colors.red + '═══════════════════════════════════════════════════════════' + colors.reset);
-        console.error(colors.red + '❌ ERROR OCCURRED' + colors.reset);
+        console.error(colors.red + '[ERROR] ERROR OCCURRED' + colors.reset);
         console.error(colors.red + '═══════════════════════════════════════════════════════════' + colors.reset);
         console.error(colors.cyan + 'Timestamp:' + colors.reset, errorInfo.timestamp);
         console.error(colors.cyan + 'Type:' + colors.reset, errorInfo.name);
         console.error(colors.cyan + 'Status Code:' + colors.reset, errorInfo.statusCode);
         console.error(colors.cyan + 'Message:' + colors.reset, errorInfo.message);
         console.error(colors.cyan + 'Operational:' + colors.reset, errorInfo.isOperational);
-
         if (errorInfo.request) {
-            console.error(colors.yellow + '\n📍 Request Context:' + colors.reset);
+            console.error(colors.yellow + '\n[INFO] Request Context:' + colors.reset);
             console.error(colors.gray + '  Method:' + colors.reset, errorInfo.request.method);
             console.error(colors.gray + '  URL:' + colors.reset, errorInfo.request.url);
             console.error(colors.gray + '  IP:' + colors.reset, errorInfo.request.ip);
             console.error(colors.gray + '  User ID:' + colors.reset, errorInfo.request.userId || 'N/A');
         }
-
         if (errorInfo.validationErrors && errorInfo.validationErrors.length > 0) {
-            console.error(colors.magenta + '\n⚠️  Validation Errors:' + colors.reset);
-            errorInfo.validationErrors.forEach(err => {
-                console.error(colors.gray + '  -' + colors.reset, err);
-            });
+            console.error(colors.magenta + '\n[WARN] Validation Errors:' + colors.reset);
+            errorInfo.validationErrors.forEach(err => console.error(colors.gray + '  -' + colors.reset, err));
         }
-
         if (errorInfo.originalError) {
-            console.error(colors.yellow + '\n🔍 Original Error:' + colors.reset);
+            console.error(colors.yellow + '\n[INFO] Original Error:' + colors.reset);
             console.error(colors.gray + '  Message:' + colors.reset, errorInfo.originalError.message);
             console.error(colors.gray + '  Code:' + colors.reset, errorInfo.originalError.code);
         }
-
         if (errorInfo.stack) {
-            console.error(colors.blue + '\n📚 Stack Trace:' + colors.reset);
+            console.error(colors.blue + '\n[INFO] Stack Trace:' + colors.reset);
             console.error(colors.gray + errorInfo.stack + colors.reset);
         }
-
         console.error(colors.red + '═══════════════════════════════════════════════════════════' + colors.reset + '\n');
     } else {
-        // Production: simpler console output
         console.error(`[${errorInfo.timestamp}] ${errorInfo.name}: ${errorInfo.message}`);
     }
 };
 
-/**
- * Main error logging function
- */
+// Log an error to console and to file (production)
 const logError = (err, req = null) => {
     const errorInfo = formatError(err, req);
-
-    // Log to console
     logToConsole(errorInfo);
-
-    // Log to file (production only)
-    const logEntry = JSON.stringify(errorInfo, null, 2);
-    writeToFile(logEntry);
-
+    writeToFile(JSON.stringify(errorInfo, null, 2));
     return errorInfo;
 };
 
-/**
- * Log info message
- */
+// Log an informational message
 const logInfo = (message, context = {}) => {
-    const logEntry = {
-        timestamp: formatTimestamp(),
-        level: 'INFO',
-        message,
-        ...context
-    };
-
-    if (process.env.NODE_ENV !== 'production') {
-        console.log(colors.cyan + 'ℹ️ ' + colors.reset + message, context);
-    }
-
+    const logEntry = { timestamp: formatTimestamp(), level: 'INFO', message, ...context };
+    if (process.env.NODE_ENV !== 'production') console.log(colors.cyan + '[INFO] ' + colors.reset + message, context);
     writeToFile(JSON.stringify(logEntry));
 };
 
-/**
- * Log warning message
- */
+// Log a warning message
 const logWarning = (message, context = {}) => {
-    const logEntry = {
-        timestamp: formatTimestamp(),
-        level: 'WARNING',
-        message,
-        ...context
-    };
-
-    if (process.env.NODE_ENV !== 'production') {
-        console.warn(colors.yellow + '⚠️  ' + colors.reset + message, context);
-    }
-
+    const logEntry = { timestamp: formatTimestamp(), level: 'WARNING', message, ...context };
+    if (process.env.NODE_ENV !== 'production') console.warn(colors.yellow + '[WARN] ' + colors.reset + message, context);
     writeToFile(JSON.stringify(logEntry));
 };
 
-module.exports = {
-    logError,
-    logInfo,
-    logWarning
-};
+module.exports = { logError, logInfo, logWarning };

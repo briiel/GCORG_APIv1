@@ -1,7 +1,4 @@
-/**
- * Notification Controller
- * Handles notification retrieval and status updates
- */
+// Notification Controller — retrieves and marks user notifications as read
 
 const notificationService = require('../services/notificationService');
 const { handleSuccessResponse, handleErrorResponse } = require('../utils/errorHandler');

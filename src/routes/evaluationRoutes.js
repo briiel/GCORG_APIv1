@@ -8,11 +8,7 @@ const rateLimit = require('../middleware/rateLimit');
 const submitLimiter = rateLimit({ windowMs: 5 * 60 * 1000, max: 10 }); // 10 submissions per 5 minutes
 const apiLimiter = rateLimit({ windowMs: 60 * 1000, max: 60 }); // 60 requests per minute
 
-/**
- * Evaluation Routes
- * All routes require authentication
- */
-
+// Evaluation routes — all endpoints require authentication
 // Submit evaluation for an event (students only)
 router.post('/events/:event_id/evaluations', authenticateToken, submitLimiter, evaluationController.submitEvaluation);
 

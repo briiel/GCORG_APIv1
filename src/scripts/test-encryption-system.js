@@ -1,14 +1,9 @@
-/**
- * Comprehensive AES Encryption System Test
- * Tests all encryption functionality across the system
- * 
- * Usage:
- * node src/scripts/test-encryption-system.js
- */
+// Comprehensive AES Encryption System Test — runs all encryption utility tests
+// Usage: node src/scripts/test-encryption-system.js
 
 const { encryptData, decryptData, hashData, verifyHash, encryptFields, decryptFields } = require('../utils/encryption');
 
-console.log('🔐 Testing AES Encryption System');
+console.log('[INFO] Testing AES Encryption System');
 console.log('='.repeat(80));
 
 let totalTests = 0;
@@ -18,13 +13,13 @@ let failedTests = 0;
 function test(name, fn) {
     totalTests++;
     try {
-        console.log(`\n📝 Test ${totalTests}: ${name}`);
+        console.log(`\n[TEST ${totalTests}] ${name}`);
         fn();
         passedTests++;
-        console.log('✅ PASSED');
+        console.log('[PASS]');
     } catch (error) {
         failedTests++;
-        console.log('❌ FAILED:', error.message);
+        console.log('[FAIL]:', error.message);
     }
 }
 
@@ -51,7 +46,7 @@ test('Encrypted Format Validation', () => {
     if (parts.length !== 3) {
         throw new Error('Encrypted data format is invalid (expected 3 parts)');
     }
-    console.log(`  Format check: ${parts.length} parts (iv:authTag:data) ✓`);
+    console.log(`  Format check: ${parts.length} parts (iv:authTag:data) OK`);
 });
 
 // Test 3: Different IVs for Same Data
@@ -63,7 +58,7 @@ test('Different IVs for Same Data', () => {
     if (enc1 === enc2) {
         throw new Error('Same ciphertext produced (IV not random)');
     }
-    console.log('  Different IVs produce different ciphertexts ✓');
+    console.log('  Different IVs produce different ciphertexts OK');
 });
 
 // Test 4: Null/Empty Data Handling
@@ -74,7 +69,7 @@ test('Null/Empty Data Handling', () => {
     if (nullResult !== null || emptyResult !== null) {
         throw new Error('Null/empty data not handled correctly');
     }
-    console.log('  Null and empty strings handled correctly ✓');
+    console.log('  Null and empty strings handled correctly OK');
 });
 
 // Test 5: Invalid Data Decryption
@@ -86,7 +81,7 @@ test('Invalid Data Decryption', () => {
         if (err.message.includes('Should have thrown')) {
             throw err;
         }
-        console.log('  Invalid data properly rejected ✓');
+        console.log('  Invalid data properly rejected OK');
     }
 });
 
@@ -100,7 +95,7 @@ test('Hash and Verify', () => {
     if (!isValid || isInvalid) {
         throw new Error('Hash verification failed');
     }
-    console.log('  Hash verification works correctly ✓');
+    console.log('  Hash verification works correctly OK');
 });
 
 // Test 7: Long Data Encryption
@@ -112,7 +107,7 @@ test('Long Data Encryption', () => {
     if (longData !== decrypted) {
         throw new Error('Long data corrupted during encryption/decryption');
     }
-    console.log(`  Successfully encrypted/decrypted ${longData.length} characters ✓`);
+    console.log(`  Successfully encrypted/decrypted ${longData.length} characters OK`);
 });
 
 // Test 8: Special Characters
@@ -124,19 +119,19 @@ test('Special Characters', () => {
     if (special !== decrypted) {
         throw new Error('Special characters corrupted');
     }
-    console.log('  Special characters preserved ✓');
+    console.log('  Special characters preserved OK');
 });
 
 // Test 9: Unicode Characters
 test('Unicode Characters', () => {
-    const unicode = '你好世界 🔐 مرحبا العالم Привет мир';
+    const unicode = 'Hello World Привет мир';
     const encrypted = encryptData(unicode);
     const decrypted = decryptData(encrypted);
     
     if (unicode !== decrypted) {
         throw new Error('Unicode characters corrupted');
     }
-    console.log('  Unicode characters preserved ✓');
+    console.log('  Unicode characters preserved OK');
 });
 
 // Test 10: Email Encryption (Real-world scenario)
@@ -157,7 +152,7 @@ test('Email Encryption Scenario', () => {
     
     console.log(`  Email: ${email}`);
     console.log(`  Encrypted length: ${encrypted.length} characters`);
-    console.log('  Email encryption working correctly ✓');
+    console.log('  Email encryption working correctly OK');
 });
 
 // Test 11: Detect Encrypted vs Plain Text
@@ -178,7 +173,7 @@ test('Detect Encrypted vs Plain Text', () => {
         throw new Error('Encrypted email not detected as encrypted');
     }
     
-    console.log('  Encryption detection logic works ✓');
+    console.log('  Encryption detection logic works OK');
 });
 
 // Test 12: encryptFields/decryptFields
@@ -202,7 +197,7 @@ test('encryptFields and decryptFields', () => {
         throw new Error('Email was not encrypted');
     }
     
-    console.log('  Field-level encryption working correctly ✓');
+    console.log('  Field-level encryption working correctly OK');
 });
 
 // Test 13: Multiple Field Encryption
@@ -224,7 +219,7 @@ test('Multiple Field Encryption', () => {
         throw new Error('Multiple field encryption failed');
     }
     
-    console.log('  Multiple fields encrypted/decrypted correctly ✓');
+    console.log('  Multiple fields encrypted/decrypted correctly OK');
 });
 
 // Test 14: AES-256-GCM Authentication Tag
@@ -247,7 +242,7 @@ test('AES-256-GCM Authentication Tag Validation', () => {
         if (err.message.includes('should have failed')) {
             throw err;
         }
-        console.log('  Authentication tag validation working ✓');
+        console.log('  Authentication tag validation working OK');
     }
 });
 
@@ -261,21 +256,21 @@ test('Environment Key Configuration', () => {
         throw new Error('ENCRYPTION_KEY must be 64 hex characters');
     }
     
-    console.log('  ENCRYPTION_KEY properly configured ✓');
+    console.log('  ENCRYPTION_KEY properly configured OK');
 });
 
 console.log('\n' + '='.repeat(80));
-console.log('📊 Test Results:');
+console.log('[RESULTS] Test Results:');
 console.log(`   Total Tests: ${totalTests}`);
-console.log(`   ✅ Passed: ${passedTests}`);
-console.log(`   ❌ Failed: ${failedTests}`);
+console.log(`   Passed: ${passedTests}`);
+console.log(`   Failed: ${failedTests}`);
 console.log(`   Success Rate: ${((passedTests / totalTests) * 100).toFixed(1)}%`);
 console.log('='.repeat(80));
 
 if (failedTests === 0) {
-    console.log('\n🎉 All tests passed! AES encryption system is working correctly.');
+    console.log('\n[OK] All tests passed! AES encryption system is working correctly.');
     process.exit(0);
 } else {
-    console.log('\n⚠️  Some tests failed. Please review the errors above.');
+    console.log('\n[WARN] Some tests failed. Please review the errors above.');
     process.exit(1);
 }

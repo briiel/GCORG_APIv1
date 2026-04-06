@@ -1,5 +1,4 @@
-// Sanitizes responses to strip sensitive fields and applies security headers.
-// JWT tokens are intentionally NOT removed — they are required for auth flows.
+// Sanitizes responses by stripping sensitive fields and applies standard security headers (JWT tokens are preserved)
 
 const sensitiveFields = [
     'password',

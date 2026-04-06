@@ -1,7 +1,4 @@
-/**
- * Admin Controller
- * Handles OSWS admin management operations
- */
+// OSWS Admin Controller — admin account creation, soft-delete, and user listing
 
 const db = require('../config/db');
 const bcrypt = require('bcrypt');

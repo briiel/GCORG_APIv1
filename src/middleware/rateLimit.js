@@ -6,7 +6,7 @@ function rateLimit(options = {}) {
   const windowMs = options.windowMs || DEFAULT_WINDOW_MS;
   const max = typeof options.max === 'number' ? options.max : DEFAULT_MAX;
 
-  // Each limiter instance has its own store to avoid cross-limiter count interference
+  // Each limiter instance maintains its own store to prevent cross-limiter count leakage
   const stores = new Map();
 
   const cleanupIntervalMs = typeof options.cleanupIntervalMs === 'number'
@@ -26,7 +26,7 @@ function rateLimit(options = {}) {
 
   return (req, res, next) => {
     try {
-      // Resolve client IP — prefer req.ip, then X-Forwarded-For
+      // Resolve the real client IP, preferring req.ip then X-Forwarded-For
       const forwarded = req.headers && req.headers['x-forwarded-for'];
       const forwardedIp = forwarded ? String(forwarded).split(',')[0].trim() : null;
       const key = req.ip || forwardedIp || req.connection?.remoteAddress || 'global';
@@ -39,7 +39,7 @@ function rateLimit(options = {}) {
         return next();
       }
 
-      // Reset window if expired
+      // Reset the window counter if the time window has elapsed
       if (now - entry.start > windowMs) {
         entry.count = 1;
         entry.start = now;

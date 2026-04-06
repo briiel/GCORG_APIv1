@@ -29,7 +29,7 @@ const authenticateToken = async (req, res, next) => {
         return res.status(401).json({ success: false, message: 'Invalid token' });
     }
 
-    // Normalize roles/IDs so all route handlers get a consistent shape.
+    // Normalize roles and IDs into a consistent shape for route handlers
     const rawRoles = Array.isArray(decoded.roles) ? decoded.roles : (decoded.roles ? [decoded.roles] : []);
     const roles = rawRoles.map((r) => String(r).toLowerCase());
     const userTypeNorm = decoded.userType ? String(decoded.userType).toLowerCase() : '';
@@ -49,7 +49,7 @@ const authenticateToken = async (req, res, next) => {
         id: canonicalId
     };
 
-    // Refresh OrgOfficer membership from DB to avoid stale token roles
+    // Live-refresh OrgOfficer role from DB to avoid stale token data
     try {
         const studentId = decoded.studentId || null;
         if (studentId) {

@@ -23,7 +23,7 @@ const checkAuth = async (req, res, next) => {
 
     const decoded = jwt.verify(token, process.env.JWT_SECRET);
 
-    // Normalize roles and build req.user
+    // Normalize roles and build req.user with consistent field names
     const rawRoles = Array.isArray(decoded.roles) ? decoded.roles : (decoded.roles ? [decoded.roles] : []);
     let roles = rawRoles.map(r => String(r).toLowerCase());
     const userTypeNorm = decoded.userType ? String(decoded.userType).toLowerCase() : '';
@@ -42,7 +42,7 @@ const checkAuth = async (req, res, next) => {
       id: canonicalId
     };
 
-    // Refresh OrgOfficer membership from DB to avoid stale token roles
+    // Live-refresh OrgOfficer role from DB to avoid stale token data
     try {
       const studentId = decoded.studentId || null;
       if (studentId) {

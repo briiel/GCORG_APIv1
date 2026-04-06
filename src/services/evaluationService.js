@@ -12,10 +12,7 @@ cloudinary.config({
   secure: true
 });
 
-/**
- * Safely decrypt a single encrypted field.
- * Returns the original value if it is not in encrypted format or decryption fails.
- */
+// Safely decrypt a single encrypted field; returns the original value if not encrypted or decryption fails
 const safeDecrypt = (value) => {
   if (value && typeof value === 'string' && value.split(':').length === 3) {
     try { return decryptData(value); } catch { return value; }
@@ -23,10 +20,6 @@ const safeDecrypt = (value) => {
   return value;
 };
 
-/**
- * Evaluation Service
- * Business logic for managing event evaluations
- */
 
 // Submit an evaluation for an event
 async function submitEvaluation({ event_id, student_id, responses }) {
@@ -104,8 +97,7 @@ async function submitEvaluation({ event_id, student_id, responses }) {
     responses
   });
 
-  // Generate certificate immediately ONLY for OSWS events
-  // Organization events require manual certificate generation/request after evaluation
+  // Generate certificate immediately for OSWS events; org events require a manual request
   let certificateUrl = null;
 
   if (isOswsEvent) {

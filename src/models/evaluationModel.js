@@ -1,9 +1,6 @@
 const db = require('../config/db');
 
-/**
- * Evaluation Model
- * Manages participant evaluations for events
- */
+// Evaluation Model — DB operations for creating, querying, and aggregating event evaluation records
 
 // Create a new evaluation for an event
 async function createEvaluation({ event_id, student_id, responses }) {

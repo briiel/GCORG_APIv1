@@ -1,27 +1,17 @@
-/**
- * Custom Error Classes
- * Provides specific error types for better error handling and categorization
- */
+// Custom error classes for categorized HTTP error handling (400–500)
 
-/**
- * Base Application Error
- * All custom errors extend from this class
- */
+// Base operational error with status code and stack trace
 class AppError extends Error {
     constructor(message, statusCode = 500, isOperational = true) {
         super(message);
         this.statusCode = statusCode;
         this.isOperational = isOperational;
         this.status = `${statusCode}`.startsWith('4') ? 'fail' : 'error';
-        
         Error.captureStackTrace(this, this.constructor);
     }
 }
 
-/**
- * Validation Error (400)
- * Used for input validation failures
- */
+// 400 – Input validation failure; carries an optional errors array
 class ValidationError extends AppError {
     constructor(message = 'Validation failed', errors = []) {
         super(message, 400);
@@ -30,10 +20,7 @@ class ValidationError extends AppError {
     }
 }
 
-/**
- * Authentication Error (401)
- * Used when authentication fails
- */
+// 401 – Authentication failure
 class AuthenticationError extends AppError {
     constructor(message = 'Authentication failed') {
         super(message, 401);
@@ -41,10 +28,7 @@ class AuthenticationError extends AppError {
     }
 }
 
-/**
- * Authorization Error (403)
- * Used when user lacks permission
- */
+// 403 – Insufficient permissions
 class AuthorizationError extends AppError {
     constructor(message = 'You do not have permission to perform this action') {
         super(message, 403);
@@ -52,10 +36,7 @@ class AuthorizationError extends AppError {
     }
 }
 
-/**
- * Not Found Error (404)
- * Used when a resource is not found
- */
+// 404 – Resource not found
 class NotFoundError extends AppError {
     constructor(message = 'Resource not found') {
         super(message, 404);
@@ -63,10 +44,7 @@ class NotFoundError extends AppError {
     }
 }
 
-/**
- * Conflict Error (409)
- * Used for duplicate/conflict scenarios
- */
+// 409 – Duplicate / conflict
 class ConflictError extends AppError {
     constructor(message = 'Resource already exists') {
         super(message, 409);
@@ -74,10 +52,7 @@ class ConflictError extends AppError {
     }
 }
 
-/**
- * Database Error (500)
- * Used for database operation failures
- */
+// 500 – Database operation failure; stores the original error for debugging
 class DatabaseError extends AppError {
     constructor(message = 'Database operation failed', originalError = null) {
         super(message, 500);
@@ -86,10 +61,7 @@ class DatabaseError extends AppError {
     }
 }
 
-/**
- * Rate Limit Error (429)
- * Used when rate limit is exceeded
- */
+// 429 – Rate limit exceeded
 class RateLimitError extends AppError {
     constructor(message = 'Too many requests, please try again later') {
         super(message, 429);

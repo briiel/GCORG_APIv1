@@ -1,9 +1,7 @@
 const db = require('../config/db');
 const { decryptData } = require('../utils/encryption');
 
-/**
- * Decrypt email field if it appears to be encrypted
- */
+// Decrypt the email field of a record if it appears to be in iv:authTag:data format
 function decryptEmailField(record) {
     if (!record || !record.email) return record;
 
@@ -25,16 +23,12 @@ function decryptEmailField(record) {
     return record;
 }
 
-/**
- * Decrypt email fields in array of records
- */
+// Map decryptEmailField over an array of records
 function decryptEmailArray(records) {
     return records.map(record => decryptEmailField(record));
 }
 
-// ============================================
-// OSWS Admins Archive Operations
-// ============================================
+// OSWS Admins archive operations
 
 // Get all trashed/archived OSWS admins
 const getTrashedAdmins = async () => {
@@ -66,9 +60,7 @@ const permanentDeleteAdmin = async (adminId) => {
     return result.affectedRows > 0;
 };
 
-// ============================================
-// Student Organizations Archive Operations
-// ============================================
+// Student Organizations archive operations
 
 // Get all trashed/archived student organizations
 const getTrashedOrganizations = async () => {
@@ -100,9 +92,7 @@ const permanentDeleteOrganization = async (orgId) => {
     return result.affectedRows > 0;
 };
 
-// ============================================
-// Organization Members Archive Operations
-// ============================================
+// Organization Members archive operations
 
 // Get all trashed/archived organization members (by org)
 const getTrashedMembersByOrg = async (orgId) => {
@@ -180,9 +170,7 @@ const permanentDeleteMember = async (memberId) => {
     return result.affectedRows > 0;
 };
 
-// ============================================
-// Auto-cleanup: Delete items older than 30 days
-// ============================================
+// Auto-cleanup: permanently delete archived items older than 30 days
 
 // Get count of items eligible for auto-deletion
 const getExpiredItemsCount = async () => {

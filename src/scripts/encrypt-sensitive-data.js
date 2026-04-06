@@ -1,14 +1,4 @@
-/**
- * Database Migration Script: Encrypt Sensitive Data
- * 
- * This script encrypts existing sensitive data in the database:
- * - Student emails
- * - Student IDs
- * - Organization emails
- * 
- * Usage:
- * node src/scripts/encrypt-sensitive-data.js [--dry-run]
- */
+// DB migration script: encrypts student/org emails and student IDs in-place (supports --dry-run)
 
 const db = require('../config/db');
 const { encryptData } = require('../utils/encryption');
@@ -45,7 +35,7 @@ async function markMigrationComplete() {
             'INSERT INTO migrations (name) VALUES (?)',
             [MIGRATION_NAME]
         );
-        console.log('✅ Migration marked as complete');
+        console.log('[OK] Migration marked as complete');
     } catch (error) {
         console.error('Error marking migration complete:', error);
         throw error;
@@ -53,7 +43,7 @@ async function markMigrationComplete() {
 }
 
 async function encryptStudentData(dryRun = false) {
-    console.log('\n📋 Processing students table...');
+    console.log('\n[INFO] Processing students table...');
 
     try {
         // Fetch all students
@@ -67,7 +57,7 @@ async function encryptStudentData(dryRun = false) {
             try {
                 // Check if already encrypted (encrypted data has format: iv:authTag:data)
                 if (student.email && student.email.includes(':') && student.email.split(':').length === 3) {
-                    console.log(`⏭️  Student ${student.id}: Already encrypted, skipping`);
+                    console.log(`[SKIP] Student ${student.id}: Already encrypted, skipping`);
                     continue;
                 }
 
@@ -84,17 +74,17 @@ async function encryptStudentData(dryRun = false) {
                         'UPDATE students SET email = ?, id = ? WHERE id = ?',
                         [encryptedEmail, encryptedId, student.id]
                     );
-                    console.log(`✅ Encrypted student ${student.id}`);
+                    console.log(`[OK] Encrypted student ${student.id}`);
                 }
 
                 successCount++;
             } catch (error) {
-                console.error(`❌ Error encrypting student ${student.id}:`, error.message);
+                console.error(`[ERROR] Error encrypting student ${student.id}:`, error.message);
                 errorCount++;
             }
         }
 
-        console.log(`\n📊 Students Summary: ${successCount} successful, ${errorCount} errors`);
+        console.log(`\n[INFO] Students Summary: ${successCount} successful, ${errorCount} errors`);
         return { successCount, errorCount };
     } catch (error) {
         console.error('Error processing students:', error);
@@ -103,7 +93,7 @@ async function encryptStudentData(dryRun = false) {
 }
 
 async function encryptOrganizationData(dryRun = false) {
-    console.log('\n📋 Processing student_organizations table...');
+    console.log('\n[INFO] Processing student_organizations table...');
 
     try {
         // Fetch all organizations
@@ -117,7 +107,7 @@ async function encryptOrganizationData(dryRun = false) {
             try {
                 // Check if already encrypted
                 if (org.email && org.email.includes(':') && org.email.split(':').length === 3) {
-                    console.log(`⏭️  Organization ${org.id}: Already encrypted, skipping`);
+                    console.log(`[SKIP] Organization ${org.id}: Already encrypted, skipping`);
                     continue;
                 }
 
@@ -132,17 +122,17 @@ async function encryptOrganizationData(dryRun = false) {
                         'UPDATE student_organizations SET email = ? WHERE id = ?',
                         [encryptedEmail, org.id]
                     );
-                    console.log(`✅ Encrypted organization ${org.id}`);
+                    console.log(`[OK] Encrypted organization ${org.id}`);
                 }
 
                 successCount++;
             } catch (error) {
-                console.error(`❌ Error encrypting organization ${org.id}:`, error.message);
+                console.error(`[ERROR] Error encrypting organization ${org.id}:`, error.message);
                 errorCount++;
             }
         }
 
-        console.log(`\n📊 Organizations Summary: ${successCount} successful, ${errorCount} errors`);
+        console.log(`\n[INFO] Organizations Summary: ${successCount} successful, ${errorCount} errors`);
         return { successCount, errorCount };
     } catch (error) {
         console.error('Error processing organizations:', error);
@@ -153,7 +143,7 @@ async function encryptOrganizationData(dryRun = false) {
 async function main() {
     const dryRun = process.argv.includes('--dry-run');
 
-    console.log('🔐 Starting Sensitive Data Encryption Migration');
+    console.log('[INFO] Starting Sensitive Data Encryption Migration');
     console.log(`Mode: ${dryRun ? 'DRY RUN (no changes will be made)' : 'LIVE (data will be encrypted)'}`);
     console.log('='.repeat(60));
 
@@ -161,7 +151,7 @@ async function main() {
         // Check if migration already ran
         const alreadyRan = await checkMigrationStatus();
         if (alreadyRan && !dryRun) {
-            console.log('⚠️  Migration already completed. Skipping.');
+            console.log('[WARN] Migration already completed. Skipping.');
             console.log('To re-run, delete the migration record from the migrations table.');
             process.exit(0);
         }
@@ -178,17 +168,17 @@ async function main() {
         }
 
         console.log('\n' + '='.repeat(60));
-        console.log('✅ Migration completed successfully!');
+        console.log('[OK] Migration completed successfully!');
         console.log(`Total records processed: ${studentResults.successCount + orgResults.successCount}`);
         console.log(`Total errors: ${studentResults.errorCount + orgResults.errorCount}`);
 
         if (dryRun) {
-            console.log('\n⚠️  This was a DRY RUN. No data was modified.');
+            console.log('\n[WARN] This was a DRY RUN. No data was modified.');
             console.log('Run without --dry-run to apply changes.');
         }
 
     } catch (error) {
-        console.error('\n❌ Migration failed:', error);
+        console.error('\n[ERROR] Migration failed:', error);
         process.exit(1);
     } finally {
         // Close database connection

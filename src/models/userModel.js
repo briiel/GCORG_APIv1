@@ -1,9 +1,7 @@
 const db = require('../config/db');
 const { decryptData } = require('../utils/encryption');
 
-/**
- * Safely decrypt a single field — returns original value if not encrypted or decryption fails
- */
+// Safely decrypt a single field; returns original if not encrypted or decryption fails
 function safeDecryptField(value) {
     if (value && typeof value === 'string' && value.includes(':') && value.split(':').length === 3) {
         try {
@@ -16,10 +14,7 @@ function safeDecryptField(value) {
     return value;
 }
 
-/**
- * Decrypt all sensitive PII fields in a user object
- * Handles both newly-encrypted rows and legacy plaintext rows gracefully
- */
+// Decrypt all PII fields (email, names, department, program) in a user object
 function decryptUserFields(user) {
     if (!user) return null;
 
@@ -38,9 +33,7 @@ function decryptUserFields(user) {
     return user;
 }
 
-/**
- * Decrypt sensitive fields in array of users
- */
+// Map decryptUserFields over an array of user rows
 function decryptUserArray(users) {
     return users.map(user => decryptUserFields(user));
 }

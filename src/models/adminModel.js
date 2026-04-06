@@ -1,9 +1,7 @@
 const db = require('../config/db');
 const { decryptData } = require('../utils/encryption');
 
-/**
- * Decrypt sensitive fields in admin object
- */
+// Decrypt the email field if it is in encrypted format (iv:authTag:data)
 function decryptAdminFields(admin) {
     if (!admin) return null;
 
@@ -26,9 +24,7 @@ function decryptAdminFields(admin) {
     return admin;
 }
 
-/**
- * Decrypt sensitive fields in array of admins
- */
+// Map decryptAdminFields over an array of admin rows
 function decryptAdminArray(admins) {
     return admins.map(admin => decryptAdminFields(admin));
 }

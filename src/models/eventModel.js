@@ -1,10 +1,7 @@
 const db = require('../config/db');
 const { decryptData } = require('../utils/encryption');
 
-/**
- * Safely decrypt a single encrypted field.
- * Returns the original value if it is not encrypted or decryption fails.
- */
+// Safely decrypt a single encrypted field; returns original if not encrypted or decryption fails
 const safeDecrypt = (value) => {
     if (value && typeof value === 'string' && value.split(':').length === 3) {
         try { return decryptData(value); } catch { return value; }
@@ -12,10 +9,7 @@ const safeDecrypt = (value) => {
     return value;
 };
 
-/**
- * Build the scanned_by display name from a row, decrypting officer name if needed.
- * Priority: individual officer (student) > OSWS admin > org name
- */
+// Resolve the scanned_by display name: officer (decrypted) > OSWS admin > org name
 const resolveScannedBy = (row) => {
     // Try officer (student) name first — fields are encrypted in DB
     if (row._officer_first_name !== undefined || row._officer_last_name !== undefined) {
