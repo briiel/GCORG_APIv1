@@ -1,4 +1,7 @@
-// Role request routes: students submit requests, admins approve/reject
+/**
+ * Role Request Routes
+ * Endpoints for managing organization role requests
+ */
 
 const express = require('express');
 const router = express.Router();
@@ -7,28 +10,90 @@ const authenticateToken = require('../middleware/authMiddleware');
 const { checkRole } = require('../middleware/checkRole');
 const rateLimit = require('../middleware/rateLimit');
 
-const requestLimiter = rateLimit({ windowMs: 15 * 60 * 1000, max: 5 });  // 5 per 15 min
-const apiLimiter     = rateLimit({ windowMs: 60 * 1000,       max: 100 }); // 100 per min
+// Role request rate limits
+const requestLimiter = rateLimit({ windowMs: 15 * 60 * 1000, max: 5 }); // 5 submissions per 15 minutes
+const apiLimiter = rateLimit({ windowMs: 60 * 1000, max: 100 }); // 100 requests per minute
 
-// GET /api/organizations — all organizations (for dropdown)
-router.get('/organizations', authenticateToken, apiLimiter, roleRequestController.getAllOrganizations);
+/**
+ * @route   GET /api/organizations
+ * @desc    Get all organizations (for role request dropdown)
+ * @access  Protected - Any authenticated user
+ */
+router.get('/organizations', 
+  authenticateToken,
+  apiLimiter,
+  roleRequestController.getAllOrganizations
+);
 
-// POST /api/roles/request — student submits a new role request
-router.post('/roles/request', authenticateToken, checkRole(['Student']), requestLimiter, roleRequestController.submitRoleRequest);
+/**
+ * @route   POST /api/roles/request
+ * @desc    Submit a new role request (Student -> OrgOfficer)
+ * @access  Protected - Student only
+ */
+router.post('/roles/request', 
+  authenticateToken, 
+  checkRole(['Student']),
+  requestLimiter,
+  roleRequestController.submitRoleRequest
+);
 
-// GET /api/roles/my-requests — current user's own requests
-router.get('/roles/my-requests', authenticateToken, apiLimiter, roleRequestController.getMyRequests);
+/**
+ * @route   GET /api/roles/my-requests
+ * @desc    Get current user's role requests
+ * @access  Protected - Any authenticated user
+ */
+router.get('/roles/my-requests', 
+  authenticateToken,
+  apiLimiter,
+  roleRequestController.getMyRequests
+);
 
-// GET /api/admin/requests — all requests with optional status filter (admin only)
-router.get('/admin/requests', authenticateToken, checkRole(['OSWSAdmin']), apiLimiter, roleRequestController.getAllRequests);
+/**
+ * @route   GET /api/admin/requests
+ * @desc    Get all role requests (with optional status filter)
+ * @access  Protected - Admin only
+ */
+router.get('/admin/requests', 
+  authenticateToken, 
+  checkRole(['OSWSAdmin']),
+  apiLimiter,
+  roleRequestController.getAllRequests
+);
 
-// GET /api/admin/requests/pending — pending requests (admin only)
-router.get('/admin/requests/pending', authenticateToken, checkRole(['OSWSAdmin']), apiLimiter, roleRequestController.getPendingRequests);
+/**
+ * @route   GET /api/admin/requests/pending
+ * @desc    Get pending role requests
+ * @access  Protected - Admin only
+ */
+router.get('/admin/requests/pending', 
+  authenticateToken, 
+  checkRole(['OSWSAdmin']),
+  apiLimiter,
+  roleRequestController.getPendingRequests
+);
 
-// POST /api/admin/approve/:requestId — approve and create membership (transactional, admin only)
-router.post('/admin/approve/:requestId', authenticateToken, checkRole(['OSWSAdmin']), apiLimiter, roleRequestController.approveRequest);
+/**
+ * @route   POST /api/admin/approve/:requestId
+ * @desc    Approve a role request (transactional)
+ * @access  Protected - Admin only
+ */
+router.post('/admin/approve/:requestId', 
+  authenticateToken, 
+  checkRole(['OSWSAdmin']),
+  apiLimiter,
+  roleRequestController.approveRequest
+);
 
-// POST /api/admin/reject/:requestId — decline a request (admin only)
-router.post('/admin/reject/:requestId', authenticateToken, checkRole(['OSWSAdmin']), apiLimiter, roleRequestController.rejectRequest);
+/**
+ * @route   POST /api/admin/reject/:requestId
+ * @desc    Decline a role request
+ * @access  Protected - Admin only
+ */
+router.post('/admin/reject/:requestId', 
+  authenticateToken, 
+  checkRole(['OSWSAdmin']),
+  apiLimiter,
+  roleRequestController.rejectRequest
+);
 
 module.exports = router;

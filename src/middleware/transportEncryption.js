@@ -1,5 +1,5 @@
 // Transport encryption middleware: AES-256-GCM encrypt/decrypt for all JSON API payloads
-// Wire format (both directions): { "payload": "<iv_b64>:<authTag_b64>:<ciphertext_b64>" }
+// Wire format (both directions): "<iv_b64>:<authTag_b64>:<ciphertext_b64>" (bare JSON string)
 // Requests opt-in via X-Encrypted: true header; responses always carry X-Encrypted: true
 
 const crypto = require('crypto');
@@ -57,10 +57,11 @@ const decryptRequestBody = (req, res, next) => {
     if (isExcluded(req) || req.headers['x-encrypted'] !== 'true') return next();
     try {
         const body = req.body;
-        if (!body || typeof body.payload !== 'string') {
-            return res.status(400).json({ success: false, message: 'Encrypted request missing payload field.' });
+        const encryptedStr = typeof body === 'string' ? body : (body && typeof body.payload === 'string' ? body.payload : null);
+        if (!encryptedStr) {
+            return res.status(400).json({ success: false, message: 'Encrypted request body missing or invalid.' });
         }
-        req.body = JSON.parse(decryptPayload(body.payload));
+        req.body = JSON.parse(decryptPayload(encryptedStr));
         next();
     } catch (err) {
         console.error('[TransportEncryption] Request decryption failed:', err.message);
@@ -76,7 +77,7 @@ const encryptResponseBody = (req, res, next) => {
         try {
             const encryptedStr = encryptPayload(JSON.stringify(data));
             res.setHeader('X-Encrypted', 'true');
-            return originalJson({ payload: encryptedStr });
+            return originalJson(encryptedStr);
         } catch (err) {
             console.error('[TransportEncryption] Response encryption failed:', err.message);
             return originalJson(data);
