@@ -22,10 +22,10 @@ async function ensureSchema() {
 			KEY idx_panel_org (panel, org_id)
 		) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci;
 	`);
-        // Safely add optional columns like 'panel', tolerating existing columns
 
-
-
+	// Try to add the `panel` column and other optional columns if they are missing.
+	// Some MySQL versions support `ADD COLUMN IF NOT EXISTS`; wrap in try/catch to
+	// tolerate older servers or existing columns/indexes.
 	try {
 		await db.query(`ALTER TABLE notifications ADD COLUMN IF NOT EXISTS panel VARCHAR(50) NULL`);
 	} catch (err) {

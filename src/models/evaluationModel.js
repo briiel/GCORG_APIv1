@@ -1,4 +1,4 @@
-const db = require("../config/db");
+const db = require('../config/db');
 
 // Evaluation Model — DB operations for creating, querying, and aggregating event evaluation records
 
@@ -7,17 +7,17 @@ async function createEvaluation({ event_id, student_id, responses }) {
   const [result] = await db.query(
     `INSERT INTO evaluations (event_id, student_id, responses) 
      VALUES (?, ?, ?)`,
-    [event_id, student_id, JSON.stringify(responses)],
+    [event_id, student_id, JSON.stringify(responses)]
   );
-
+  
   // Also update attendance_records to mark evaluation as submitted
   await db.query(
     `UPDATE attendance_records 
      SET evaluation_submitted = 1, evaluation_submitted_at = UTC_TIMESTAMP() 
      WHERE event_id = ? AND student_id = ?`,
-    [event_id, student_id],
+    [event_id, student_id]
   );
-
+  
   return result.insertId;
 }
 
@@ -28,20 +28,19 @@ async function getEvaluationByStudentAndEvent(event_id, student_id) {
      FROM evaluations 
      WHERE event_id = ? AND student_id = ? 
      LIMIT 1`,
-    [event_id, student_id],
+    [event_id, student_id]
   );
-
+  
   if (rows.length > 0) {
     // Parse JSON responses
     return {
       ...rows[0],
-      responses:
-        typeof rows[0].responses === "string"
-          ? JSON.parse(rows[0].responses)
-          : rows[0].responses,
+      responses: typeof rows[0].responses === 'string' 
+        ? JSON.parse(rows[0].responses) 
+        : rows[0].responses
     };
   }
-
+  
   return null;
 }
 
@@ -52,15 +51,17 @@ async function hasSubmittedEvaluation(event_id, student_id) {
      FROM evaluations 
      WHERE event_id = ? AND student_id = ? 
      LIMIT 1`,
-    [event_id, student_id],
+    [event_id, student_id]
   );
-
+  
   return rows[0].count > 0;
 }
 
 // Get all evaluations for an event (for organizers/admins)
 async function getEvaluationsByEvent(event_id) {
-  // Use LEFT JOIN to fetch evaluations even if student data is missing, falling back to empty strings
+  // Use LEFT JOIN so evaluations are returned even if the student record is missing
+  // (avoids losing rows when student data is absent). Fallback student fields
+  // to empty strings to keep the UI rendering predictable.
   const [rows] = await db.query(
     `SELECT e.id, e.event_id, e.student_id, e.responses, e.submitted_at,
             IFNULL(s.first_name, '') AS first_name,
@@ -74,16 +75,15 @@ async function getEvaluationsByEvent(event_id) {
      LEFT JOIN students s ON e.student_id = s.id
      WHERE e.event_id = ?
      ORDER BY e.submitted_at DESC`,
-    [event_id],
+    [event_id]
   );
 
-  return rows.map((row) => ({
+  return rows.map(row => ({
     ...row,
     // keep responses as object when possible
-    responses:
-      typeof row.responses === "string"
-        ? JSON.parse(row.responses)
-        : row.responses,
+    responses: typeof row.responses === 'string'
+      ? JSON.parse(row.responses)
+      : row.responses
   }));
 }
 
@@ -95,9 +95,9 @@ async function getEvaluationStats(event_id) {
        COUNT(DISTINCT student_id) as unique_participants
      FROM evaluations 
      WHERE event_id = ?`,
-    [event_id],
+    [event_id]
   );
-
+  
   return stats[0];
 }
 
@@ -108,15 +108,12 @@ async function getRawEvaluationsByEvent(event_id) {
      FROM evaluations
      WHERE event_id = ?
      ORDER BY submitted_at DESC`,
-    [event_id],
+    [event_id]
   );
 
-  return rows.map((row) => ({
+  return rows.map(row => ({
     ...row,
-    responses:
-      typeof row.responses === "string"
-        ? JSON.parse(row.responses)
-        : row.responses,
+    responses: typeof row.responses === 'string' ? JSON.parse(row.responses) : row.responses
   }));
 }
 
@@ -126,5 +123,5 @@ module.exports = {
   hasSubmittedEvaluation,
   getEvaluationsByEvent,
   getEvaluationStats,
-  getRawEvaluationsByEvent,
+  getRawEvaluationsByEvent
 };

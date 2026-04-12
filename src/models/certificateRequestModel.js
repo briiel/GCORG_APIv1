@@ -1,7 +1,10 @@
 const db = require('../config/db');
 const { parseMysqlLocalStringToDate } = require('../utils/dbDate');
 
-// Configure timezone offsets for correct DATETIME interpretation based on server and event locations.
+// Use SERVER_TZ_OFFSET to correctly interpret DATETIME values stored by MySQL.
+// The MySQL server timezone determines what CURRENT_TIMESTAMP() produces.
+// For AlwaysData servers in CET (Central European Time), this should be '+01:00'.
+// Fall back to EVENT_TZ_OFFSET (event-local) only if SERVER_TZ_OFFSET is not set.
 const SERVER_TZ_OFFSET = process.env.SERVER_TZ_OFFSET || process.env.EVENT_TZ_OFFSET || '+08:00';
 const EVENT_TZ_OFFSET = process.env.EVENT_TZ_OFFSET || '+08:00';
 
@@ -131,14 +134,14 @@ const getCertificateRequestsByOrg = async (org_id, page = undefined, per_page = 
 		const [qrows] = await db.query(query, [org_id]);
 		rows = qrows;
 		total = rows.length;
-        // Map dates into explicit unambiguous UTC ISO strings for accurate frontend timezone rendering
-
-
-
+	}
+	// Convert DATETIME strings (returned as strings by dateStrings: true) into
+	// explicit ISO UTC strings and event-local formatted strings so the frontend
+	// can display either UTC or event-local times without ambiguity.
 	const mapped = (rows || []).map(r => {
-                                // Interpret MySQL local DATETIME using SERVER_TZ_OFFSET and convert to correct UTC JS Date
-
-
+		const out = { ...r };
+		try {
+			if (out.requested_at) {
 				// Interpret the MySQL DATETIME as occurring in the SERVER timezone (SERVER_TZ_OFFSET)
 				// because CURRENT_TIMESTAMP() stores time in the server's timezone.
 				// Convert it to a UTC JS Date so the frontend gets a correct ISO instant.
