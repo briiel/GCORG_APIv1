@@ -50,6 +50,7 @@ app.use('/api', globalLimiter);
 app.use(cors());
 app.use(express.json({
     limit: '10mb',
+    strict: false, // Allow bare JSON strings (used by transport encryption wire format)
     skip: (req) => req.is('multipart/form-data') // Skip for multipart; handled by multer
 }));
 app.use(express.urlencoded({ extended: true, limit: '10mb' }));
