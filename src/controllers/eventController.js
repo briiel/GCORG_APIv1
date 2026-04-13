@@ -142,8 +142,8 @@ exports.createEvent = async (req, res) => {
 
 exports.getEvents = async (req, res) => {
     try {
-        const page = req.query.page ? parseInt(req.query.page, 10) : undefined;
-        const per_page = req.query.per_page ? parseInt(req.query.per_page, 10) : undefined;
+        const page = (req.body?.page || req.query.page) ? parseInt(req.body?.page || req.query.page, 10) : undefined;
+        const per_page = (req.body?.per_page || req.query.per_page) ? parseInt(req.body?.per_page || req.query.per_page, 10) : undefined;
         let eventsResult = await eventService.fetchAllEvents({ page, per_page });
         let events = eventsResult && eventsResult.items ? eventsResult.items : eventsResult;
 
@@ -940,7 +940,7 @@ exports.getOswsDashboardStats = async (req, res) => {
 // Chart datasets for OSWS dashboard — supports weekly/monthly/yearly filter
 exports.getOswsDashboardCharts = async (req, res) => {
     try {
-        const filter = String(req.query.filter || 'monthly').toLowerCase();
+        const filter = String(req.body?.filter || req.query.filter || 'monthly').toLowerCase();
         const allowed = ['weekly', 'monthly', 'yearly'];
         const f = allowed.includes(filter) ? filter : 'monthly';
         const data = await eventService.getOswsDashboardCharts(f);
@@ -1504,5 +1504,92 @@ exports.requestCertificate = async (req, res) => {
     } catch (error) {
         console.error('requestCertificate error:', error);
         return handleErrorResponse(res, error.message);
+    }
+};
+
+// ─── POST /event/fetch dispatcher ───────────────────────────────────────────
+// Reads req.body.resource and delegates to the correct handler.
+// All parameters (IDs, filters) travel in the request body — nothing is
+// exposed in the URL path.
+exports.fetchDispatch = async (req, res) => {
+    const resource = req.params?.resource || req.body?.resource;
+    if (!resource) return res.status(400).json({ success: false, message: 'resource is required' });
+
+    // Shim: map body params into req.params / req.query so existing handlers work unchanged
+    switch (resource) {
+        case 'all_events':
+            return exports.getEvents(req, res);
+
+        case 'events_by_participant':
+            req.params = { ...req.params, student_id: req.body.student_id };
+            return exports.getEventsByParticipant(req, res);
+
+        case 'attended_events':
+            req.params = { ...req.params, student_id: req.body.student_id };
+            return exports.getAttendedEventsByStudent(req, res);
+
+        case 'events_by_creator':
+            req.params = { ...req.params, creator_id: req.body.creator_id };
+            return exports.getEventsByCreator(req, res);
+
+        case 'all_attendance':
+            return exports.getAllAttendanceRecords(req, res);
+
+        case 'attendance_count_by_creator':
+            req.params = { ...req.params, creatorId: req.body.creator_id };
+            return exports.getAttendeeCountByCreator(req, res);
+
+        case 'attendance_by_event':
+            req.params = { ...req.params, eventId: req.body.event_id };
+            return exports.getAttendanceRecordsByEvent(req, res);
+
+        case 'trashed_events':
+            return exports.getTrashedEvents(req, res);
+
+        case 'events_by_admin':
+            req.params = { ...req.params, admin_id: req.body.admin_id };
+            return exports.getEventsByAdmin(req, res);
+
+        case 'org_events':
+            return exports.getAllOrgEvents(req, res);
+
+        case 'osws_events':
+            return exports.getAllOswsEvents(req, res);
+
+        case 'event_participants':
+            req.params = { ...req.params, event_id: req.body.event_id };
+            return exports.getEventParticipants(req, res);
+
+        case 'event_by_id':
+            req.params = { ...req.params, id: req.body.event_id };
+            return exports.getEventById(req, res);
+
+        case 'certificates':
+            req.query = { ...req.query, student_id: req.body.student_id };
+            return exports.getCertificatesByStudent(req, res);
+
+        case 'org_stats':
+            return exports.getOrgDashboardStats(req, res);
+
+        case 'osws_stats':
+            return exports.getOswsDashboardStats(req, res);
+
+        case 'osws_charts':
+            return exports.getOswsDashboardCharts(req, res);
+
+        // Evaluation resources — delegated to evaluationController
+        case 'eval_status':
+        case 'eval_mine':
+        case 'eval_all': {
+            const evalController = require('./evaluationController');
+            req.params = { ...req.params, event_id: req.body.event_id };
+            if (resource === 'eval_status') return evalController.getEvaluationStatus(req, res);
+            if (resource === 'eval_mine')   return evalController.getMyEvaluation(req, res);
+            if (resource === 'eval_all')    return evalController.getEventEvaluations(req, res);
+            break;
+        }
+
+        default:
+            return res.status(400).json({ success: false, message: `Unknown resource: ${resource}` });
     }
 };

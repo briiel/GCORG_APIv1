@@ -82,8 +82,8 @@ const submitRoleRequest = async (req, res) => {
 // Get all pending role requests with pagination (admin only)
 const getPendingRequests = async (req, res) => {
   try {
-    const page = Math.max(1, parseInt(req.query.page || '1', 10) || 1);
-    const per_page = Math.max(1, parseInt(req.query.per_page || '10', 10) || 10);
+    const page = Math.max(1, parseInt(req.body?.page || req.query.page || '1', 10) || 1);
+    const per_page = Math.max(1, parseInt(req.body?.per_page || req.query.per_page || '10', 10) || 10);
     const offset = (page - 1) * per_page;
 
     const [countRows] = await db.query(`SELECT COUNT(*) AS total FROM organization_role_requests WHERE status = 'pending'`);
@@ -120,10 +120,10 @@ const getPendingRequests = async (req, res) => {
 
 // Get all role requests (all statuses) with optional filter and pagination (admin only)
 const getAllRequests = async (req, res) => {
-  const { status } = req.query;
+  const { status } = req.body?.status ? req.body : req.query;
   try {
-    const page = Math.max(1, parseInt(req.query.page || '1', 10) || 1);
-    const per_page = Math.max(1, parseInt(req.query.per_page || '10', 10) || 10);
+    const page = Math.max(1, parseInt(req.body?.page || req.query.page || '1', 10) || 1);
+    const per_page = Math.max(1, parseInt(req.body?.per_page || req.query.per_page || '10', 10) || 10);
     const offset = (page - 1) * per_page;
 
     const params = [];

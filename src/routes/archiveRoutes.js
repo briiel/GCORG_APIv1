@@ -8,6 +8,13 @@ const rateLimit = require('../middleware/rateLimit');
 const apiLimiter = rateLimit({ windowMs: 60 * 1000, max: 50 }); // 50 requests per minute
 const modifyLimiter = rateLimit({ windowMs: 60 * 1000, max: 30 }); // 30 requests per minute for restore/delete
 
+// POST /fetch/:resource — resource discriminator visible in Network tab
+router.post('/fetch/:resource', authenticateToken, apiLimiter, (req, res) => {
+    const resource = req.params.resource || req.body?.resource;
+    if (resource === 'expired_count') return archiveController.getExpiredItemsCount(req, res);
+    return archiveController.getTrash(req, res);
+});
+
 // Get all archived/trashed items
 router.get('/archive/trash', authenticateToken, apiLimiter, archiveController.getTrash);
 

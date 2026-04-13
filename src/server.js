@@ -22,6 +22,7 @@ const autoCleanupService = require('./services/autoCleanupService');
 const rateLimit = require('./middleware/rateLimit');
 const { secureResponseMiddleware, securityHeadersMiddleware } = require('./middleware/secureResponse');
 const { decryptRequestBody, encryptResponseBody } = require('./middleware/transportEncryption');
+const blockDirectBrowserAccess = require('./middleware/blockDirectBrowserAccess');
 
 validateEnvironment();
 
@@ -54,6 +55,10 @@ app.use(express.json({
     skip: (req) => req.is('multipart/form-data') // Skip for multipart; handled by multer
 }));
 app.use(express.urlencoded({ extended: true, limit: '10mb' }));
+
+// Block direct browser navigation to /api/* — silently destroys the TCP socket
+// so the browser shows "This site can't be reached" instead of any API data.
+app.use(blockDirectBrowserAccess);
 
 // Transport-layer payload encryption: decryptRequestBody unwraps encrypted requests; encryptResponseBody wraps all JSON responses
 app.use(decryptRequestBody);

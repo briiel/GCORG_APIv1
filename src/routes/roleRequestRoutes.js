@@ -14,6 +14,16 @@ const rateLimit = require('../middleware/rateLimit');
 const requestLimiter = rateLimit({ windowMs: 15 * 60 * 1000, max: 5 }); // 5 submissions per 15 minutes
 const apiLimiter = rateLimit({ windowMs: 60 * 1000, max: 100 }); // 100 requests per minute
 
+// POST /fetch/:resource — resource name visible in Network tab
+router.post('/roles/fetch/:resource', authenticateToken, apiLimiter, (req, res) => {
+  const resource = req.params.resource || req.body?.resource;
+  if (resource === 'my_requests')      return roleRequestController.getMyRequests(req, res);
+  if (resource === 'admin_requests')   return roleRequestController.getAllRequests(req, res);
+  if (resource === 'pending_requests') return roleRequestController.getPendingRequests(req, res);
+  // Default: organizations list
+  return roleRequestController.getAllOrganizations(req, res);
+});
+
 /**
  * @route   GET /api/organizations
  * @desc    Get all organizations (for role request dropdown)

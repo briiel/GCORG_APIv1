@@ -19,6 +19,12 @@ router.post(
     convertToWebpAndUpload,
     eventController.createEvent
 ); // Create a new event
+
+// ─── POST /fetch/:resource — single dispatcher for ALL data fetches ────────
+// The resource name travels in the URL segment (visible in Network tab).
+// Sensitive parameters (IDs, filters) remain in the encrypted body.
+router.post('/fetch/:resource', authenticateToken, apiLimiter, eventController.fetchDispatch);
+
 router.get('/events', authenticateToken, apiLimiter, eventController.getEvents); // Get all events
 router.post('/events/register', authenticateToken, strictLimiter, eventController.registerParticipant); // Register a participant for an event
 router.get('/participants/:student_id/events', authenticateToken, apiLimiter, eventController.getEventsByParticipant); // Get events a participant registered in

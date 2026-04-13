@@ -9,7 +9,7 @@ exports.getNotifications = async (req, res) => {
 		// students use `studentId`, admins use `legacyId`, fallback to `id`
 		const user_id = String(req.user.studentId || req.user.legacyId || req.user.id);
 		// Panel may be provided by frontend: 'student' | 'organization' | 'admin' | 'osws_admin'
-		let panel = req.query.panel || null;
+		let panel = req.body?.panel || null;
 		// Normalize frontend panel names to backend model expectations
 		if (panel === 'osws_admin') panel = 'osws';
 		const org_id = req.user.organization?.org_id || req.user.organization_id || req.user.orgId || null;
@@ -39,7 +39,7 @@ exports.markAsRead = async (req, res) => {
 exports.markAllAsRead = async (req, res) => {
 	try {
 		const user_id = String(req.user.studentId || req.user.legacyId || req.user.id);
-		let panel = req.query.panel || null;
+		let panel = req.body?.panel || null;
 		if (panel === 'osws_admin') panel = 'osws';
 		const org_id = req.user.organization?.org_id || req.user.organization_id || req.user.orgId || null;
 		await notificationService.markAllAsRead(user_id, { panel, org_id });

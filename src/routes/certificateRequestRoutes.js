@@ -21,6 +21,8 @@ const validateStatusBody = (req, res, next) => {
 	next();
 };
 
+// POST /fetch/:resource — resource name visible in Network tab
+router.post('/fetch/:resource', authenticateToken, certLimiter, certificateRequestController.getCertificateRequests);
 // Get all certificate requests for an organization
 router.get('/requests', authenticateToken, certLimiter, certificateRequestController.getCertificateRequests);
 

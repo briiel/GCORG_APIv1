@@ -32,7 +32,7 @@ router.post('/login', authLimiter, authController.login);
  * @desc    Verify JWT token validity
  * @access  Protected
  */
-router.get('/verify', authenticateToken, authController.verifyToken);
+router.post('/verify', authenticateToken, authController.verifyToken);
 
 /**
  * @route   POST /api/auth/accept-privacy-policy
@@ -46,6 +46,7 @@ router.post('/accept-privacy-policy', authenticateToken, authLimiter, authContro
  * @desc    Get privacy policy acceptance status for logged-in user
  * @access  Protected
  */
+router.post('/fetch/:resource', authenticateToken, authController.getPrivacyPolicyStatus);
 router.get('/privacy-policy-status', authenticateToken, authController.getPrivacyPolicyStatus);
 
 module.exports = router;
