@@ -1012,7 +1012,7 @@ exports.getCertificatesByStudent = async (req, res) => {
                      GROUP BY event_id, student_id
                  ) latest ON latest.event_id = cr_inner.event_id AND latest.student_id = cr_inner.student_id AND latest.max_req_at = cr_inner.requested_at
              ) cr ON cr.event_id = ar.event_id AND cr.student_id = ar.student_id
-             WHERE ar.student_id = ? AND ar.deleted_at IS NULL AND ce.deleted_at IS NULL
+             WHERE ar.student_id = ? AND ar.deleted_at IS NULL
              ORDER BY ce.end_date DESC, ce.start_date DESC`,
             [student_id, student_id]
         );

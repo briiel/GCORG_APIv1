@@ -178,13 +178,13 @@ const getAllEvents = async (page = undefined, per_page = undefined) => {
             LEFT JOIN student_organizations org ON ce.created_by_org_id = org.id
             LEFT JOIN osws_admins osws ON ce.created_by_osws_id = osws.id
             LEFT JOIN students s_creator ON ce.created_by_student_id = s_creator.id
-            WHERE ce.deleted_at IS NULL
+            WHERE ce.deleted_at IS NULL AND (ce.end_date >= DATE_SUB(CURDATE(), INTERVAL 14 DAY) OR ce.end_date IS NULL)
         `;
     try {
         if (page && per_page) {
             const p = Math.max(1, parseInt(page, 10));
             const pp = Math.max(1, Math.min(200, parseInt(per_page, 10)));
-            const [[countRow]] = await db.query('SELECT COUNT(*) AS cnt FROM created_events WHERE deleted_at IS NULL');
+            const [[countRow]] = await db.query('SELECT COUNT(*) AS cnt FROM created_events WHERE deleted_at IS NULL AND (end_date >= DATE_SUB(CURDATE(), INTERVAL 14 DAY) OR end_date IS NULL)');
             const total = Number(countRow?.cnt || 0);
             const offset = (p - 1) * pp;
             const pagedSql = baseSql + ' ORDER BY ce.created_at DESC LIMIT ? OFFSET ?';
@@ -210,7 +210,7 @@ const getEventsByParticipant = async (student_id) => {
         LEFT JOIN student_organizations org ON ce.created_by_org_id = org.id
         LEFT JOIN osws_admins osws ON ce.created_by_osws_id = osws.id
         LEFT JOIN students s_creator ON ce.created_by_student_id = s_creator.id
-        WHERE er.student_id = ? AND ce.deleted_at IS NULL
+        WHERE er.student_id = ?
         ORDER BY er.id DESC
     `;
     try {
@@ -486,13 +486,13 @@ const getAllOswsEvents = async (page = undefined, per_page = undefined) => {
         SELECT ce.*, a.name AS admin_name
         FROM created_events ce
         JOIN osws_admins a ON ce.created_by_osws_id = a.id
-        WHERE ce.created_by_osws_id IS NOT NULL AND ce.deleted_at IS NULL
+        WHERE ce.created_by_osws_id IS NOT NULL AND ce.deleted_at IS NULL AND (ce.end_date >= DATE_SUB(CURDATE(), INTERVAL 14 DAY) OR ce.end_date IS NULL)
     `;
     try {
         if (page && per_page) {
             const p = Math.max(1, parseInt(page, 10));
             const pp = Math.max(1, Math.min(200, parseInt(per_page, 10)));
-            const [[countRow]] = await db.query('SELECT COUNT(*) AS cnt FROM created_events WHERE created_by_osws_id IS NOT NULL AND deleted_at IS NULL');
+            const [[countRow]] = await db.query('SELECT COUNT(*) AS cnt FROM created_events WHERE created_by_osws_id IS NOT NULL AND deleted_at IS NULL AND (end_date >= DATE_SUB(CURDATE(), INTERVAL 14 DAY) OR end_date IS NULL)');
             const total = Number(countRow?.cnt || 0);
             const offset = (p - 1) * pp;
             const pagedSql = baseSql + ' ORDER BY ce.created_at DESC LIMIT ? OFFSET ?';
@@ -653,52 +653,20 @@ const getEventById = async (eventId) => {
     return rows[0];
 };
 
-// Hard delete: remove event and dependent data
+// Hard delete: remove event and dependent data (REVISED to Soft-Permanent Delete)
 const hardDeleteEvent = async (eventId) => {
-    const conn = await db.getConnection?.() || db; // supports pool or promise wrapper
     try {
-        if (conn.beginTransaction) await conn.beginTransaction();
-
-        // Delete attendance records referencing this event
-        await conn.query('DELETE FROM attendance_records WHERE event_id = ?', [eventId]);
-
-        // Delete evaluations for this event (FK has ON DELETE CASCADE but we're explicit)
-        await conn.query('DELETE FROM evaluations WHERE event_id = ?', [eventId]);
-
-        // Delete certificate requests for this event
-        await conn.query('DELETE FROM certificate_requests WHERE event_id = ?', [eventId]);
-
-        // For backward-compat: if a legacy table `registration_details` exists, clean it up too.
-        try {
-            const [tbl] = await conn.query(
-                "SELECT 1 AS exists_flag FROM information_schema.tables WHERE table_schema = DATABASE() AND table_name = 'registration_details'"
-            );
-            const hasRegistrationDetails = Array.isArray(tbl) && tbl.length > 0;
-            if (hasRegistrationDetails) {
-                await conn.query(
-                    'DELETE rd FROM registration_details rd JOIN event_registrations er ON rd.registration_id = er.id WHERE er.event_id = ?',
-                    [eventId]
-                );
-            }
-        } catch (e) {
-            // If information_schema is unavailable or any error occurs, skip optional cleanup silently.
-        }
-
-        // Delete registrations
-        await conn.query('DELETE FROM event_registrations WHERE event_id = ?', [eventId]);
-        // Delete certificates for this event
-        await conn.query('DELETE FROM certificates WHERE event_id = ?', [eventId]);
-        // Finally delete the event
-        const [res] = await conn.query('DELETE FROM created_events WHERE event_id = ?', [eventId]);
-
-        if (conn.commit) await conn.commit();
+        // Instead of manually deleting attendance_records, evaluations, certificates, etc
+        // we execute a "Soft-Permanent" delete. The record stays in MySQL indefinitely to preserve
+        // student history and certificates, but disappears from the Organizer's panels forever.
+        const [res] = await db.query(
+            'UPDATE created_events SET permanently_deleted_at = UTC_TIMESTAMP() WHERE event_id = ? AND permanently_deleted_at IS NULL', 
+            [eventId]
+        );
         return res.affectedRows > 0;
     } catch (error) {
-        if (conn.rollback) await conn.rollback();
         console.error('Error hard-deleting event:', error.stack || error);
         throw error;
-    } finally {
-        if (conn.release) conn.release();
     }
 };
 
@@ -708,7 +676,7 @@ const getTrashedOrgEvents = async (orgId) => {
         SELECT ce.*, org.department, org.org_name
         FROM created_events ce
         JOIN student_organizations org ON ce.created_by_org_id = org.id
-        WHERE ce.created_by_org_id = ? AND ce.deleted_at IS NOT NULL
+        WHERE ce.created_by_org_id = ? AND ce.deleted_at IS NOT NULL AND ce.permanently_deleted_at IS NULL
         ORDER BY ce.deleted_at DESC
     `;
     const [rows] = await db.query(query, [orgId]);
@@ -720,7 +688,7 @@ const getTrashedOswsEvents = async (adminId) => {
         SELECT ce.*, a.name AS admin_name
         FROM created_events ce
         JOIN osws_admins a ON ce.created_by_osws_id = a.id
-        WHERE ce.created_by_osws_id = ? AND ce.deleted_at IS NOT NULL
+        WHERE ce.created_by_osws_id = ? AND ce.deleted_at IS NOT NULL AND ce.permanently_deleted_at IS NULL
         ORDER BY ce.deleted_at DESC
     `;
     const [rows] = await db.query(query, [adminId]);

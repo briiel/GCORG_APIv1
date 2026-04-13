@@ -1,5 +1,6 @@
 const db = require('../config/db');
 const { decryptData } = require('../utils/encryption');
+const eventModel = require('./eventModel');
 
 // Decrypt the email field of a record if it appears to be in iv:authTag:data format
 function decryptEmailField(record) {
@@ -189,10 +190,16 @@ const getExpiredItemsCount = async () => {
          WHERE deleted_at IS NOT NULL AND deleted_at < DATE_SUB(UTC_TIMESTAMP(), INTERVAL 30 DAY)`
     );
     
+    const [eventsCount] = await db.query(
+        `SELECT COUNT(*) as count FROM created_events 
+         WHERE deleted_at IS NOT NULL AND deleted_at < DATE_SUB(UTC_TIMESTAMP(), INTERVAL 30 DAY)`
+    );
+    
     return {
         admins: adminsCount[0].count,
         organizations: orgsCount[0].count,
-        members: membersCount[0].count
+        members: membersCount[0].count,
+        events: eventsCount[0].count
     };
 };
 
@@ -201,7 +208,8 @@ const autoDeleteExpiredItems = async () => {
     let deleted = {
         admins: 0,
         organizations: 0,
-        members: 0
+        members: 0,
+        events: 0
     };
     
     // Delete expired admins
@@ -224,6 +232,14 @@ const autoDeleteExpiredItems = async () => {
          WHERE deleted_at IS NOT NULL AND deleted_at < DATE_SUB(UTC_TIMESTAMP(), INTERVAL 30 DAY)`
     );
     deleted.members = membersResult.affectedRows;
+    
+    // Soft-Permanent delete expired events (tricks organizer UI into thinking it's gone)
+    const [eventsResult] = await db.query(
+        `UPDATE created_events 
+         SET permanently_deleted_at = UTC_TIMESTAMP() 
+         WHERE deleted_at IS NOT NULL AND permanently_deleted_at IS NULL AND deleted_at < DATE_SUB(UTC_TIMESTAMP(), INTERVAL 30 DAY)`
+    );
+    deleted.events = eventsResult.affectedRows;
     
     return deleted;
 };

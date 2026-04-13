@@ -15,9 +15,10 @@ const startAutoCleanup = () => {
             console.log(`  - Admins deleted: ${deleted.admins}`);
             console.log(`  - Organizations deleted: ${deleted.organizations}`);
             console.log(`  - Members deleted: ${deleted.members}`);
-            if (deleted.admins > 0 || deleted.organizations > 0 || deleted.members > 0) {
+            console.log(`  - Events deleted: ${deleted.events}`);
+            if (deleted.admins > 0 || deleted.organizations > 0 || deleted.members > 0 || deleted.events > 0) {
                 console.log('[Auto-Cleanup] Total items permanently deleted:',
-                    deleted.admins + deleted.organizations + deleted.members);
+                    deleted.admins + deleted.organizations + deleted.members + deleted.events);
             } else {
                 console.log('[Auto-Cleanup] No expired items found.');
             }
@@ -46,6 +47,7 @@ const runCleanupNow = async () => {
         console.log(`  - Admins deleted: ${deleted.admins}`);
         console.log(`  - Organizations deleted: ${deleted.organizations}`);
         console.log(`  - Members deleted: ${deleted.members}`);
+        console.log(`  - Events deleted: ${deleted.events}`);
         return deleted;
     } catch (error) {
         console.error('[Auto-Cleanup] Error during cleanup:', error);
