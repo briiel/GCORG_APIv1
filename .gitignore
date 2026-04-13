@@ -3,3 +3,4 @@ node_modules/
 scripts/add-dummy-notification.js
 *.pem
 scripts/generate-rsa-keys.js
+/scripts
