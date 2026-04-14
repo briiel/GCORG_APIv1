@@ -112,20 +112,30 @@ const getNotificationsForUser = async (user_id, options = {}) => {
 		LEFT JOIN created_events e ON n.event_id = e.event_id
 		WHERE (n.user_id IS NULL OR n.user_id = ?)
 	`;
+	let countSql = `SELECT COUNT(*) AS cnt FROM notifications n LEFT JOIN created_events e ON n.event_id = e.event_id WHERE (n.user_id IS NULL OR n.user_id = ?)`;
+
 	const params = [user_id];
 
 	if (panel === 'student') {
 		// Student panel: exclude organization-only notifications
-		sql += ` AND (n.panel IS NULL OR n.panel = 'student' OR n.panel = 'global')`;
+		const condition = ` AND (n.panel IS NULL OR n.panel = 'student' OR n.panel = 'global')`;
+		sql += condition;
+		countSql += condition;
 	} else if (panel === 'organization') {
 		// Organization panel: show organization-scoped notifications for this org and global
-		sql += ` AND (n.panel IS NULL OR n.panel = 'global' OR (n.panel = 'organization' AND n.org_id = ?))`;
+		const condition = ` AND (n.panel IS NULL OR n.panel = 'global' OR (n.panel = 'organization' AND n.org_id = ?))`;
+		sql += condition;
+		countSql += condition;
 		params.push(org_id);
 	} else if (panel === 'admin') {
-		sql += ` AND (n.panel IS NULL OR n.panel = 'global' OR n.panel = 'admin')`;
+		const condition = ` AND (n.panel IS NULL OR n.panel = 'global' OR n.panel = 'admin')`;
+		sql += condition;
+		countSql += condition;
 	} else if (panel === 'osws') {
 		// OSWS panel: show OSWS-scoped notifications and global messages
-		sql += ` AND (n.panel IS NULL OR n.panel = 'global' OR n.panel = 'osws')`;
+		const condition = ` AND (n.panel IS NULL OR n.panel = 'global' OR n.panel = 'osws')`;
+		sql += condition;
+		countSql += condition;
 	} else {
 		// No panel provided: return all notifications visible to the user
 	}
@@ -140,7 +150,6 @@ const getNotificationsForUser = async (user_id, options = {}) => {
 	let total = 0;
 	if (page && per_page) {
 		// Count with same WHERE clause
-		const countSql = `SELECT COUNT(*) AS cnt FROM notifications n LEFT JOIN created_events e ON n.event_id = e.event_id WHERE (n.user_id IS NULL OR n.user_id = ?)` + (sql.includes('AND (n.panel') ? sql.split('WHERE (n.user_id IS NULL OR n.user_id = ?)')[1].replace(/^\s+/, ' WHERE ') : '');
 		const [[cnt]] = await db.query(countSql, params);
 		total = Number(cnt?.cnt || 0);
 		const offset = (page - 1) * per_page;

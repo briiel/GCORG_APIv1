@@ -660,7 +660,7 @@ const hardDeleteEvent = async (eventId) => {
         // we execute a "Soft-Permanent" delete. The record stays in MySQL indefinitely to preserve
         // student history and certificates, but disappears from the Organizer's panels forever.
         const [res] = await db.query(
-            'UPDATE created_events SET permanently_deleted_at = UTC_TIMESTAMP() WHERE event_id = ? AND permanently_deleted_at IS NULL', 
+            'UPDATE created_events SET permanently_deleted_at = UTC_TIMESTAMP() WHERE event_id = ? AND permanently_deleted_at IS NULL',
             [eventId]
         );
         return res.affectedRows > 0;
