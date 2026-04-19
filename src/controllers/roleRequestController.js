@@ -48,7 +48,7 @@ const submitRoleRequest = async (req, res) => {
 
     // Prevent re-joining if already a member
     const [existingMemberships] = await db.query(
-      `SELECT member_id FROM organizationmembers WHERE student_id = ? AND org_id = ? AND is_active = TRUE`,
+      `SELECT member_id FROM organization_members WHERE student_id = ? AND org_id = ? AND is_active = TRUE`,
       [studentId, org_id]
     );
     if (existingMemberships.length > 0) return handleErrorResponse(res, 'You are already an officer in this organization.', 400);
@@ -164,7 +164,7 @@ const getAllRequests = async (req, res) => {
   }
 };
 
-// Approve a role request and add student to organizationmembers (transactional, admin only)
+// Approve a role request and add student to organization_members (transactional, admin only)
 const approveRequest = async (req, res) => {
   const { requestId } = req.params;
   const { review_notes } = req.body;
@@ -196,7 +196,7 @@ const approveRequest = async (req, res) => {
     );
 
     await connection.query(
-      `INSERT INTO organizationmembers (student_id, org_id, position, is_active, added_by_admin_id)
+      `INSERT INTO organization_members (student_id, org_id, position, is_active, added_by_admin_id)
        VALUES (?, ?, ?, TRUE, ?)`,
       [request.student_id, request.org_id, request.requested_position, reviewerAdminId]
     );

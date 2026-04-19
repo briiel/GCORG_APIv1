@@ -47,7 +47,7 @@ const checkAuth = async (req, res, next) => {
       const studentId = decoded.studentId || null;
       if (studentId) {
         const [rows] = await db.query(
-          `SELECT 1 FROM organizationmembers WHERE student_id = ? AND is_active = TRUE LIMIT 1`,
+          `SELECT 1 FROM organization_members WHERE student_id = ? AND is_active = TRUE LIMIT 1`,
           [studentId]
         );
         const hasActiveMembership = Array.isArray(rows) && rows.length > 0;

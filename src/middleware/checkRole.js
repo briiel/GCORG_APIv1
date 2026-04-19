@@ -35,7 +35,7 @@ const checkRole = (allowedRoles) => {
 
         try {
           const [rows] = await db.query(
-            `SELECT 1 FROM organizationmembers WHERE student_id = ? AND is_active = TRUE LIMIT 1`,
+            `SELECT 1 FROM organization_members WHERE student_id = ? AND is_active = TRUE LIMIT 1`,
             [studentId]
           );
           const hasActiveMembership = Array.isArray(rows) ? rows.length > 0 : false;

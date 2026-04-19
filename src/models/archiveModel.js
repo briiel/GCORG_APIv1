@@ -114,7 +114,7 @@ const getTrashedMembersByOrg = async (orgId) => {
             s.department,
             s.program,
             so.org_name
-        FROM organizationmembers om
+        FROM organization_members om
         JOIN students s ON om.student_id = s.id
         JOIN student_organizations so ON om.org_id = so.id
         WHERE om.org_id = ? AND om.deleted_at IS NOT NULL
@@ -143,7 +143,7 @@ const getTrashedMembersAll = async () => {
             s.department,
             s.program,
             so.org_name
-        FROM organizationmembers om
+        FROM organization_members om
         JOIN students s ON om.student_id = s.id
         JOIN student_organizations so ON om.org_id = so.id
         WHERE om.deleted_at IS NOT NULL
@@ -156,7 +156,7 @@ const getTrashedMembersAll = async () => {
 // Restore a trashed organization member
 const restoreMember = async (memberId) => {
     const query = `
-        UPDATE organizationmembers 
+        UPDATE organization_members 
         SET deleted_at = NULL, deleted_by = NULL, is_active = TRUE 
         WHERE member_id = ? AND deleted_at IS NOT NULL
     `;
@@ -166,7 +166,7 @@ const restoreMember = async (memberId) => {
 
 // Permanently delete an organization member (hard delete)
 const permanentDeleteMember = async (memberId) => {
-    const query = `DELETE FROM organizationmembers WHERE member_id = ? AND deleted_at IS NOT NULL`;
+    const query = `DELETE FROM organization_members WHERE member_id = ? AND deleted_at IS NOT NULL`;
     const [result] = await db.query(query, [memberId]);
     return result.affectedRows > 0;
 };
@@ -186,7 +186,7 @@ const getExpiredItemsCount = async () => {
     );
     
     const [membersCount] = await db.query(
-        `SELECT COUNT(*) as count FROM organizationmembers 
+        `SELECT COUNT(*) as count FROM organization_members 
          WHERE deleted_at IS NOT NULL AND deleted_at < DATE_SUB(UTC_TIMESTAMP(), INTERVAL 30 DAY)`
     );
     
@@ -228,7 +228,7 @@ const autoDeleteExpiredItems = async () => {
     
     // Delete expired members
     const [membersResult] = await db.query(
-        `DELETE FROM organizationmembers 
+        `DELETE FROM organization_members 
          WHERE deleted_at IS NOT NULL AND deleted_at < DATE_SUB(UTC_TIMESTAMP(), INTERVAL 30 DAY)`
     );
     deleted.members = membersResult.affectedRows;

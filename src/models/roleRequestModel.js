@@ -64,7 +64,7 @@ const hasPendingRequest = async (studentId, orgId) => {
 const isOfficerInOrg = async (studentId, orgId) => {
   const [memberships] = await db.query(
     `SELECT member_id 
-     FROM organizationmembers 
+     FROM organization_members 
      WHERE student_id = ? AND org_id = ? AND is_active = TRUE AND deleted_at IS NULL`,
     [studentId, orgId]
   );
@@ -185,7 +185,7 @@ const addOrganizationMember = async (memberData) => {
   const { student_id, org_id, position, added_by_admin_id } = memberData;
   
   const [result] = await db.query(
-    `INSERT INTO organizationmembers 
+    `INSERT INTO organization_members 
      (student_id, org_id, position, is_active, added_by_admin_id) 
      VALUES (?, ?, ?, TRUE, ?)`,
     [student_id, org_id, position, added_by_admin_id]

@@ -108,7 +108,7 @@ const getOrganizationMembers = async (orgId) => {
             s.department,
             s.program,
             COALESCE(s.year_level, 4) AS year_level
-        FROM organizationmembers om
+        FROM organization_members om
         JOIN students s ON om.student_id = s.id
         WHERE om.org_id = ? AND om.is_active = TRUE AND om.deleted_at IS NULL
         ORDER BY om.joined_at DESC`,
@@ -125,7 +125,7 @@ const getOrganizationMembersPaginated = async (orgId, page = 1, per_page = 20) =
     const pp = Math.max(1, Math.min(100, parseInt(per_page || 20, 10)));
     const offset = (p - 1) * pp;
 
-    const countSql = `SELECT COUNT(*) AS cnt FROM organizationmembers WHERE org_id = ? AND is_active = TRUE AND deleted_at IS NULL`;
+    const countSql = `SELECT COUNT(*) AS cnt FROM organization_members WHERE org_id = ? AND is_active = TRUE AND deleted_at IS NULL`;
     const dataSql = `
         SELECT 
             om.member_id,
@@ -141,7 +141,7 @@ const getOrganizationMembersPaginated = async (orgId, page = 1, per_page = 20) =
             s.department,
             s.program,
             COALESCE(s.year_level, 4) AS year_level
-        FROM organizationmembers om
+        FROM organization_members om
         JOIN students s ON om.student_id = s.id
         WHERE om.org_id = ? AND om.is_active = TRUE AND om.deleted_at IS NULL
         ORDER BY om.joined_at DESC
@@ -160,7 +160,7 @@ const getOrganizationMembersPaginated = async (orgId, page = 1, per_page = 20) =
 // Remove organization member (soft delete - moves to archive/trash)
 const removeOrganizationMember = async (orgId, memberId) => {
     await db.query(
-        `UPDATE organizationmembers 
+        `UPDATE organization_members 
          SET is_active = FALSE, deleted_at = UTC_TIMESTAMP()
          WHERE member_id = ? AND org_id = ?`,
         [memberId, orgId]

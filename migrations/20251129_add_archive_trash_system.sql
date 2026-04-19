@@ -16,11 +16,11 @@ ADD COLUMN `deleted_at` DATETIME DEFAULT NULL COMMENT 'Soft delete timestamp',
 ADD COLUMN `deleted_by` INT DEFAULT NULL COMMENT 'Admin ID who deleted this record',
 ADD INDEX `idx_student_organizations_deleted_at` (`deleted_at`);
 
--- Add deleted_at and deleted_by columns to organizationmembers table (if exists)
-ALTER TABLE `organizationmembers`
+-- Add deleted_at and deleted_by columns to organization_members table (if exists)
+ALTER TABLE `organization_members`
 ADD COLUMN `deleted_at` DATETIME DEFAULT NULL COMMENT 'Soft delete timestamp',
 ADD COLUMN `deleted_by` INT DEFAULT NULL COMMENT 'Admin/Officer ID who deleted this record',
-ADD INDEX `idx_organizationmembers_deleted_at` (`deleted_at`);
+ADD INDEX `idx_organization_members_deleted_at` (`deleted_at`);
 
 -- Note: The is_active field in organization_members already provides soft-delete functionality
 -- but we're adding deleted_at for consistency and to track exact deletion time for the 30-day retention
@@ -31,9 +31,9 @@ ADD INDEX `idx_organizationmembers_deleted_at` (`deleted_at`);
 -- Run these after migration to verify:
 -- SELECT * FROM osws_admins WHERE deleted_at IS NOT NULL;
 -- SELECT * FROM student_organizations WHERE deleted_at IS NOT NULL;
--- SELECT * FROM organizationmembers WHERE deleted_at IS NOT NULL;
+-- SELECT * FROM organization_members WHERE deleted_at IS NOT NULL;
 
 -- To get items eligible for permanent deletion (older than 30 days):
 -- SELECT * FROM osws_admins WHERE deleted_at IS NOT NULL AND deleted_at < DATE_SUB(UTC_TIMESTAMP(), INTERVAL 30 DAY);
 -- SELECT * FROM student_organizations WHERE deleted_at IS NOT NULL AND deleted_at < DATE_SUB(UTC_TIMESTAMP(), INTERVAL 30 DAY);
--- SELECT * FROM organizationmembers WHERE deleted_at IS NOT NULL AND deleted_at < DATE_SUB(UTC_TIMESTAMP(), INTERVAL 30 DAY);
+-- SELECT * FROM organization_members WHERE deleted_at IS NOT NULL AND deleted_at < DATE_SUB(UTC_TIMESTAMP(), INTERVAL 30 DAY);

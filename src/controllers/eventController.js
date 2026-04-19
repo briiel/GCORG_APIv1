@@ -651,9 +651,9 @@ exports.markAttendance = async (req, res) => {
                 const lookupId = user.legacyId || user.id || user.userId;
                 if (lookupId) {
                     const [memberRows] = await db.query(
-                        `SELECT om.student_id, om.org_id FROM organizationmembers om
+                        `SELECT om.student_id, om.org_id FROM organization_members om
                          WHERE (om.student_id = ? OR om.org_id IN (
-                             SELECT org_id FROM organizationmembers WHERE student_id = ?
+                             SELECT org_id FROM organization_members WHERE student_id = ?
                          ))
                          AND om.is_active = TRUE LIMIT 1`,
                         [lookupId, lookupId]
