@@ -93,7 +93,7 @@ const decryptRequestBody = (req, res, next) => {
     // 1. Every crypto-enabled request MUST have an X-Session-Key header (even GETs, so server can encrypt response)
     const sessionKeyHeader = req.headers['x-session-key'];
     if (!sessionKeyHeader) {
-        // Exclude completely unprotected routes (like public static uploads) or OPTIONS
+        // Exclude completely unprotected routes or OPTIONS
         if (req.method === 'OPTIONS') return next();
         return res.status(400).json({ success: false, message: 'Missing X-Session-Key header.' });
     }

@@ -9,7 +9,7 @@
  *
  * Requests are PASSED THROUGH when ANY of these conditions is true:
  *   1. The method is not GET  (POST, PATCH, DELETE, OPTIONS … all go through)
- *   2. The path does NOT start with /api  (health check, uploads, static files)
+ *   2. The path does NOT start with /api  (health check, static files)
  *   3. The request carries a valid-looking Authorization: Bearer <token> header
  *   4. The Accept header explicitly requests JSON  (programmatic client)
  *   5. The request carries the X-Requested-With: XMLHttpRequest header
