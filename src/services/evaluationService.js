@@ -37,7 +37,7 @@ async function submitEvaluation({ event_id, student_id, responses }) {
 
   // Check if the event has concluded
   const [eventStatusRows] = await db.query(
-    `SELECT status FROM created_events WHERE event_id = ? AND deleted_at IS NULL LIMIT 1`,
+    `SELECT status FROM created_events WHERE event_id = ? LIMIT 1`,
     [event_id]
   );
 
@@ -61,7 +61,7 @@ async function submitEvaluation({ event_id, student_id, responses }) {
     `SELECT event_id, title as event_title, location as event_location, start_date, end_date,
             created_by_osws_id, created_by_org_id
      FROM created_events 
-     WHERE event_id = ? AND deleted_at IS NULL 
+     WHERE event_id = ? 
      LIMIT 1`,
     [event_id]
   );
@@ -173,7 +173,7 @@ async function submitEvaluation({ event_id, student_id, responses }) {
 async function getEvaluationStatus(event_id, student_id) {
   // Check if the event has concluded
   const [eventRows] = await db.query(
-    `SELECT status FROM created_events WHERE event_id = ? AND deleted_at IS NULL LIMIT 1`,
+    `SELECT status FROM created_events WHERE event_id = ? LIMIT 1`,
     [event_id]
   );
 
@@ -194,13 +194,25 @@ async function getEvaluationStatus(event_id, student_id) {
   );
 
   const hasAttended = attendance.length > 0;
-  const hasEvaluated = hasAttended && attendance[0].evaluation_submitted === 1;
+  
+  // Check the actual evaluations table as the source of truth
+  const hasEvaluated = await evaluationModel.hasSubmittedEvaluation(event_id, student_id);
+
+  // If the record is out of sync (e.g., evaluation deleted manually), auto-correct the attendance record
+  if (hasAttended && attendance[0].evaluation_submitted === 1 && !hasEvaluated) {
+    await db.query(
+      `UPDATE attendance_records 
+       SET evaluation_submitted = 0, evaluation_submitted_at = NULL 
+       WHERE event_id = ? AND student_id = ?`,
+      [event_id, student_id]
+    );
+  }
 
   return {
     event_concluded: eventConcluded,
     has_attended: hasAttended,
     has_evaluated: hasEvaluated,
-    evaluation_submitted_at: hasAttended ? attendance[0].evaluation_submitted_at : null,
+    evaluation_submitted_at: hasEvaluated && hasAttended ? attendance[0].evaluation_submitted_at : null,
     can_download_certificate: hasAttended && hasEvaluated
   };
 }
