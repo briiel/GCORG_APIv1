@@ -6,15 +6,6 @@ const db = require('../config/db');
 const { handleSuccessResponse, handleErrorResponse } = require('../utils/errorHandler');
 const asyncHandler = require('../middleware/async-handler');
 const { ValidationError, AuthenticationError, DatabaseError, ConflictError } = require('../utils/error-classes');
-const { encryptData, decryptData } = require('../utils/encryption');
-
-// Safely decrypt a field — returns original value if not encrypted or decryption fails
-const safeDecrypt = (value) => {
-  if (value && typeof value === 'string' && value.includes(':') && value.split(':').length === 3) {
-    try { return decryptData(value); } catch { return value; }
-  }
-  return value;
-};
 
 // Login with personal email — authenticates students and OSWS admins, returns JWT with roles
 const login = asyncHandler(async (req, res) => {
@@ -29,26 +20,11 @@ const login = asyncHandler(async (req, res) => {
   let userId = null;
   let studentId = null;
 
-  // Scan all students (email is encrypted) to find a matching decrypted email
-  const [allStudents] = await db.query(
-    `SELECT id, email, password_hash, first_name, last_name FROM students LIMIT 1000`
+  // Check if user is a student
+  const [students] = await db.query(
+    `SELECT id, email, password_hash, first_name, last_name FROM students WHERE email = ? LIMIT 1`,
+    [email]
   );
-
-  let students = [];
-  for (const student of allStudents) {
-    try {
-      const studentEmail = safeDecrypt(student.email);
-      if (studentEmail === email) {
-        student.email = studentEmail;
-        student.first_name = safeDecrypt(student.first_name);
-        student.last_name = safeDecrypt(student.last_name);
-        students.push(student);
-        break;
-      }
-    } catch (err) {
-      continue;
-    }
-  }
 
   if (students.length > 0) {
     user = students[0];
@@ -57,23 +33,10 @@ const login = asyncHandler(async (req, res) => {
     studentId = user.id;
   } else {
     // Fall back to checking osws_admins table if no student matched
-    const [allAdmins] = await db.query(
-      `SELECT id, email, password_hash, name FROM osws_admins LIMIT 100`
+    const [admins] = await db.query(
+      `SELECT id, email, password_hash, name FROM osws_admins WHERE email = ? LIMIT 1`,
+      [email]
     );
-
-    let admins = [];
-    for (const admin of allAdmins) {
-      try {
-        const adminEmail = safeDecrypt(admin.email);
-        if (adminEmail === email) {
-          admin.email = adminEmail;
-          admins.push(admin);
-          break;
-        }
-      } catch (err) {
-        continue;
-      }
-    }
 
     if (admins.length > 0) {
       user = admins[0];
@@ -167,29 +130,18 @@ const register = asyncHandler(async (req, res) => {
   const [existingById] = await db.query(`SELECT id FROM students WHERE id = ? LIMIT 1`, [student_id]);
   if (existingById.length > 0) throw new ConflictError('A student with this ID already exists.');
 
-  // Check for duplicate email (compare against decrypted values)
-  const [allStudents] = await db.query(`SELECT id, email FROM students LIMIT 1000`);
-  let emailExists = false;
-  for (const student of allStudents) {
-    if (safeDecrypt(student.email) === email) { emailExists = true; break; }
-  }
-  if (emailExists) throw new ConflictError('This email is already registered.');
+  // Check for duplicate email
+  const [existingEmail] = await db.query(`SELECT id FROM students WHERE email = ? LIMIT 1`, [email]);
+  if (existingEmail.length > 0) throw new ConflictError('This email is already registered.');
 
-  // Hash password and encrypt all sensitive fields
+  // Hash password
   const hashedPassword = await bcrypt.hash(password, 10);
-  const encryptedEmail = encryptData(email);
-  const encryptedFirstName = encryptData(first_name);
-  const encryptedLastName = encryptData(last_name);
-  const encryptedMiddleInitial = middle_initial ? encryptData(middle_initial) : null;
-  const encryptedSuffix = suffix ? encryptData(suffix) : null;
-  const encryptedDepartment = department ? encryptData(department) : null;
-  const encryptedProgram = program ? encryptData(program) : null;
 
   await db.query(
     `INSERT INTO students (id, email, password_hash, first_name, last_name, middle_initial, suffix, department, program)
      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-    [student_id, encryptedEmail, hashedPassword, encryptedFirstName, encryptedLastName,
-      encryptedMiddleInitial, encryptedSuffix, encryptedDepartment, encryptedProgram]
+    [student_id, email, hashedPassword, first_name, last_name,
+      middle_initial || null, suffix || null, department || null, program || null]
   );
 
   return handleSuccessResponse(res, { message: 'Student account created successfully. You can now log in.' }, 201);

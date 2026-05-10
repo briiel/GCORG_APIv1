@@ -10,7 +10,7 @@ const SALT_LENGTH = 64;
 
 // Load and validate the 32-byte hex encryption key from env
 function getEncryptionKey() {
-    const key = process.env.ENCRYPTION_KEY;
+    const key = (process.env.ENCRYPTION_KEY || '').trim();
     if (!key) throw new Error('ENCRYPTION_KEY not found in environment variables');
     if (key.length !== 64) throw new Error('ENCRYPTION_KEY must be 64 hexadecimal characters (32 bytes)');
     return Buffer.from(key, 'hex');
