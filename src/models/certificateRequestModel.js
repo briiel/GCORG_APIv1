@@ -18,7 +18,7 @@ async function ensureSchema() {
 			status ENUM('pending', 'approved', 'rejected') NOT NULL DEFAULT 'pending',
 			requested_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
 			processed_at DATETIME NULL,
-			processed_by INT NULL,
+			processed_by VARCHAR(20) NULL,
 			rejection_reason VARCHAR(500) NULL,
 			certificate_url VARCHAR(500) NULL,
 			KEY idx_event_student (event_id, student_id),
@@ -35,6 +35,20 @@ async function ensureSchema() {
 	} catch (e) {
 		// If ALTER fails (rare), log and continue — schema will still work for new installs.
 		console.warn('Could not ALTER certificate_requests.status column:', e && e.message ? e.message : e);
+	}
+
+	// Drop incorrect foreign key constraint if it exists (fk_certreq_processor pointing to osws_admins)
+	try {
+		await db.query(`ALTER TABLE certificate_requests DROP FOREIGN KEY fk_certreq_processor`);
+	} catch (e) {
+		// Ignore if it doesn't exist
+	}
+
+	// Modify processed_by to VARCHAR(20) to support student IDs (Organization Officers)
+	try {
+		await db.query(`ALTER TABLE certificate_requests MODIFY COLUMN processed_by VARCHAR(20) NULL`);
+	} catch (e) {
+		console.warn('Could not ALTER certificate_requests.processed_by column:', e && e.message ? e.message : e);
 	}
 }
 
