@@ -1,10 +1,19 @@
 const db = require('../config/db');
 const { parseMysqlLocalStringToDate } = require('../utils/dbDate');
 const SERVER_TZ_OFFSET = process.env.SERVER_TZ_OFFSET || process.env.EVENT_TZ_OFFSET || '+08:00';
+let schemaEnsured = false;
+
+const normalizePanel = (panel) => {
+	if (!panel) return null;
+	const raw = String(panel).trim().toLowerCase();
+	if (raw === 'osws_admin' || raw === 'admin') return 'osws';
+	return raw;
+};
 
 // Ensure notifications table exists (idempotent) and attempt to add
 // missing columns/indexes when running against an older schema.
 async function ensureSchema() {
+	if (schemaEnsured) return;
 	// Create table if it does not exist
 	await db.query(`
 		CREATE TABLE IF NOT EXISTS notifications (
@@ -76,6 +85,7 @@ async function ensureSchema() {
 		// ER_DUP_KEYNAME (errno 1022/1007 depending) means index exists - ignore
 		if (!(err && (err.code === 'ER_DUP_KEYNAME' || err.errno === 1022 || err.errno === 1007))) throw err;
 	}
+	schemaEnsured = true;
 }
 
 // Create notification
@@ -95,7 +105,8 @@ const createNotification = async ({ user_id = null, message, event_id = null, pa
 const getNotificationsForUser = async (user_id, options = {}) => {
 	await ensureSchema();
 
-	const { panel = null, org_id = null } = options;
+	const panel = normalizePanel(options.panel);
+	const { org_id = null } = options;
 
 	// Base SQL selects notifications and joins event title when available
 	let sql = `
@@ -105,7 +116,7 @@ const getNotificationsForUser = async (user_id, options = {}) => {
 			WHEN n.panel = 'student' THEN 'Student'
 			WHEN n.panel = 'organization' THEN 'Organization'
 			WHEN n.panel = 'osws' THEN 'OSWS'
-			WHEN n.panel = 'admin' THEN 'Admin'
+			WHEN n.panel = 'admin' THEN 'OSWS'
 			ELSE n.panel
 		END AS label
 		FROM notifications n
@@ -122,18 +133,16 @@ const getNotificationsForUser = async (user_id, options = {}) => {
 		sql += condition;
 		countSql += condition;
 	} else if (panel === 'organization') {
+		if (!org_id) return [];
 		// Organization panel: show organization-scoped notifications for this org and global
 		const condition = ` AND (n.panel IS NULL OR n.panel = 'global' OR (n.panel = 'organization' AND n.org_id = ?))`;
 		sql += condition;
 		countSql += condition;
 		params.push(org_id);
-	} else if (panel === 'admin') {
-		const condition = ` AND (n.panel IS NULL OR n.panel = 'global' OR n.panel = 'admin')`;
-		sql += condition;
-		countSql += condition;
 	} else if (panel === 'osws') {
-		// OSWS panel: show OSWS-scoped notifications and global messages
-		const condition = ` AND (n.panel IS NULL OR n.panel = 'global' OR n.panel = 'osws')`;
+		// OSWS panel: show OSWS-scoped notifications and global messages.
+		// Include legacy `admin` values for backward compatibility.
+		const condition = ` AND (n.panel IS NULL OR n.panel = 'global' OR n.panel = 'osws' OR n.panel = 'admin')`;
 		sql += condition;
 		countSql += condition;
 	} else {
@@ -187,17 +196,45 @@ const getNotificationsForUser = async (user_id, options = {}) => {
 };
 
 // Mark notification as read
-const markAsRead = async (notification_id) => {
+const markAsRead = async (notification_id, user_id, options = {}) => {
 	await ensureSchema();
-	const query = `UPDATE notifications SET is_read = TRUE, read_at = UTC_TIMESTAMP() WHERE id = ?`;
-	await db.query(query, [notification_id]);
+	const panel = normalizePanel(options.panel);
+	const { org_id = null } = options;
+	const id = Number(notification_id);
+	if (!Number.isInteger(id) || id <= 0) {
+		throw new Error('Invalid notification ID');
+	}
+
+	let query = `
+		UPDATE notifications n
+		SET n.is_read = TRUE, n.read_at = UTC_TIMESTAMP()
+		WHERE n.id = ?
+		  AND (n.user_id IS NULL OR n.user_id = ?)
+	`;
+	const params = [id, String(user_id)];
+
+	if (panel === 'student') {
+		query += ` AND (n.panel IS NULL OR n.panel = 'student' OR n.panel = 'global')`;
+	} else if (panel === 'organization') {
+		if (!org_id) throw new Error('Organization context is required for organization panel notifications');
+		query += ` AND (n.panel IS NULL OR n.panel = 'global' OR (n.panel = 'organization' AND n.org_id = ?))`;
+		params.push(org_id);
+	} else if (panel === 'osws') {
+		query += ` AND (n.panel IS NULL OR n.panel = 'global' OR n.panel = 'osws' OR n.panel = 'admin')`;
+	}
+
+	const [result] = await db.query(query, params);
+	if (!result?.affectedRows) {
+		throw new Error('Notification not found or not accessible');
+	}
 };
 
 // Mark all notifications as read for a user within optional panel/org filters
 const markAllAsRead = async (user_id, options = {}) => {
 	await ensureSchema();
 
-	const { panel = null, org_id = null } = options;
+	const panel = normalizePanel(options.panel);
+	const { org_id = null } = options;
 
 	let sql = `UPDATE notifications n SET n.is_read = TRUE, n.read_at = UTC_TIMESTAMP() WHERE (n.user_id IS NULL OR n.user_id = ?)`;
 	const params = [user_id];
@@ -205,12 +242,11 @@ const markAllAsRead = async (user_id, options = {}) => {
 	if (panel === 'student') {
 		sql += ` AND (n.panel IS NULL OR n.panel = 'student' OR n.panel = 'global')`;
 	} else if (panel === 'organization') {
+		if (!org_id) return;
 		sql += ` AND (n.panel IS NULL OR n.panel = 'global' OR (n.panel = 'organization' AND n.org_id = ?))`;
 		params.push(org_id);
-	} else if (panel === 'admin') {
-		sql += ` AND (n.panel IS NULL OR n.panel = 'global' OR n.panel = 'admin')`;
 	} else if (panel === 'osws') {
-		sql += ` AND (n.panel IS NULL OR n.panel = 'global' OR n.panel = 'osws')`;
+		sql += ` AND (n.panel IS NULL OR n.panel = 'global' OR n.panel = 'osws' OR n.panel = 'admin')`;
 	}
 
 	await db.query(sql, params);

@@ -1,5 +1,13 @@
 const db = require('../config/db');
 const { decryptData } = require('../utils/encryption');
+const { DEFAULT_HOME_VISIBILITY_DAYS } = require('./eventArchiveSettingsModel');
+
+/** Home feed: include events with end_date >= CURDATE() − N days (per org / OSWS), or null end_date. */
+const sqlHomeVisibilityIntervalAllEvents = () =>
+    `GREATEST(0, LEAST(365, COALESCE(IF(ce.created_by_org_id IS NOT NULL, org.event_home_visibility_days, osws.event_home_visibility_days), ${Number(DEFAULT_HOME_VISIBILITY_DAYS)})))`;
+
+const sqlHomeVisibilityIntervalOswsEvents = () =>
+    `GREATEST(0, LEAST(365, COALESCE(a.event_home_visibility_days, ${Number(DEFAULT_HOME_VISIBILITY_DAYS)})))`;
 
 // Safely decrypt a single encrypted field; returns original if not encrypted or decryption fails
 const safeDecrypt = (value) => {
@@ -67,6 +75,28 @@ const getAttendanceRecordsByEvent = async (eventId) => {
     }
 };
 
+// Replace all event_locations rows for an event (delete then insert). Used by create/update.
+const replaceEventLocations = async (eventId, eventLocs) => {
+    if (!eventId) return;
+    await db.query('DELETE FROM event_locations WHERE event_id = ?', [eventId]);
+    if (!Array.isArray(eventLocs) || eventLocs.length === 0) return;
+    const locValues = eventLocs.map((loc) => [
+        eventId,
+        loc.name || loc.location || '',
+        loc.room || null,
+        loc.latitude !== undefined && loc.latitude !== null && loc.latitude !== ''
+            ? Number(loc.latitude)
+            : null,
+        loc.longitude !== undefined && loc.longitude !== null && loc.longitude !== ''
+            ? Number(loc.longitude)
+            : null
+    ]);
+    await db.query(
+        'INSERT INTO event_locations (event_id, location_name, room, latitude, longitude) VALUES ?',
+        [locValues]
+    );
+};
+
 const createEvent = async (eventData) => {
     const {
         title, description, location,
@@ -75,7 +105,8 @@ const createEvent = async (eventData) => {
         event_poster, created_by_org_id, created_by_osws_id, status,
         is_paid,
         registration_fee,
-        event_latitude, event_longitude
+        event_latitude, event_longitude,
+        locations
     } = eventData;
     const normalizeIsPaid = (v) => {
         if (v === undefined || v === null || v === '') return 0;
@@ -126,20 +157,38 @@ const createEvent = async (eventData) => {
     };
     const startDateStr = normalizeDate(start_date);
     const endDateStr = normalizeDate(end_date);
+    // Normalize locations (accept array/object/string). Store JSON string or NULL.
+    const normalizedLocationsJson = normalizeLocationsInput(locations);
+
     const query = `
             INSERT INTO created_events
             (title, description, location, room, event_latitude, event_longitude, start_date, start_time, end_date, end_time, event_poster, is_paid, registration_fee, created_by_org_id, created_by_osws_id, created_by_student_id, status)
             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         `;
     try {
+        // If primary coordinates weren't provided explicitly, derive from first location entry
+        let primaryLat = (event_latitude !== undefined && event_latitude !== null && event_latitude !== '') ? Number(event_latitude) : null;
+        let primaryLon = (event_longitude !== undefined && event_longitude !== null && event_longitude !== '') ? Number(event_longitude) : null;
+        let primaryLocationLabel = location;
+        if ((primaryLat === null || primaryLon === null) && normalizedLocationsJson) {
+            try {
+                const parsed = JSON.parse(normalizedLocationsJson);
+                if (Array.isArray(parsed) && parsed.length > 0) {
+                    const first = parsed[0];
+                    if (!primaryLocationLabel && (first.name || first.location)) primaryLocationLabel = first.name || first.location;
+                    if ((primaryLat === null || primaryLat === undefined) && first.latitude !== undefined) primaryLat = first.latitude;
+                    if ((primaryLon === null || primaryLon === undefined) && first.longitude !== undefined) primaryLon = first.longitude;
+                }
+            } catch (_) { /* ignore */ }
+        }
+
         const [result] = await db.query(query, [
             title,
             description,
-            location,
+            primaryLocationLabel || location,
             room || null,
-            // latitude/longitude nullable
-            (event_latitude !== undefined && event_latitude !== null && event_latitude !== '') ? Number(event_latitude) : null,
-            (event_longitude !== undefined && event_longitude !== null && event_longitude !== '') ? Number(event_longitude) : null,
+            primaryLat !== undefined && primaryLat !== null && primaryLat !== '' ? Number(primaryLat) : null,
+            primaryLon !== undefined && primaryLon !== null && primaryLon !== '' ? Number(primaryLon) : null,
             startDateStr,
             start_time,
             endDateStr,
@@ -155,15 +204,24 @@ const createEvent = async (eventData) => {
         ]);
         // If table isn't configured with AUTO_INCREMENT (older schema), result.insertId may be 0.
         // Fall back to obtaining the highest event_id after insert if insertId is falsy.
-        if (result && result.insertId && result.insertId > 0) {
-            return result.insertId;
-        }
+        let lastId = (result && result.insertId && result.insertId > 0) ? result.insertId : null;
 
         // Fallback: fetch the max event_id value which should correspond to the inserted row
         const [rows] = await db.query('SELECT MAX(event_id) AS last_id FROM created_events');
-        const lastId = (rows && rows[0] && rows[0].last_id != null) ? Number(rows[0].last_id) : null;
+        lastId = (rows && rows[0] && rows[0].last_id != null) ? Number(rows[0].last_id) : null;
         if (!lastId) console.error('[createEvent] insertId was 0/null and MAX fallback also failed.');
-        return lastId;
+        
+        const finalId = lastId || ((rows && rows[0] && rows[0].last_id != null) ? Number(rows[0].last_id) : null);
+        
+        if (finalId && eventData.locations) {
+            let parsed = eventData.locations;
+            try { if (typeof parsed === 'string') parsed = JSON.parse(parsed); } catch (e) { /* ignore */ }
+            const eventLocs = Array.isArray(parsed) ? parsed : (parsed ? [parsed] : []);
+            if (eventLocs.length > 0) {
+                await replaceEventLocations(finalId, eventLocs);
+            }
+        }
+        return finalId;
     } catch (error) {
         console.error('Error creating event:', error.stack);
         throw error;
@@ -171,27 +229,37 @@ const createEvent = async (eventData) => {
 };
 
 const getAllEvents = async (page = undefined, per_page = undefined) => {
+    const homeInt = sqlHomeVisibilityIntervalAllEvents();
     const baseSql = `
-            SELECT ce.*, org.department, org.org_name, osws.name AS osws_name,
+            SELECT ce.*, org.department, org.org_name, org.email AS org_email,
+                   osws.name AS osws_name, osws.email AS osws_email,
                    CONCAT(s_creator.first_name, ' ', IFNULL(s_creator.last_name, '')) AS created_by_name
             FROM created_events ce
             LEFT JOIN student_organizations org ON ce.created_by_org_id = org.id
             LEFT JOIN osws_admins osws ON ce.created_by_osws_id = osws.id
             LEFT JOIN students s_creator ON ce.created_by_student_id = s_creator.id
-            WHERE ce.deleted_at IS NULL AND (ce.end_date >= DATE_SUB(CURDATE(), INTERVAL 14 DAY) OR ce.end_date IS NULL)
+            WHERE ce.deleted_at IS NULL AND (ce.end_date IS NULL OR ce.end_date >= DATE_SUB(CURDATE(), INTERVAL ${homeInt} DAY))
+        `;
+    const countSql = `
+            SELECT COUNT(*) AS cnt FROM created_events ce
+            LEFT JOIN student_organizations org ON ce.created_by_org_id = org.id
+            LEFT JOIN osws_admins osws ON ce.created_by_osws_id = osws.id
+            WHERE ce.deleted_at IS NULL AND (ce.end_date IS NULL OR ce.end_date >= DATE_SUB(CURDATE(), INTERVAL ${homeInt} DAY))
         `;
     try {
         if (page && per_page) {
             const p = Math.max(1, parseInt(page, 10));
             const pp = Math.max(1, Math.min(200, parseInt(per_page, 10)));
-            const [[countRow]] = await db.query('SELECT COUNT(*) AS cnt FROM created_events WHERE deleted_at IS NULL AND (end_date >= DATE_SUB(CURDATE(), INTERVAL 14 DAY) OR end_date IS NULL)');
+            const [[countRow]] = await db.query(countSql);
             const total = Number(countRow?.cnt || 0);
             const offset = (p - 1) * pp;
             const pagedSql = baseSql + ' ORDER BY ce.created_at DESC LIMIT ? OFFSET ?';
             const [rows] = await db.query(pagedSql, [pp, offset]);
+            if (Array.isArray(rows)) await hydrateLocationsForRows(rows);
             return { items: rows, total, page: p, per_page: pp, total_pages: Math.ceil(total / pp) };
         }
         const [rows] = await db.query(baseSql + ' ORDER BY ce.created_at DESC');
+        if (Array.isArray(rows)) await hydrateLocationsForRows(rows);
         return rows;
     } catch (error) {
         console.error('Error fetching all events:', error.stack);
@@ -201,9 +269,9 @@ const getAllEvents = async (page = undefined, per_page = undefined) => {
 
 const getEventsByParticipant = async (student_id) => {
     const query = `
-        SELECT ce.*, er.qr_code, er.status AS registration_status,
-               org.department, org.org_name,
-               osws.name AS osws_name,
+        SELECT ce.*, er.qr_code, er.status AS registration_status, er.registered_at,
+               org.department, org.org_name, org.email AS org_email,
+               osws.name AS osws_name, osws.email AS osws_email,
                CONCAT(s_creator.first_name, ' ', IFNULL(s_creator.last_name, '')) AS created_by_name
         FROM created_events ce
         JOIN event_registrations er ON ce.event_id = er.event_id
@@ -215,6 +283,7 @@ const getEventsByParticipant = async (student_id) => {
     `;
     try {
         const [rows] = await db.query(query, [student_id]);
+        if (Array.isArray(rows)) await hydrateLocationsForRows(rows);
         return rows;
     } catch (error) {
         console.error('Error fetching participant events:', error.stack);
@@ -224,7 +293,7 @@ const getEventsByParticipant = async (student_id) => {
 
 const getEventsByCreator = async (creator_id) => {
     const query = `
-        SELECT ce.*, org.department, org.org_name,
+        SELECT ce.*, org.department, org.org_name, org.email AS org_email,
                CONCAT(s_creator.first_name, ' ', IFNULL(s_creator.last_name, '')) AS created_by_name
         FROM created_events ce
         JOIN student_organizations org ON ce.created_by_org_id = org.id
@@ -233,6 +302,7 @@ const getEventsByCreator = async (creator_id) => {
     `;
     try {
         const [rows] = await db.query(query, [creator_id]);
+        if (Array.isArray(rows)) await hydrateLocationsForRows(rows);
         return rows;
     } catch (error) {
         console.error('Error fetching events by creator:', error.stack);
@@ -440,13 +510,14 @@ const deleteEvent = async (eventId, deletedBy) => {
 
 const getEventsByAdmin = async (admin_id) => {
     const query = `
-        SELECT ce.*, a.name AS admin_name
+        SELECT ce.*, a.name AS admin_name, a.email AS osws_email
         FROM created_events ce
         JOIN osws_admins a ON ce.created_by_osws_id = a.id
         WHERE ce.created_by_osws_id = ? AND ce.deleted_at IS NULL
     `;
     try {
         const [rows] = await db.query(query, [admin_id]);
+        if (Array.isArray(rows)) await hydrateLocationsForRows(rows);
         return rows;
     } catch (error) {
         console.error('Error fetching events by admin:', error.stack);
@@ -456,7 +527,7 @@ const getEventsByAdmin = async (admin_id) => {
 
 const getAllOrgEvents = async (page = undefined, per_page = undefined) => {
     const baseSql = `
-        SELECT ce.*, org.department, org.org_name
+        SELECT ce.*, org.department, org.org_name, org.email AS org_email
         FROM created_events ce
         JOIN student_organizations org ON ce.created_by_org_id = org.id
         WHERE ce.created_by_org_id IS NOT NULL AND ce.deleted_at IS NULL
@@ -470,9 +541,11 @@ const getAllOrgEvents = async (page = undefined, per_page = undefined) => {
             const offset = (p - 1) * pp;
             const pagedSql = baseSql + ' ORDER BY ce.created_at DESC LIMIT ? OFFSET ?';
             const [rows] = await db.query(pagedSql, [pp, offset]);
+            if (Array.isArray(rows)) await hydrateLocationsForRows(rows);
             return { items: rows, total, page: p, per_page: pp, total_pages: Math.ceil(total / pp) };
         }
         const [rows] = await db.query(baseSql + ' ORDER BY ce.created_at DESC');
+        if (Array.isArray(rows)) await hydrateLocationsForRows(rows);
         return rows;
     } catch (error) {
         console.error('Error fetching org events:', error.stack);
@@ -482,24 +555,32 @@ const getAllOrgEvents = async (page = undefined, per_page = undefined) => {
 
 // Fetch all OSWS-created events
 const getAllOswsEvents = async (page = undefined, per_page = undefined) => {
+    const homeInt = sqlHomeVisibilityIntervalOswsEvents();
     const baseSql = `
-        SELECT ce.*, a.name AS admin_name
+        SELECT ce.*, a.name AS admin_name, a.email AS osws_email
         FROM created_events ce
         JOIN osws_admins a ON ce.created_by_osws_id = a.id
-        WHERE ce.created_by_osws_id IS NOT NULL AND ce.deleted_at IS NULL AND (ce.end_date >= DATE_SUB(CURDATE(), INTERVAL 14 DAY) OR ce.end_date IS NULL)
+        WHERE ce.created_by_osws_id IS NOT NULL AND ce.deleted_at IS NULL AND (ce.end_date IS NULL OR ce.end_date >= DATE_SUB(CURDATE(), INTERVAL ${homeInt} DAY))
+    `;
+    const countSql = `
+        SELECT COUNT(*) AS cnt FROM created_events ce
+        JOIN osws_admins a ON ce.created_by_osws_id = a.id
+        WHERE ce.created_by_osws_id IS NOT NULL AND ce.deleted_at IS NULL AND (ce.end_date IS NULL OR ce.end_date >= DATE_SUB(CURDATE(), INTERVAL ${homeInt} DAY))
     `;
     try {
         if (page && per_page) {
             const p = Math.max(1, parseInt(page, 10));
             const pp = Math.max(1, Math.min(200, parseInt(per_page, 10)));
-            const [[countRow]] = await db.query('SELECT COUNT(*) AS cnt FROM created_events WHERE created_by_osws_id IS NOT NULL AND deleted_at IS NULL AND (end_date >= DATE_SUB(CURDATE(), INTERVAL 14 DAY) OR end_date IS NULL)');
+            const [[countRow]] = await db.query(countSql);
             const total = Number(countRow?.cnt || 0);
             const offset = (p - 1) * pp;
             const pagedSql = baseSql + ' ORDER BY ce.created_at DESC LIMIT ? OFFSET ?';
             const [rows] = await db.query(pagedSql, [pp, offset]);
+            if (Array.isArray(rows)) await hydrateLocationsForRows(rows);
             return { items: rows, total, page: p, per_page: pp, total_pages: Math.ceil(total / pp) };
         }
         const [rows] = await db.query(baseSql + ' ORDER BY ce.created_at DESC');
+        if (Array.isArray(rows)) await hydrateLocationsForRows(rows);
         return rows;
     } catch (error) {
         console.error('Error fetching osws events:', error.stack);
@@ -523,7 +604,8 @@ const updateEvent = async (eventId, eventData) => {
         is_paid,
         registration_fee,
         event_latitude,
-        event_longitude
+        event_longitude,
+        locations
     } = eventData;
 
     // Ensure dates are yyyy-MM-dd strings only when provided
@@ -636,11 +718,48 @@ const updateEvent = async (eventId, eventData) => {
         params.push(event_longitude !== undefined && event_longitude !== '' ? Number(event_longitude) : null);
     }
 
+    /** null = no child-table sync; 'clear' = delete all rows; array = replace rows */
+    let locationsSync = null;
+    // Optional update for locations: accept array/object/json string
+    if (locations !== undefined) {
+        const normalizedLocationsJson = normalizeLocationsInput(locations);
+        const locationsExplicitClear = normalizedLocationsJson === null &&
+            (locations === null || locations === '' || (Array.isArray(locations) && locations.length === 0));
+        if (locationsExplicitClear) {
+            query += `, locations = NULL`;
+            locationsSync = 'clear';
+        } else if (normalizedLocationsJson) {
+            query += `, locations = COALESCE(?, locations)`;
+            params.push(normalizedLocationsJson);
+            // If primary coords are not provided but locations include a first coord, allow updating coordinates
+            try {
+                const parsed = normalizedLocationsJson ? JSON.parse(normalizedLocationsJson) : null;
+                if (parsed && Array.isArray(parsed) && parsed.length > 0) {
+                    locationsSync = parsed;
+                    const first = parsed[0];
+                    if ((event_latitude === undefined || event_latitude === null || event_latitude === '') && first.latitude !== undefined) {
+                        query += `, event_latitude = COALESCE(?, event_latitude)`;
+                        params.push(first.latitude);
+                    }
+                    if ((event_longitude === undefined || event_longitude === null || event_longitude === '') && first.longitude !== undefined) {
+                        query += `, event_longitude = COALESCE(?, event_longitude)`;
+                        params.push(first.longitude);
+                    }
+                }
+            } catch (_) { /* ignore */ }
+        }
+    }
+
     query += ` WHERE event_id = ?`;
     params.push(eventId);
 
     try {
         const [result] = await db.query(query, params);
+        if (locationsSync === 'clear') {
+            await replaceEventLocations(eventId, []);
+        } else if (Array.isArray(locationsSync) && locationsSync.length > 0) {
+            await replaceEventLocations(eventId, locationsSync);
+        }
         return result;
     } catch (error) {
         console.error('Error updating event:', error.stack);
@@ -649,8 +768,22 @@ const updateEvent = async (eventId, eventData) => {
 };
 
 const getEventById = async (eventId) => {
-    const [rows] = await db.query('SELECT * FROM created_events WHERE event_id = ?', [eventId]);
-    return rows[0];
+    const sql = `
+        SELECT ce.*, org.department, org.org_name, org.email AS org_email,
+               osws.name AS osws_name, osws.email AS osws_email,
+               CONCAT(s_creator.first_name, ' ', IFNULL(s_creator.last_name, '')) AS created_by_name
+        FROM created_events ce
+        LEFT JOIN student_organizations org ON ce.created_by_org_id = org.id
+        LEFT JOIN osws_admins osws ON ce.created_by_osws_id = osws.id
+        LEFT JOIN students s_creator ON ce.created_by_student_id = s_creator.id
+        WHERE ce.event_id = ?
+        LIMIT 1
+    `;
+    const [rows] = await db.query(sql, [eventId]);
+    const row = rows[0];
+    if (!row) return null;
+    const hydrated = await hydrateLocationsForRows([row]);
+    return hydrated[0] || null;
 };
 
 // Hard delete: remove event and dependent data (REVISED to Soft-Permanent Delete)
@@ -680,6 +813,7 @@ const getTrashedOrgEvents = async (orgId) => {
         ORDER BY ce.deleted_at DESC
     `;
     const [rows] = await db.query(query, [orgId]);
+    if (Array.isArray(rows)) await hydrateLocationsForRows(rows);
     return rows;
 };
 
@@ -692,6 +826,7 @@ const getTrashedOswsEvents = async (adminId) => {
         ORDER BY ce.deleted_at DESC
     `;
     const [rows] = await db.query(query, [adminId]);
+    if (Array.isArray(rows)) await hydrateLocationsForRows(rows);
     return rows;
 };
 
@@ -771,12 +906,37 @@ module.exports = {
                                      AND LOWER(COALESCE(status, '')) NOT IN ('cancelled','not yet started')`
             );
 
+            // 4) Org officers may opt in: concluded org-owned events move to archive automatically
+            const [autoTrashOrgRes] = await db.query(
+                `UPDATE created_events ce
+                 INNER JOIN student_organizations so ON ce.created_by_org_id = so.id
+                 SET ce.deleted_at = UTC_TIMESTAMP(), ce.deleted_by = NULL
+                 WHERE ce.deleted_at IS NULL
+                   AND LOWER(COALESCE(ce.status, '')) = 'concluded'
+                   AND ce.created_by_org_id IS NOT NULL
+                   AND COALESCE(so.event_auto_trash_on_conclude, 0) = 1`
+            );
+
+            // 5) OSWS admins may opt in: concluded OSWS-owned events (no org owner) move to archive automatically
+            const [autoTrashOswsRes] = await db.query(
+                `UPDATE created_events ce
+                 INNER JOIN osws_admins oa ON ce.created_by_osws_id = oa.id
+                 SET ce.deleted_at = UTC_TIMESTAMP(), ce.deleted_by = NULL
+                 WHERE ce.deleted_at IS NULL
+                   AND LOWER(COALESCE(ce.status, '')) = 'concluded'
+                   AND ce.created_by_osws_id IS NOT NULL
+                   AND ce.created_by_org_id IS NULL
+                   AND COALESCE(oa.event_auto_trash_on_conclude, 0) = 1`
+            );
+
             await db.query('COMMIT');
 
             return {
                 toOngoing: ongoingRes?.affectedRows || 0,
                 toConcluded: concludedRes?.affectedRows || 0,
-                toNotYetStarted: notYetRes?.affectedRows || 0
+                toNotYetStarted: notYetRes?.affectedRows || 0,
+                autoTrashedOrgEvents: autoTrashOrgRes?.affectedRows || 0,
+                autoTrashedOswsEvents: autoTrashOswsRes?.affectedRows || 0
             };
         } catch (err) {
             await db.query('ROLLBACK');
@@ -811,6 +971,24 @@ module.exports = {
             }
         } catch (e) {
             console.warn('[DB] ensureRegistrationFeeColumn check failed:', e.message || e);
+        }
+    },
+    // Ensure created_events has a JSON `locations` column to store multiple locations
+    ensureLocationsColumn: async () => {
+        try {
+            const [rows] = await db.query(
+                `SELECT 1 FROM information_schema.COLUMNS WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'created_events' AND COLUMN_NAME = 'locations'`
+            );
+            if (!Array.isArray(rows) || rows.length === 0) {
+                try {
+                    await db.query(`ALTER TABLE created_events ADD COLUMN locations JSON NULL AFTER event_longitude`);
+                } catch (e) {
+                    // Fallback for MySQL versions without JSON support
+                    await db.query(`ALTER TABLE created_events ADD COLUMN locations TEXT NULL AFTER event_longitude`);
+                }
+            }
+        } catch (e) {
+            console.warn('[DB] ensureLocationsColumn check failed:', e.message || e);
         }
     },
     // Ensure event_registrations has status and approval metadata
@@ -1029,4 +1207,87 @@ module.exports = {
             console.warn('[DB] ensureAttendanceColumns check failed:', e.message || e);
         }
     }
+};
+
+// Normalize incoming `locations` payload to a JSON string suitable for storing in
+// a JSON column. Accepts arrays, objects, or JSON strings. Returns `null` when
+// no usable locations were provided.
+const normalizeLocationsInput = (locations) => {
+    if (locations === undefined || locations === null) return null;
+    try {
+        let arr = locations;
+        if (typeof arr === 'string') {
+            const trimmed = arr.trim();
+            if (!trimmed) return null;
+            // Try parse JSON first
+            if (trimmed.startsWith('[') || trimmed.startsWith('{')) {
+                try { arr = JSON.parse(trimmed); } catch (_) { arr = trimmed; }
+            } else {
+                // Treat as single-name string
+                arr = [{ name: trimmed }];
+            }
+        }
+        if (!Array.isArray(arr)) {
+            if (typeof arr === 'object') arr = [arr];
+            else return null;
+        }
+
+        const normalized = arr.map(item => {
+            if (typeof item === 'string') return { name: item };
+            if (!item) return null;
+            const name = item.name || item.location || item.display_name || '';
+            const room = item.room || item.room_name || null;
+            const latitude = item.latitude ?? item.lat ?? item.event_latitude ?? null;
+            const longitude = item.longitude ?? item.lon ?? item.event_longitude ?? null;
+            return {
+                name: typeof name === 'string' ? name : String(name || ''),
+                room: room || null,
+                latitude: (latitude !== undefined && latitude !== null && latitude !== '') ? Number(latitude) : null,
+                longitude: (longitude !== undefined && longitude !== null && longitude !== '') ? Number(longitude) : null
+            };
+        }).filter(Boolean);
+
+        if (normalized.length === 0) return null;
+        return JSON.stringify(normalized);
+    } catch (e) {
+        return null;
+    }
+};
+
+// Ensure the `locations` field in a returned row is parsed to an array when
+// possible and provide fallbacks for the legacy `location`/coordinate fields.
+const hydrateLocationsForRows = async (rows) => {
+    if (!rows || rows.length === 0) return rows;
+    const eventIds = rows.map(r => r.event_id).filter(id => id);
+    if (eventIds.length === 0) return rows;
+    
+    // Fetch locations for these events
+    const query = 'SELECT * FROM event_locations WHERE event_id IN (?)';
+    const [locations] = await db.query(query, [eventIds]);
+    
+    // Group locations by event_id
+    const locationsByEvent = {};
+    for (const loc of locations) {
+        if (!locationsByEvent[loc.event_id]) locationsByEvent[loc.event_id] = [];
+        locationsByEvent[loc.event_id].push({
+            id: loc.id,
+            name: loc.location_name,
+            location: loc.location_name,
+            room: loc.room,
+            latitude: loc.latitude !== null ? Number(loc.latitude) : null,
+            longitude: loc.longitude !== null ? Number(loc.longitude) : null
+        });
+    }
+    
+    for (const row of rows) {
+        row.locations = locationsByEvent[row.event_id] || [];
+        // Legacy population
+        if ((!row.location || row.location === '') && row.locations.length > 0) {
+            const first = row.locations[0];
+            if (!row.location && (first.name || first.location)) row.location = first.name || first.location;
+            if ((row.event_latitude === null || row.event_latitude === undefined) && first.latitude !== null) row.event_latitude = first.latitude;
+            if ((row.event_longitude === null || row.event_longitude === undefined) && first.longitude !== null) row.event_longitude = first.longitude;
+        }
+    }
+    return rows;
 };

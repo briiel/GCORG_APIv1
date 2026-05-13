@@ -1,6 +1,14 @@
 const db = require('../config/db');
 const { decryptData } = require('../utils/encryption');
 const eventModel = require('./eventModel');
+const { DEFAULT_RETENTION_DAYS } = require('./eventArchiveSettingsModel');
+
+/** Days in archive before permanent purge — per org / OSWS admin when columns exist, else default */
+const eventTrashIntervalExpr = () => `GREATEST(1, LEAST(365, CASE
+    WHEN ce.created_by_org_id IS NOT NULL THEN COALESCE(so.event_trash_retention_days, ${Number(DEFAULT_RETENTION_DAYS)})
+    WHEN ce.created_by_osws_id IS NOT NULL THEN COALESCE(oa.event_trash_retention_days, ${Number(DEFAULT_RETENTION_DAYS)})
+    ELSE ${Number(DEFAULT_RETENTION_DAYS)}
+END))`;
 
 // Decrypt the email field of a record if it appears to be in iv:authTag:data format
 function decryptEmailField(record) {
@@ -190,9 +198,13 @@ const getExpiredItemsCount = async () => {
          WHERE deleted_at IS NOT NULL AND deleted_at < DATE_SUB(UTC_TIMESTAMP(), INTERVAL 30 DAY)`
     );
     
+    const intExpr = eventTrashIntervalExpr();
     const [eventsCount] = await db.query(
-        `SELECT COUNT(*) as count FROM created_events 
-         WHERE deleted_at IS NOT NULL AND deleted_at < DATE_SUB(UTC_TIMESTAMP(), INTERVAL 30 DAY)`
+        `SELECT COUNT(*) as count FROM created_events ce
+         LEFT JOIN student_organizations so ON ce.created_by_org_id = so.id
+         LEFT JOIN osws_admins oa ON ce.created_by_osws_id = oa.id
+         WHERE ce.deleted_at IS NOT NULL AND ce.permanently_deleted_at IS NULL
+           AND ce.deleted_at < DATE_SUB(UTC_TIMESTAMP(), INTERVAL ${intExpr} DAY)`
     );
     
     return {
@@ -233,11 +245,15 @@ const autoDeleteExpiredItems = async () => {
     );
     deleted.members = membersResult.affectedRows;
     
-    // Soft-Permanent delete expired events (tricks organizer UI into thinking it's gone)
+    // Soft-Permanent delete expired events — retention follows org / OSWS settings when present
+    const intExprUpd = eventTrashIntervalExpr();
     const [eventsResult] = await db.query(
-        `UPDATE created_events 
-         SET permanently_deleted_at = UTC_TIMESTAMP() 
-         WHERE deleted_at IS NOT NULL AND permanently_deleted_at IS NULL AND deleted_at < DATE_SUB(UTC_TIMESTAMP(), INTERVAL 30 DAY)`
+        `UPDATE created_events ce
+         LEFT JOIN student_organizations so ON ce.created_by_org_id = so.id
+         LEFT JOIN osws_admins oa ON ce.created_by_osws_id = oa.id
+         SET ce.permanently_deleted_at = UTC_TIMESTAMP()
+         WHERE ce.deleted_at IS NOT NULL AND ce.permanently_deleted_at IS NULL
+           AND ce.deleted_at < DATE_SUB(UTC_TIMESTAMP(), INTERVAL ${intExprUpd} DAY)`
     );
     deleted.events = eventsResult.affectedRows;
     

@@ -14,6 +14,19 @@ const { upload, convertToWebpAndUpload } = require('../middleware/uploadMiddlewa
 const fs = require('fs');
 const path = require('path');
 const os = require('os');
+const { decryptData } = require('../utils/encryption');
+const eventArchiveSettingsModel = require('../models/eventArchiveSettingsModel');
+
+function safeDecryptField(value) {
+    if (value && typeof value === 'string' && value.includes(':') && value.split(':').length === 3) {
+        try {
+            return decryptData(value);
+        } catch (err) {
+            return value;
+        }
+    }
+    return value;
+}
 
 // Shared helper — computes the time-based auto status for an event row.
 // Returns 'not yet started' | 'ongoing' | 'concluded' | null (null = no change / cancelled).
@@ -158,7 +171,9 @@ exports.getEvents = async (req, res) => {
                 event_poster: event.event_poster?.startsWith('http')
                     ? event.event_poster
                     : null,
-                department: event.department
+                department: event.department,
+                org_email: safeDecryptField(event.org_email),
+                osws_email: safeDecryptField(event.osws_email)
             };
         });
 
@@ -224,12 +239,24 @@ exports.getEventsByParticipant = async (req, res) => {
     try {
         const { student_id } = req.params;
         const events = await eventService.getEventsByParticipant(student_id);
+        const host = req.protocol + '://' + req.get('host');
 
-        const eventsWithQrUrl = events.map(event => ({
-            ...event,
-            qr_code: event.qr_code?.startsWith('http') ? event.qr_code : null,
-            registration_status: event.registration_status || 'approved'
-        }));
+        const eventsWithQrUrl = events.map(event => {
+            const poster = event.event_poster;
+            const normalizedPoster = poster
+                ? (poster.startsWith('http')
+                    ? poster
+                    : `${host}/${String(poster).replace(/\\/g, '/')}`)
+                : null;
+            return {
+                ...event,
+                event_poster: normalizedPoster,
+                qr_code: event.qr_code?.startsWith('http') ? event.qr_code : null,
+                registration_status: event.registration_status || 'approved',
+                org_email: safeDecryptField(event.org_email),
+                osws_email: safeDecryptField(event.osws_email)
+            };
+        });
 
         return handleSuccessResponse(res, { items: eventsWithQrUrl });
     } catch (error) {
@@ -289,7 +316,9 @@ exports.getEventsByCreator = async (req, res) => {
                 event_poster: normalizedPoster,
                 department: event.department,
                 auto_status,
-                auto_mismatch
+                auto_mismatch,
+                org_email: safeDecryptField(event.org_email),
+                osws_email: safeDecryptField(event.osws_email)
             };
         });
         return handleSuccessResponse(res, { items: eventsWithPosterUrl });
@@ -551,6 +580,7 @@ exports.markAttendance = async (req, res) => {
                                 status,
                                 deleted_at,
                                 event_latitude, event_longitude,
+                                locations,
                                 is_paid,
                                 (
                                     (
@@ -584,7 +614,38 @@ exports.markAttendance = async (req, res) => {
         let targetLat = null;
         let targetLon = null;
         try {
-            if (ev.event_latitude !== undefined && ev.event_latitude !== null && ev.event_longitude !== undefined && ev.event_longitude !== null) {
+            // Prefer checking any configured locations first (multi-location support)
+            if (ev.locations) {
+                let locs = ev.locations;
+                if (typeof locs === 'string') {
+                    try { locs = JSON.parse(locs); } catch (_) { locs = null; }
+                }
+                if (Array.isArray(locs) && locs.length > 0) {
+                    let minDist = Infinity;
+                    let nearestLat = null;
+                    let nearestLon = null;
+                    for (const l of locs) {
+                        const lat = l && (l.latitude !== undefined ? l.latitude : (l.lat !== undefined ? l.lat : null));
+                        const lon = l && (l.longitude !== undefined ? l.longitude : (l.lon !== undefined ? l.lon : null));
+                        if (lat === null || lon === null || lat === undefined || lon === undefined) continue;
+                        const d = haversineMeters(user_lat, user_lon, Number(lat), Number(lon));
+                        if (d < minDist) { minDist = d; nearestLat = Number(lat); nearestLon = Number(lon); }
+                        if (d <= GEOFENCE_METERS) {
+                            targetLat = Number(lat);
+                            targetLon = Number(lon);
+                            break;
+                        }
+                    }
+                    // If none of the configured locations were within the geofence, use nearest as fallback
+                    if (targetLat === null && minDist !== Infinity) {
+                        targetLat = nearestLat;
+                        targetLon = nearestLon;
+                    }
+                }
+            }
+
+            // Fallback to single primary coordinates if present
+            if ((targetLat === null || targetLon === null) && ev.event_latitude !== undefined && ev.event_latitude !== null && ev.event_longitude !== undefined && ev.event_longitude !== null) {
                 targetLat = Number(ev.event_latitude);
                 targetLon = Number(ev.event_longitude);
             }
@@ -604,7 +665,7 @@ exports.markAttendance = async (req, res) => {
 
         if (targetLat === null || targetLon === null) {
             // No coordinates to validate against. Fail explicitly so callers know to provide event coords.
-            return handleErrorResponse(res, 'Event location coordinates not available for geofence validation. Please provide event_latitude/event_longitude.', 400);
+            return handleErrorResponse(res, 'Event location coordinates not available for geofence validation. Please provide event_latitude/event_longitude or locations with coordinates.', 400);
         }
 
         const dist = haversineMeters(user_lat, user_lon, targetLat, targetLon);
@@ -1013,7 +1074,7 @@ exports.getCertificatesByStudent = async (req, res) => {
                  ) latest ON latest.event_id = cr_inner.event_id AND latest.student_id = cr_inner.student_id AND latest.max_req_at = cr_inner.requested_at
              ) cr ON cr.event_id = ar.event_id AND cr.student_id = ar.student_id
              WHERE ar.student_id = ? AND ar.deleted_at IS NULL
-             ORDER BY ce.end_date DESC, ce.start_date DESC`,
+             ORDER BY COALESCE(ar.time_out, ar.time_in, ar.attended_at) DESC`,
             [student_id, student_id]
         );
 
@@ -1080,7 +1141,9 @@ exports.getEventsByAdmin = async (req, res) => {
                 event_poster: normalizedPoster,
                 department: event.department,
                 auto_status,
-                auto_mismatch
+                auto_mismatch,
+                org_email: safeDecryptField(event.org_email),
+                osws_email: safeDecryptField(event.osws_email)
             };
         });
         return handleSuccessResponse(res, { items: eventsWithPosterUrl });
@@ -1108,7 +1171,9 @@ exports.getAllOrgEvents = async (req, res) => {
                 event_poster: normalizedPoster,
                 department: event.department,
                 auto_status,
-                auto_mismatch
+                auto_mismatch,
+                org_email: safeDecryptField(event.org_email),
+                osws_email: safeDecryptField(event.osws_email)
             };
         });
         return handleSuccessResponse(res, { items: eventsWithPosterUrl });
@@ -1136,7 +1201,9 @@ exports.getAllOswsEvents = async (req, res) => {
                 event_poster: normalizedPoster,
                 department: event.department,
                 auto_status,
-                auto_mismatch
+                auto_mismatch,
+                org_email: safeDecryptField(event.org_email),
+                osws_email: safeDecryptField(event.osws_email)
             };
         });
         return handleSuccessResponse(res, { items: eventsWithPosterUrl });
@@ -1387,7 +1454,19 @@ exports.getEventById = async (req, res) => {
         if (!event) {
             return handleErrorResponse(res, 'Event not found', 404);
         }
-        return handleSuccessResponse(res, event);
+        const host = req.protocol + '://' + req.get('host');
+        const poster = event.event_poster;
+        const normalizedPoster = poster
+            ? (poster.startsWith('http')
+                ? poster
+                : `${host}/${String(poster).replace(/\\/g, '/')}`)
+            : null;
+        return handleSuccessResponse(res, {
+            ...event,
+            event_poster: normalizedPoster,
+            org_email: safeDecryptField(event.org_email),
+            osws_email: safeDecryptField(event.osws_email)
+        });
     } catch (error) {
         return handleErrorResponse(res, error.message);
     }
@@ -1494,7 +1573,7 @@ exports.requestCertificate = async (req, res) => {
             if (toOrgId) {
                 await notificationService.createNotification({ user_id: null, panel: 'organization', org_id: toOrgId, ...payload });
             } else {
-                await notificationService.createNotification({ user_id: null, panel: 'admin', ...payload });
+                await notificationService.createNotification({ user_id: null, panel: 'osws', ...payload });
             }
         } catch (nerr) {
             console.warn('Notification create failed (requestCertificate):', nerr?.message || nerr);
@@ -1507,13 +1586,94 @@ exports.requestCertificate = async (req, res) => {
     }
 };
 
+exports.getEventArchiveSettings = async (req, res) => {
+    try {
+        const user = req.user;
+        if (!user) return handleErrorResponse(res, 'Unauthorized', 401);
+        const roles = Array.isArray(user.roles) ? user.roles : [];
+        if (roles.includes('orgofficer')) {
+            const orgId = user.organization?.org_id || user.legacyId;
+            if (!orgId) return handleErrorResponse(res, 'Organization context missing', 400);
+            const settings = await eventArchiveSettingsModel.getOrgEventArchiveSettings(orgId);
+            if (!settings) return handleErrorResponse(res, 'Organization not found', 404);
+            return handleSuccessResponse(res, settings);
+        }
+        if (roles.includes('oswsadmin')) {
+            const adminId = user.legacyId || user.id;
+            if (!adminId) return handleErrorResponse(res, 'Admin context missing', 400);
+            const settings = await eventArchiveSettingsModel.getOswsEventArchiveSettings(adminId);
+            if (!settings) return handleErrorResponse(res, 'Admin not found', 404);
+            return handleSuccessResponse(res, settings);
+        }
+        return handleErrorResponse(res, 'Forbidden', 403);
+    } catch (error) {
+        return handleErrorResponse(res, error.message);
+    }
+};
+
+exports.patchEventArchiveSettings = async (req, res) => {
+    try {
+        const user = req.user;
+        if (!user) return handleErrorResponse(res, 'Unauthorized', 401);
+        const body = req.body || {};
+        const { event_trash_retention_days, event_auto_trash_on_conclude, event_home_visibility_days } = body;
+
+        if (event_trash_retention_days === undefined && event_auto_trash_on_conclude === undefined && event_home_visibility_days === undefined) {
+            return handleErrorResponse(res, 'Provide at least one of: event_trash_retention_days, event_auto_trash_on_conclude, event_home_visibility_days', 400);
+        }
+
+        if (event_trash_retention_days !== undefined && event_trash_retention_days !== null) {
+            const n = parseInt(String(event_trash_retention_days), 10);
+            if (Number.isNaN(n) || n < 1 || n > 365) {
+                return handleErrorResponse(res, 'event_trash_retention_days must be between 1 and 365, or null for default', 400);
+            }
+        }
+
+        if (event_home_visibility_days !== undefined && event_home_visibility_days !== null) {
+            const h = parseInt(String(event_home_visibility_days), 10);
+            if (Number.isNaN(h) || h < 0 || h > 365) {
+                return handleErrorResponse(res, 'event_home_visibility_days must be between 0 and 365, or null for default', 400);
+            }
+        }
+
+        const roles = Array.isArray(user.roles) ? user.roles : [];
+        if (roles.includes('orgofficer')) {
+            const orgId = user.organization?.org_id || user.legacyId;
+            if (!orgId) return handleErrorResponse(res, 'Organization context missing', 400);
+            await eventArchiveSettingsModel.updateOrgEventArchiveSettings(orgId, {
+                event_trash_retention_days,
+                event_auto_trash_on_conclude,
+                event_home_visibility_days
+            });
+            const settings = await eventArchiveSettingsModel.getOrgEventArchiveSettings(orgId);
+            if (!settings) return handleErrorResponse(res, 'Organization not found', 404);
+            return handleSuccessResponse(res, { message: 'Event archive settings saved', ...settings });
+        }
+        if (roles.includes('oswsadmin')) {
+            const adminId = user.legacyId || user.id;
+            if (!adminId) return handleErrorResponse(res, 'Admin context missing', 400);
+            await eventArchiveSettingsModel.updateOswsEventArchiveSettings(adminId, {
+                event_trash_retention_days,
+                event_auto_trash_on_conclude,
+                event_home_visibility_days
+            });
+            const settings = await eventArchiveSettingsModel.getOswsEventArchiveSettings(adminId);
+            if (!settings) return handleErrorResponse(res, 'Admin not found', 404);
+            return handleSuccessResponse(res, { message: 'Event archive settings saved', ...settings });
+        }
+        return handleErrorResponse(res, 'Forbidden', 403);
+    } catch (error) {
+        return handleErrorResponse(res, error.message);
+    }
+};
+
 // ─── POST /event/fetch dispatcher ───────────────────────────────────────────
 // Reads req.body.resource and delegates to the correct handler.
 // All parameters (IDs, filters) travel in the request body — nothing is
 // exposed in the URL path.
 exports.fetchDispatch = async (req, res) => {
     const resource = req.params?.resource || req.body?.resource;
-    if (!resource) return res.status(400).json({ success: false, message: 'resource is required' });
+    if (!resource) return handleErrorResponse(res, 'resource is required', 400);
 
     // Shim: map body params into req.params / req.query so existing handlers work unchanged
     switch (resource) {
@@ -1577,6 +1737,9 @@ exports.fetchDispatch = async (req, res) => {
         case 'osws_charts':
             return exports.getOswsDashboardCharts(req, res);
 
+        case 'event_archive_settings':
+            return exports.getEventArchiveSettings(req, res);
+
         // Evaluation resources — delegated to evaluationController
         case 'eval_status':
         case 'eval_mine':
@@ -1590,6 +1753,8 @@ exports.fetchDispatch = async (req, res) => {
         }
 
         default:
-            return res.status(400).json({ success: false, message: `Unknown resource: ${resource}` });
+            return handleErrorResponse(res, `Unknown resource: ${resource}`, 400);
     }
 };
+
+

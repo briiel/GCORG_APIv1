@@ -67,7 +67,7 @@ const submitRoleRequest = async (req, res) => {
       const [orgRows] = await db.query(`SELECT org_name FROM student_organizations WHERE id = ? LIMIT 1`, [org_id]);
       const orgName = orgRows[0]?.org_name || String(org_id);
       const nt = require('../services/notificationTypes');
-      await notificationService.createNotification({ user_id: null, type: nt.ROLE_REQUEST, templateVars: { studentName, orgName }, panel: 'admin' });
+      await notificationService.createNotification({ user_id: null, type: nt.ROLE_REQUEST, templateVars: { studentName, orgName }, panel: 'osws' });
     } catch (nerr) {
       console.warn('Notification create failed (roleRequest):', nerr?.message || nerr);
     }

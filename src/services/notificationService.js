@@ -30,8 +30,8 @@ const getNotificationsForUser = async (user_id, options = {}) => {
 	return notificationModel.getNotificationsForUser(user_id, options);
 };
 
-const markAsRead = async (notification_id) => {
-	return notificationModel.markAsRead(notification_id);
+const markAsRead = async (notification_id, user_id, options = {}) => {
+	return notificationModel.markAsRead(notification_id, user_id, options);
 };
 
 const markAllAsRead = async (user_id, options = {}) => {

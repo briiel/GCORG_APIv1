@@ -54,7 +54,7 @@ const templates = {
         channels: ['inapp']
     },
     [types.ROLE_REQUEST]: {
-        panel: 'admin',
+        panel: 'osws',
         defaultMessage: 'New role request submitted by {{studentName}} for {{orgName}}',
         channels: ['inapp', 'email']
     },

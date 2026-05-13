@@ -206,8 +206,13 @@ const server = app.listen(PORT, async () => {
         const eventModel = require('./models/eventModel');
         if (eventModel.ensureIsPaidColumn) await eventModel.ensureIsPaidColumn();
         if (eventModel.ensureRegistrationFeeColumn) await eventModel.ensureRegistrationFeeColumn();
+        if (eventModel.ensureLocationsColumn) await eventModel.ensureLocationsColumn();
         if (eventModel.ensureRegistrationStatusColumns) await eventModel.ensureRegistrationStatusColumns();
         if (eventModel.ensureAttendanceColumns) await eventModel.ensureAttendanceColumns();
+        const eventArchiveSettingsModel = require('./models/eventArchiveSettingsModel');
+        if (eventArchiveSettingsModel.ensureEventArchiveSettingsColumns) {
+            await eventArchiveSettingsModel.ensureEventArchiveSettingsColumns();
+        }
     } catch (e) {
         console.warn('Schema ensure failed:', e.message);
     }

@@ -50,7 +50,11 @@ router.get('/events/osws', apiLimiter, eventController.getAllOswsEvents); // Rou
 router.get('/stats/organization', authenticateToken, apiLimiter, eventController.getOrgDashboardStats);
 router.get('/stats/osws', authenticateToken, apiLimiter, eventController.getOswsDashboardStats);
 // Charts/aggregation for OSWS dashboard (events by department, activities per org)
-router.get('/stats/osws/charts', authenticateToken, apiLimiter, eventController.getOswsDashboardCharts);
+router.get('/stats/osws/charts', authenticateToken, checkRole(['OSWSAdmin']), apiLimiter, eventController.getOswsDashboardCharts);
+
+// Per-org / per-OSWS event archive (trash retention, auto-archive concluded)
+router.get('/event-archive-settings', authenticateToken, apiLimiter, eventController.getEventArchiveSettings);
+router.patch('/event-archive-settings', authenticateToken, strictLimiter, eventController.patchEventArchiveSettings);
 
 // --- Parameterized routes (must be after all static named routes) ---
 router.get('/events/:id', apiLimiter, eventController.getEventById);
