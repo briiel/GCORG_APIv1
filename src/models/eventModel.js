@@ -75,28 +75,6 @@ const getAttendanceRecordsByEvent = async (eventId) => {
     }
 };
 
-// Replace all event_locations rows for an event (delete then insert). Used by create/update.
-const replaceEventLocations = async (eventId, eventLocs) => {
-    if (!eventId) return;
-    await db.query('DELETE FROM event_locations WHERE event_id = ?', [eventId]);
-    if (!Array.isArray(eventLocs) || eventLocs.length === 0) return;
-    const locValues = eventLocs.map((loc) => [
-        eventId,
-        loc.name || loc.location || '',
-        loc.room || null,
-        loc.latitude !== undefined && loc.latitude !== null && loc.latitude !== ''
-            ? Number(loc.latitude)
-            : null,
-        loc.longitude !== undefined && loc.longitude !== null && loc.longitude !== ''
-            ? Number(loc.longitude)
-            : null
-    ]);
-    await db.query(
-        'INSERT INTO event_locations (event_id, location_name, room, latitude, longitude) VALUES ?',
-        [locValues]
-    );
-};
-
 const createEvent = async (eventData) => {
     const {
         title, description, location,
@@ -162,8 +140,8 @@ const createEvent = async (eventData) => {
 
     const query = `
             INSERT INTO created_events
-            (title, description, location, room, event_latitude, event_longitude, start_date, start_time, end_date, end_time, event_poster, is_paid, registration_fee, created_by_org_id, created_by_osws_id, created_by_student_id, status)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            (title, description, location, room, event_latitude, event_longitude, start_date, start_time, end_date, end_time, event_poster, is_paid, registration_fee, created_by_org_id, created_by_osws_id, created_by_student_id, status, locations)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         `;
     try {
         // If primary coordinates weren't provided explicitly, derive from first location entry
@@ -200,7 +178,8 @@ const createEvent = async (eventData) => {
             created_by_osws_id && created_by_osws_id !== 'undefined' && created_by_osws_id !== '' ? created_by_osws_id : null,
             // created_by_student_id may be provided by controller to capture the officer/member who created the event
             (eventData.created_by_student_id && eventData.created_by_student_id !== 'undefined' && eventData.created_by_student_id !== '') ? eventData.created_by_student_id : null,
-            status || 'not yet started'
+            status || 'not yet started',
+            normalizedLocationsJson
         ]);
         // If table isn't configured with AUTO_INCREMENT (older schema), result.insertId may be 0.
         // Fall back to obtaining the highest event_id after insert if insertId is falsy.
@@ -213,14 +192,6 @@ const createEvent = async (eventData) => {
         
         const finalId = lastId || ((rows && rows[0] && rows[0].last_id != null) ? Number(rows[0].last_id) : null);
         
-        if (finalId && eventData.locations) {
-            let parsed = eventData.locations;
-            try { if (typeof parsed === 'string') parsed = JSON.parse(parsed); } catch (e) { /* ignore */ }
-            const eventLocs = Array.isArray(parsed) ? parsed : (parsed ? [parsed] : []);
-            if (eventLocs.length > 0) {
-                await replaceEventLocations(finalId, eventLocs);
-            }
-        }
         return finalId;
     } catch (error) {
         console.error('Error creating event:', error.stack);
@@ -755,11 +726,6 @@ const updateEvent = async (eventId, eventData) => {
 
     try {
         const [result] = await db.query(query, params);
-        if (locationsSync === 'clear') {
-            await replaceEventLocations(eventId, []);
-        } else if (Array.isArray(locationsSync) && locationsSync.length > 0) {
-            await replaceEventLocations(eventId, locationsSync);
-        }
         return result;
     } catch (error) {
         console.error('Error updating event:', error.stack);
@@ -1258,35 +1224,27 @@ const normalizeLocationsInput = (locations) => {
 // possible and provide fallbacks for the legacy `location`/coordinate fields.
 const hydrateLocationsForRows = async (rows) => {
     if (!rows || rows.length === 0) return rows;
-    const eventIds = rows.map(r => r.event_id).filter(id => id);
-    if (eventIds.length === 0) return rows;
-    
-    // Fetch locations for these events
-    const query = 'SELECT * FROM event_locations WHERE event_id IN (?)';
-    const [locations] = await db.query(query, [eventIds]);
-    
-    // Group locations by event_id
-    const locationsByEvent = {};
-    for (const loc of locations) {
-        if (!locationsByEvent[loc.event_id]) locationsByEvent[loc.event_id] = [];
-        locationsByEvent[loc.event_id].push({
-            id: loc.id,
-            name: loc.location_name,
-            location: loc.location_name,
-            room: loc.room,
-            latitude: loc.latitude !== null ? Number(loc.latitude) : null,
-            longitude: loc.longitude !== null ? Number(loc.longitude) : null
-        });
-    }
     
     for (const row of rows) {
-        row.locations = locationsByEvent[row.event_id] || [];
-        // Legacy population
+        let parsedLocations = [];
+        if (row.locations && typeof row.locations === 'string') {
+            try {
+                parsedLocations = JSON.parse(row.locations);
+            } catch (e) {
+                // ignore
+            }
+        } else if (Array.isArray(row.locations)) {
+            parsedLocations = row.locations;
+        }
+
+        row.locations = parsedLocations || [];
+        
+        // Legacy population: if no primary location string but we have location objects, infer it
         if ((!row.location || row.location === '') && row.locations.length > 0) {
             const first = row.locations[0];
             if (!row.location && (first.name || first.location)) row.location = first.name || first.location;
-            if ((row.event_latitude === null || row.event_latitude === undefined) && first.latitude !== null) row.event_latitude = first.latitude;
-            if ((row.event_longitude === null || row.event_longitude === undefined) && first.longitude !== null) row.event_longitude = first.longitude;
+            if ((row.event_latitude === null || row.event_latitude === undefined) && first.latitude !== undefined) row.event_latitude = first.latitude;
+            if ((row.event_longitude === null || row.event_longitude === undefined) && first.longitude !== undefined) row.event_longitude = first.longitude;
         }
     }
     return rows;
