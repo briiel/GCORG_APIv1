@@ -50,8 +50,8 @@ if (shouldSetSessionTz) {
 
 // Log pool-level errors and warn on recoverable disconnects
 pool.on('error', (err) => {
-    const { logError } = require('./utils/error-logger');
-    const { DatabaseError } = require('./utils/error-classes');
+    const { logError } = require('../utils/error-logger');
+    const { DatabaseError } = require('../utils/error-classes');
     console.error('Database pool error:', err.code, err.message);
     logError(new DatabaseError('Database pool error occurred', err));
     if (err.code === 'PROTOCOL_CONNECTION_LOST' || err.code === 'ECONNRESET') {
