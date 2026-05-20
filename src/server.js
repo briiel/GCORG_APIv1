@@ -116,7 +116,11 @@ app.use('/api', archiveRoutes);
 
 // Serve the built Angular client if co-deployed in the same process
 try {
-    const clientDist = path.join(__dirname, '..', 'GC_ORGanize', 'gc_organize', 'dist', 'gc_organize');
+    let clientDist = path.join(__dirname, '..', 'GC_ORGanize', 'gc_organize', 'dist', 'gc_organize');
+    const browserDist = path.join(clientDist, 'browser');
+    if (fs.existsSync(browserDist)) {
+        clientDist = browserDist;
+    }
     if (fs.existsSync(clientDist)) {
         app.use(express.static(clientDist));
 
